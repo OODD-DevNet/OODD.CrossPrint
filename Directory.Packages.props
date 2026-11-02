@@ -23,11 +23,17 @@
     <!-- 脚本：纯托管 JS 解释器（formatter/styler），默认无 CLR 访问，沙箱安全 -->
     <PackageVersion Include="Jint" Version="4.17.0" />
     <!-- 宿主 -->
-    <PackageVersion Include="Avalonia" Version="11.3.6" />
-    <PackageVersion Include="Avalonia.Browser" Version="11.3.6" />
-    <PackageVersion Include="Avalonia.Desktop" Version="11.3.6" />
-    <PackageVersion Include="Avalonia.Skia" Version="11.3.6" />
-    <PackageVersion Include="Avalonia.Themes.Fluent" Version="11.3.6" />
+    <PackageVersion Include="Avalonia" Version="11.3.18" />
+    <PackageVersion Include="Avalonia.Browser" Version="11.3.18" />
+    <PackageVersion Include="Avalonia.Desktop" Version="11.3.18" />
+    <PackageVersion Include="Avalonia.Skia" Version="11.3.18" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="11.3.18" />
+    <!-- Desktop 宿主主题：Semi Design 风格（圆角按钮、阴影输入框、Ant Design 蓝主色调）。
+         Semi.Avalonia 是主题不是控件库——原生 Button/TextBox/ComboBox/DataGrid 自动套用，
+         不需要把 Tag 换成 semi:Button。Browser/WASM 保持 FluentTheme（条件编译隔离）。 -->
+    <PackageVersion Include="Semi.Avalonia" Version="11.3.14" />
+    <!-- WPF 宿主主题：HandyControl（圆角按钮、阴影、Material Design 风格），原生控件自动套用 -->
+    <PackageVersion Include="HandyControl" Version="3.5.1" />
     <PackageVersion Include="SkiaSharp.NativeAssets.WebAssembly" Version="2.88.9" />
     <PackageVersion Include="Eto.Forms" Version="2.10.0" />
     <PackageVersion Include="Eto.Platform.Windows" Version="2.10.0" />

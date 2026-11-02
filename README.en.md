@@ -4,34 +4,36 @@
 
 # OODD CrossPrint
 
-Cross-platform .NET print-template component: **one template, one rendering kernel**, embeddable into Avalonia / WPF / WinForms / Eto.Forms / WinUI / Uno / .NET MAUI. Design, preview, PDF export and OS printing all share the same SkiaSharp rendering path — what you see is what you get. Imports templates exported from hiprint (vue-plugin-hiprint / Vue-Print-Designer) directly.
+A cross-platform .NET print-template component. **Write one template, feed one data object, hit Print** — that's it. Avalonia, WPF, WinForms, Eto.Forms, WinUI, Uno, .NET MAUI — all seven hosts share the exact same rendering engine. What you see on the canvas is exactly what comes out as PDF and exactly what lands on paper. **True WYSIWYG, not two rendering paths pretending to be one.**
 
-> Templates speak only millimeters and points; the engine draws every element, host controls just "put the canvas on screen". What you see in the designer is what gets exported — and what gets printed.
+Already using hiprint (vue-plugin-hiprint / Vue-Print-Designer)? Perfect — **its exports go straight in**. No re-drawing.
+
+> Templates speak only millimeters and points. There is no pixel here. The engine draws every pixel; host controls just "put the canvas on screen" — they don't interfere.
 
 [中文](README.md) | **English** · [Live WebAssembly demo](https://oodd-devnet.github.io/OODD.CrossPrint/)
 
 ---
 
-## Designer & Print Preview
+## First — what the designer and print preview look like
 
 <p align="center">
   <img src="assets/print-design-screenshot.png" width="48%" alt="Designer canvas" />
   <img src="assets/print-preview-screenshot.png" width="48%" alt="Print preview" />
 </p>
 
-Left: Avalonia-hosted designer (kitchen-sink template with all eight element types + formatter/styler scripts). Right: print preview of the same template — both go through the same rendering path, WYSIWYG. Want to try it yourself? Click the **Live WebAssembly demo** link above; it runs entirely in your browser, nothing to install.
+Left: Avalonia-hosted designer with the "kitchen sink" template (all eight element types, plus formatter/styler scripts wired up). Right: print preview of the same template. Both windows go through the same rendering path — drag an element on the left, the right updates instantly. Not "roughly similar", **pixel-identical**.
+
+Want to try it yourself? Click the **Live WebAssembly demo** link above — runs in your browser, nothing to install.
 
 ---
 
-## Quick Start
+## Quick start — two paths, pick one
 
-Two paths: **run the samples** first, or **embed via NuGet** into your project.
+### Path A: run a sample first (recommended)
 
-### Run a sample to see it in action
+Requires **.NET SDK 8.0 or later**. Open PowerShell, cd into the repo root, pick one:
 
-Requires .NET SDK **8.0+**. Pick any host:
-
-```bash
+```powershell
 # Avalonia (cross-platform — Windows / Linux / macOS, recommended)
 dotnet run --project samples/CrossPrint.Samples.Avalonia
 
@@ -44,29 +46,26 @@ dotnet run --project samples/CrossPrint.Samples.Uno
 dotnet run --project samples/CrossPrint.Samples.Maui
 ```
 
-Samples ship with `kitchen-sink.template.json` (covers all eight element types) and `hiprint-sample.js` — open it directly via **File → Import hiprint template…**.
+Samples ship with two templates: `kitchen-sink.template.json` (all eight element types) and `hiprint-sample.js`. Open it and click **File → Import hiprint template…** — drop the `.js` in and you'll see hiprint import in action.
 
-### Embed via NuGet
+### Path B: embed via NuGet into your project
 
-Each host ships its own NuGet package, plus four core packages. The core layer does **not** depend on any specific UI framework.
+Figure out which UI framework you're using, grab the matching host package. CrossPrint cleanly separates the **engine** (rendering, data binding, scripts, PDF) from the **host adapter** (the glue that puts the canvas into a WPF/Avalonia window) — **core packages don't depend on any specific UI framework**.
 
-| Package | Purpose |
+| What you're building | Install these |
 |---|---|
-| `CrossPrint.Core` | Template model, units, JSON, hiprint import |
-| `CrossPrint.Engine` | SkiaSharp rendering, data binding, scripts, PDF/PNG export |
-| `CrossPrint.Designer` | Editor kernel (selection, drag, property-panel generation) |
-| `CrossPrint.Printing` | Print targets (PDF file / OS print pipeline) |
-| `CrossPrint.Hosts.Avalonia` | Avalonia host adapter |
-| `CrossPrint.Hosts.Wpf` | WPF host adapter |
-| `CrossPrint.Hosts.WinForms` | WinForms host adapter |
-| `CrossPrint.Hosts.Eto` | Eto.Forms host adapter |
-| `CrossPrint.Hosts.WinUi` | WinUI 3 host adapter |
-| `CrossPrint.Hosts.Uno` | Uno host adapter |
-| `CrossPrint.Hosts.Maui` | .NET MAUI host adapter |
+| Core (all hosts need these) | `CrossPrint.Core` · `CrossPrint.Engine` · `CrossPrint.Designer` · `CrossPrint.Printing` |
+| Avalonia | `CrossPrint.Hosts.Avalonia` |
+| WPF | `CrossPrint.Hosts.Wpf` |
+| WinForms | `CrossPrint.Hosts.WinForms` |
+| Eto.Forms | `CrossPrint.Hosts.Eto` |
+| WinUI 3 | `CrossPrint.Hosts.WinUi` |
+| Uno | `CrossPrint.Hosts.Uno` |
+| .NET MAUI | `CrossPrint.Hosts.Maui` |
 
-Minimal embedding example (Avalonia):
+Concrete example (Avalonia host):
 
-```bash
+```powershell
 dotnet add package CrossPrint.Core
 dotnet add package CrossPrint.Engine
 dotnet add package CrossPrint.Hosts.Avalonia
@@ -76,39 +75,41 @@ dotnet add package CrossPrint.Hosts.Avalonia
 using CrossPrint.Core;
 using CrossPrint.Hosts.Avalonia;
 
-// Load a template
+// Step 1: load a template (JSON string or hiprint file — both work)
 var load = TemplateJson.Load(File.ReadAllText("template.json"),
                              TemplateJsonLoadOptions.Tolerant);
 
-// Design canvas
+// Step 2: put down a design canvas — users can drag elements
 var designer = new DesignerControl(load.Template)
 {
     Data = new { orderNo = "SO-2026-0001", customer = "Jane Doe" },
 };
 
-// Read-only preview
+// Or a read-only preview — show the effect without letting users edit
 var preview = new PreviewControl(load.Template)
 {
     Data = new { orderNo = "SO-2026-0001" },
 };
 ```
 
-Export a PDF:
+Export to PDF:
 
 ```csharp
 using CrossPrint.Engine;
 
-using var stream = File.Create("out.pdf");
+using var stream = File.Create("invoice.pdf");
 var report = PdfExporter.Export(
     designer.Kernel.Template,
     stream,
     data: designer.Data,
     renderer: designer.Renderer);
 
-if (report.HasIssues) Console.WriteLine(report); // missing fields, bad images, script errors — no crash
+// report tells you about missing fields, broken images, script errors —
+// never crashes the page
+if (report.HasIssues) Console.WriteLine(report);
 ```
 
-Print:
+Send to the printer:
 
 ```csharp
 using CrossPrint.Printing;
@@ -116,29 +117,29 @@ using CrossPrint.Printing;
 var document = new PrintDocument(designer.Kernel.Template, designer.Data);
 var report = new RenderReport();
 
-// Print to PDF file
+// Option 1: print to PDF file
 await new PdfFilePrintTarget()
-    .PrintBatchAsync([document], new PrintSettings { OutputPath = "out.pdf" }, report);
+    .PrintBatchAsync([document], new PrintSettings { OutputPath = "invoice.pdf" }, report);
 
-// Hand off to the OS print pipeline
+// Option 2: hand off to the OS print dialog
 await new SystemPrintTarget()
     .PrintBatchAsync([document], new SystemPrintOptions(), report);
 ```
 
 ---
 
-## Designer Guide
+## Designer guide — the dumbed-down version
 
-All samples share the same interaction model:
+All seven hosts look almost identical:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ Menu bar (File: Import hiprint / Load template / Print)   │
+│ Menu bar: File (Import hiprint / Load JSON / Print / PDF)  │
 ├──────────────────────────────────────────────────────────┤
 │ Toolbar 1: Text Line Rect Ellipse Image QR Barcode Table   │
-│ Toolbar 2: Import Styles | Copy Delete | Bring Forward …  │
-│           | Fit 100% | ☐Grid ☐Rulers ☐SafeArea           │
-│           | Print ExportPDF Preview                       │
+│ Toolbar 2: Styles | Copy Delete | Bring Forward / Back …   │
+│           | Fit 100% | ☐Grid ☐Rulers ☐SafeArea            │
+│           | Print ExportPDF Preview                        │
 ├────────┬───────────────────────────────┬─────────────────┤
 │ Paper   │                               │ Property panel  │
 │ Toolbox │         Design canvas          │ (form per type) │
@@ -146,161 +147,474 @@ All samples share the same interaction model:
 ├────────┴───────────────────────────────┴─────────────────┤
 │ ▸ Template JSON (collapsed by default)                    │
 ├──────────────────────────────────────────────────────────┤
-│ Status bar                                                │
+│ Status bar (zoom, selection bounds, bound field)            │
 └──────────────────────────────────────────────────────────┘
 ```
 
-### Adding & editing elements
+### Adding elements
 
-- **Toolbox**: pick a type on the left, click *Add to canvas* (or double-press Enter) — the element lands at the page center. Toolbar buttons add instantly.
-- **Property panel**: auto-generates a form grouped by *Basic / Position / Appearance / Text / Line / Shape / Image / QR / Barcode / Table / Table Columns / Script*. Dragging/scaling only backfills values, never tears down an input you're typing in.
-- **Style reference**: the dropdown next to appearance fields lists named template styles — change it once, everywhere updates.
-- **Context menu**: Duplicate (Ctrl+D), Delete, z-order, center, Fit / 100%, rotate paper, custom paper size.
+- **Method 1**: pick a type on the left toolbox, click *Add to canvas* (or double-press Enter).
+- **Method 2**: click the toolbar icons — one click per element type.
+- **Method 3**: Ctrl+D to duplicate an existing one — fastest, especially for table columns.
 
-### Paper sizes
+### Editing properties
 
-Left sidebar: A3 / A4 / A5 / B5 / 80mm / 58mm continuous / 100×150 thermal / Custom. Change is undoable and auto-fits the page.
+Select an element. The right panel auto-generates a form specific to that type. Text elements get font size/color/alignment/wrap controls; tables get a two-dimensional header editor plus footer aggregation; images get fit mode and corner radius. **Dragging/scaling never tears down the text box you're typing into** — small detail, matters.
 
-### Template JSON panel (bottom)
+### Right-click menu (don't sleep on it)
 
-Expands to show the live JSON. Edit it and click *Apply JSON* (Ctrl+Enter) — or paste `getJson()` output from hiprint directly; the importer auto-converts and lists any degradations.
+Duplicate (Ctrl+D), Delete, Bring Forward / Send Backward / Bring to Front / Send to Back, Horizontal Center / Vertical Center, Fit to Page / 100%, Rotate Paper, Custom Paper Size.
 
-### Shortcuts
+### Template JSON panel (the collapsible one at the bottom)
+
+Expands to show the live JSON. Edit and click **Apply JSON** (or Ctrl+Enter). **You can also paste hiprint JSON here** — the `{"panels":[…]}` output from hiprint's `getJson()` — click Apply and CrossPrint auto-detects the format and converts it.
+
+### Shortcuts (forget them, mouse does everything too)
 
 | Key | Action |
 |---|---|
-| Arrows | 1mm nudge (Shift 10mm, Ctrl 0.1mm) |
+| Arrows | 1mm nudge (Shift = 10mm, Ctrl = 0.1mm) |
 | Ctrl+D | Duplicate selection |
 | Delete | Delete |
 | Esc | Cancel drag / clear selection |
 | F | Fit to page |
 | 0 | 100% zoom |
 | Ctrl+wheel | Zoom |
-| Middle drag | Pan |
-| Ctrl+Enter | Apply template JSON |
+| Middle drag | Pan (useful when zoomed in) |
+| Ctrl+Enter (in JSON panel) | Apply edited JSON |
 
 ---
 
-## hiprint Template Import
+## JS scripts (formatter / styler) — what they *can* do, what they *can't*, with real examples
 
-Already using hiprint? CrossPrint eats its exports directly:
+The most-asked question. Short answer:
+
+> **You can run business logic** — for/while/if, array ops, object ops, regex, closures, recursion, built-in `Math`, `Date`, `JSON`, etc. **You cannot touch the outside world** — no filesystem, no network, no DOM, no `console.log`, no C# object access. It's a pure sandbox.
+
+CrossPrint runs these scripts with [Jint](https://github.com/sebastienros/jint) — a pure .NET JavaScript engine. **Semantics are identical to hiprint's formatter/styler** — if you already wrote scripts in hiprint, paste them in and they run.
+
+### Two script types
+
+**formatter** — replaces the displayed text. Takes the bound field's raw value, returns the string you want to show.
+
+**styler** — changes styles. Based on the bound value, returns a style object (can be a JS object or a CSS string). Example: "color the cell red and bold if the amount is over 1000".
+
+### Script signatures (what exactly gets passed in)
+
+**Element-level scripts** (text, barcode, QR):
+
+```javascript
+function(value, options, target, templateData) { ... }
+```
+
+| Parameter | What it is |
+|---|---|
+| `value` | The raw value of the bound field. If you bound `order.total`, this is the number. |
+| `options` | `{ id: "el_123", type: "text" }` — element's own id and type |
+| `target` | Same as `options` (hiprint compatibility) |
+| `templateData` | **The entire print data object**. Access `templateData.customer.name`, `templateData.order.items`, anything you need. |
+
+**Table column-level scripts** (each column in a table can have its own formatter/styler):
+
+```javascript
+function(value, row, index, options, templateData) { ... }
+```
+
+Two extra params — `row` is the full object of the current row (you can access `row.product.name`), `index` is the row number (0-based).
+
+### What JS features are available
+
+✅ **Yes**: variables, if/else, for/while/do, switch, arrays (map/filter/reduce/find/slice/splice — all there), objects, functions, arrow functions, closures, recursion, regex, destructuring, spread, template strings, `Math.*` (floor/ceil/round/random/pow/sqrt/sin/cos…), `Date` (but can't get system time — only construct from passed data), `JSON.parse` / `JSON.stringify`
+
+❌ **No**: `fetch`, `XMLHttpRequest`, `fs`, `require`/`import`, `window`, `document`, `console` (hiprint never had it either), `setTimeout`/`setInterval` (printing is synchronous — no async), `new Date()` without args **won't** give you current time, **no CLR (C#) type instantiation or access** — Jint has CLR interop disabled by default.
+
+### Safety limits (these aren't bugs — they're intentional)
+
+| Limit | Value | Why |
+|---|---|---|
+| Per-run timeout | **250ms** | A dead loop can't hang printing for 10 seconds |
+| Max statements | **100,000** | Prevents `while(true){}` from bypassing the timeout |
+| Max recursion depth | **64** | Prevents stack overflow |
+| Script cache | **256-entry LRU** | Same source doesn't re-parse every time |
+
+**What happens if you exceed a limit?** Nothing. The script is skipped, the element renders with its original value/default style, and a warning goes into the report. **Rendering never interrupts.** You will never see "script timeout crashed the whole page".
+
+### A pile of real, usable scripts
+
+Enough theory. Here's code you can copy-paste.
+
+---
+
+**Example 1: formatter — currency formatting**
+
+```javascript
+function(value) {
+    if (value == null || value === '') return '$0.00';
+    var n = typeof value === 'number' ? value : parseFloat(value);
+    if (isNaN(n)) return String(value);
+    return '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+// input: 1234567.8  → output: "$1,234,567.80"
+// input: null       → output: "$0.00"
+// input: "hello"    → output: "hello" (parse failed — keep as-is)
+```
+
+---
+
+**Example 2: formatter — date formatting (bound value is ISO string)**
+
+```javascript
+function(value) {
+    if (!value) return '';
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+}
+// input: "2026-11-02T08:30:00Z"  → output: "2026-11-02"
+```
+
+---
+
+**Example 3: formatter — cross-element data**
+
+A text element bound to `item.discount`, but you want to show both original price and discounted price. Original price lives at `templateData.order.originalPrice`:
+
+```javascript
+function(discount, options, target, templateData) {
+    var original = templateData.order.originalPrice || 0;
+    var disc = typeof discount === 'number' ? discount : parseFloat(discount) || 0;
+    var final = original * (1 - disc);
+    return 'Was $' + original.toFixed(2) + ' → Now $' + final.toFixed(2);
+}
+// displays: "Was $100.00 → Now $85.00"
+```
+
+---
+
+**Example 4: styler — highlight amounts over 1000**
+
+```javascript
+function(value) {
+    var n = typeof value === 'number' ? value : parseFloat(value);
+    if (!isNaN(n) && n > 1000) {
+        return { color: '#c0392b', fontWeight: 'bold' };
+    }
+    return null; // null / undefined / empty object = don't change style
+}
+```
+
+Same thing as a CSS string — pick whichever you prefer:
+
+```javascript
+function(value) {
+    var n = typeof value === 'number' ? value : parseFloat(value);
+    if (!isNaN(n) && n > 1000) {
+        return 'color:#c0392b;font-weight:bold';
+    }
+    return '';
+}
+```
+
+---
+
+**Example 5: styler — status badges**
+
+Order status field ('pending' / 'paid' / 'shipped' / 'cancelled'), each gets its own color:
+
+```javascript
+function(value) {
+    var map = {
+        'pending':   { color: '#856404', backgroundColor: '#fff3cd' },
+        'paid':      { color: '#0f5132', backgroundColor: '#d1e7dd' },
+        'shipped':   { color: '#084298', backgroundColor: '#cfe2ff' },
+        'cancelled': { color: '#842029', backgroundColor: '#f8d7da', textDecoration: 'line-through' },
+    };
+    return map[value] || null;
+}
+```
+
+---
+
+**Example 6: table column formatter — sequence number**
+
+Add a "No." column to your table without adding a field to the data:
+
+```javascript
+function(value, row, index) {
+    return String(index + 1);
+}
+// value is undefined (column has no field bound), row is the row object, index is 0-based
+```
+
+---
+
+**Example 7: table column styler — grey out rows from the 3rd one on**
+
+```javascript
+function(value, row, index) {
+    if (index >= 2) {
+        return { color: '#999999' };
+    }
+    return null;
+}
+```
+
+---
+
+**Example 8: formatter — EAN-13 barcode self-check**
+
+```javascript
+function(value) {
+    if (!value || value.length !== 13 || !/^\d+$/.test(value)) return value;
+    var sum = 0;
+    for (var i = 0; i < 12; i++) {
+        sum += (i % 2 === 0 ? 1 : 3) * parseInt(value[i], 10);
+    }
+    var check = (10 - (sum % 10)) % 10;
+    if (check === parseInt(value[12], 10)) return value;
+    return value + ' ⚠️';  // mark invalid barcodes
+}
+```
+
+### Style properties styler can return
+
+Both JS object (camelCase) and CSS string (kebab-case) forms work. Full list:
+
+| JS object key | CSS equivalent | Example |
+|---|---|---|
+| `color` | `color` | `'#ff0000'` or `'red'` |
+| `backgroundColor` | `background-color` | `'#f5f5f5'` |
+| `fontSize` | `font-size` | `'12pt'` / `'16px'` / `'4.2mm'` (no unit = px) |
+| `fontWeight` | `font-weight` | `'bold'` / `'normal'` / `'700'` (≥700 = bold) |
+| `fontStyle` | `font-style` | `'italic'` / `'normal'` |
+| `textDecoration` | `text-decoration` | `'underline'` / `'line-through'` / `'none'` (combine: `'underline line-through'`) |
+| `letterSpacing` | `letter-spacing` | `'2pt'` |
+| `lineHeight` | `line-height` | `'1.5'` (unitless multiplier) |
+| `textAlign` | `text-align` | `'left'` / `'center'` / `'right'` / `'justify'` |
+| `verticalAlign` | `vertical-align` | `'top'` / `'middle'` / `'bottom'` |
+| `padding` | `padding` | `'2mm 4mm'` (shorthand, 1-4 values) |
+| `paddingLeft` / `Top` / `Right` / `Bottom` | `padding-*` | `'2mm'` |
+| `borderColor` | `border-color` | `'#333'` |
+| `borderWidth` | `border-width` | `'0.5mm'` |
+| `borderStyle` | `border-style` | `'solid'` / `'dashed'` / `'dotted'` |
+
+Unknown keys are silently ignored — same tolerance as CSS. A typo won't blow anything up.
+
+### Return-value contract
+
+| Return | formatter | styler |
+|---|---|---|
+| String | Replaces displayed text | Parsed as CSS |
+| JS object (styler) | —— | Parsed as style |
+| `null` / `undefined` | **Keeps original value** | **No style change** |
+| Number / Boolean | `String()` then replaces | —— |
+| Exception | **Keeps original + warning in report** | **No style change + warning in report** |
+
+That last row is important. If your script has a syntax error or throws at runtime, CrossPrint **will not** turn the whole page blank. It treats the script as if it never existed, renders with original values, and logs the exact error (like `TypeError: value.toFixed is not a function`) in the render report. You'll see these warnings in the designer's status bar.
+
+---
+
+## hiprint template import — supported features, unsupported features
+
+The short version first: **90% of hiprint templates drop in and work**. Geometry (pt → mm auto-conversion), element types, data binding, formatter/styler scripts, two-dimensional table headers, barcodes, QR codes — all supported.
+
+The remaining 10% is documented below. **Unsupported features are never silently dropped** — the importer produces an issue list telling you exactly what happened ("this element had a watermark; CrossPrint can't draw watermarks"). It will never quietly eat an element you spent an afternoon on.
+
+### Supported hiprint element types and properties
+
+| hiprint element | Becomes in CrossPrint | Notes |
+|---|---|---|
+| `text` / `longText` | TextElement | pt → mm auto; fontSize → pt; formatter/styler preserved |
+| `hline` / `vline` | LineElement | borderWidth / borderStyle / borderColor all supported |
+| `rect` / `oval` | RectangleElement / EllipseElement | Uniform border (no per-side styles); backgroundColor fill |
+| `image` | ImageElement | **base64 data URLs only**. External URLs need `IImageResolver`, otherwise placeholder |
+| `table` / `tableCustom` (legacy) | TableElement | Two-dimensional headers with colspan/rowspan; flat `fields` array; per-column formatter/styler |
+| `barcode` | BarcodeElement | 10 symbologies: Code128, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar, Code39, Code93, MSI |
+| `qrcode` | QrCodeElement | 4 error-correction levels (L/M/Q/H); caption with alignment + font |
+| `html` | RectangleElement (dashed gray placeholder) | **No HTML rendering** — a dashed box marks where your HTML element used to be |
+
+### Supported hiprint panel-level properties
+
+| hiprint property | CrossPrint handling |
+|---|---|
+| `width` / `height` | Paper size (mm); auto-matches presets (A4 etc.) or marks as Custom |
+| `panelPageRule: "none"` | Continuous paper (height 0, follows content) |
+| `paperHeader` / `paperFooter` | Printable-area margins (top/bottom) |
+| `formatter` / `styler` (element-level) | Stored verbatim; executed by Jint at render time |
+| `testData` | Collected as design-time preview data |
+| `transform: "rotate(Ndeg)"` | Extracts N as rotation angle |
+| `zIndex` | Mapped directly |
+| `qrCodeLevel` / `qrcodeLevel` | 0→L, 1→M, 2→Q, 3→H |
+| `barcodeType` / `barcodeMode` | 10 symbology mapping |
+| `borderRadius` (rect/oval) | Maps to corner radius |
+| `textAlign` / `textContentVerticalAlign` | → HorizontalAlign / VerticalAlign |
+| `textContentWrap` | nowrap/clip → no wrap; ellipsis → no wrap + ellipsis; else → wrap |
+| `contentPadding` / `contentPaddingLeft` … | Four inner padding values |
+| `textDecoration` | underline / line-through supported; overline **not** |
+| `fit` (image) | contain / cover / fill / none all supported; scale-down → contain |
+| `columns` (table) | 2D header expansion; flat `[{title, field, width}]` array also works |
+| `fields` (table, legacy) | Single-row column definition |
+| `rowspan` / `colspan` | Expanded into grid |
+| `tableSummary` / `tableSummaryTitle` / `tableSummaryText` / `tableSummaryNumFormat` / `tableSummaryColspan` | All supported — footer aggregation |
+| `checked: false` | Hidden column; ignored on import |
+| `tableTextType` | Kept as-is |
+
+### Unsupported hiprint features (warnings are emitted on import)
+
+| hiprint feature | What happens | Severity | Workaround |
+|---|---|---|---|
+| **Watermark** `watermarkOptions` | Ignored | ⚠️ Warning | Use a background ImageElement (bottom layer) or custom drawing |
+| **Page numbers** `paperNumber*` | Ignored | ⚠️ Warning | Not implemented yet — if demand grows we'll add it |
+| **Panel print offset** `leftOffset/topOffset` | Ignored | ⚠️ Warning | CrossPrint doesn't support whole-page offset |
+| **HTML elements** | Dashed gray placeholder | ⚠️ Warning | Rebuild with Text + Image + Table |
+| **Custom plugin elements** | Skipped (element disappears) | ⚠️ Warning | Redraw with built-in elements |
+| **Long-text auto-pagination** `longText` | Clipped to element box — no auto page-break | ⚠️ Warning | No auto-pagination yet |
+| **Date/boolean formatting** `dataType` / `format` | Printed as raw value | ⚠️ Warning | Use a formatter script |
+| **Chinese amount-to-words** `upperCase` | Printed as raw value | ⚠️ Warning | Write a formatter for it |
+| **Forced page break** `pageBreak` | Ignored | ⚠️ Warning | No manual pagination yet |
+| **Show on specific pages** `showInPage` / `unShowInPage` | Ignored | ⚠️ Warning | —— |
+| **Repeat per page** `fixed` | Printed once only | ⚠️ Warning | —— |
+| **Barcode fixed module width** `barWidth` | Scaled to element width (still scannable) | ℹ️ Info | —— |
+| **External image URLs** (non-data:) | Requires `IImageResolver`; placeholder otherwise | ℹ️ Info | Convert to base64 or implement resolver |
+| **Table-level formatter/styler** | Dropped (only column-level kept) | ℹ️ Info | Use column-level scripts |
+| **Grouped headers** `{title, columns:[...]}` | Sub-columns flattened; group title lost | ℹ️ Info | Single-row headers don't have a grouping concept |
+| **Multi-panel template** | Imports panel 0 only | ℹ️ Info | Use `HiprintImportOptions.PanelIndex` to import each |
+| **transform != rotate(Ndeg)** | Ignored | ℹ️ Info | Only `rotate(Ndeg)` supported |
+| **Per-side borders** `borderLeft` / `borderTop` … | Single border style applied to all sides | ℹ️ Info | —— |
+| **Text overline** `textDecoration: overline` | Ignored | ℹ️ Info | —— |
+| **longTextIndent** | Ignored | ℹ️ Info | —— |
+
+### What input formats the importer accepts
+
+Four formats — pick whichever your tool produces:
+
+1. **Strict JSON** — `{"panels":[{"width":210,"height":297,"printElements":[...]}]}`
+2. **hiprint `getJson()` output** — `{"json":{"panels":[...]}}` (wrapped in a `json` key)
+3. **JS object literals** — `{ panels: [{ width: 210, printElements: [...] }] }` (unquoted keys OK)
+4. **Entire `.js` module files** — `export const json = {...}` or `module.exports = {...}` — it'll dig the object out
 
 ```csharp
 using CrossPrint.Core.Hiprint;
 
-// Accepts strict JSON, getJson() snippets, JS object literals, whole .js module sources
-var result = HiprintTemplateImporter.Import(File.ReadAllText("hiprint-template.js"));
+var result = HiprintTemplateImporter.Import(File.ReadAllText("my-hiprint-template.js"));
 
 var template = result.Template;                  // drop into designer / renderer / print pipeline
-foreach (var issue in result.Issues) Console.WriteLine(issue);
-```
+foreach (var issue in result.Issues)             // iterate all degradations/warnings
+    Console.WriteLine(issue);
 
-- **Geometry**: pt → mm auto-converted.
-- **Elements**: text, lines, rect/ellipse, image (data URL), QR (error level / caption), 10 barcode symbologies, tables (colspan/rowspan headers, hidden columns, row numbers, footer aggregation).
-- **Scripts**: `formatter` / `styler` pass through untouched; executed at render time inside a Jint sandbox.
-- **Degradation log**: watermarks, page numbers, HTML, cross-page text, inline barcodes — features that have no equivalent in CrossPrint — are imported as the closest static result and listed in `Issues`. Nothing is silently dropped.
+// result.Panels has all panels from the source — if multi-panel (multi-part form),
+// show the user the list and import each with PanelIndex
+```
 
 ---
 
-## Template Format & Data Binding
+## Template format — writing your own from scratch
 
 ### Units
 
-Pages and geometry are always **millimeters** (`WidthMm`, `Xmm`…). Font sizes are always **points** (`SizePt`). No pixel-conversion traps.
+**Everything millimeters** (`WidthMm`, `XMm`, `YMm`…). **Font sizes in points** (`SizePt`). **No pixels.** No DPI conversion traps. What you specify is exactly what you get on paper.
 
 ### Data binding
 
-Text fields support `{{path}}` placeholders:
+In a text element write `{{order.customer.name}}` — at runtime it pulls from your data object. In a table set `table.field: "items"` — each row becomes an item in `data.items`.
 
-```json
-{ "text": "{{order.customer.name}}, dear customer" }
-{ "table": { "columns": [{ "field": "price" }] } }
-```
-
-Tables auto-expand rows from a data path. Data sources can be:
-
-- `IDictionary<string, object?>` / `IDictionary`
-- Any POCO (properties/fields, case-insensitive)
+Data sources can be:
+- Any POCO (plain C# class — properties and fields both work, case-insensitive)
+- `Dictionary<string, object?>`
 - `System.Text.Json` `JsonElement` / `JsonNode`
 
-Bind failures **never throw**. The value falls back to an empty string and a warning is logged in `RenderReport`.
+**Bind failures don't throw** — the value falls back to empty string and a "field xxx not found" warning goes into the report.
 
-### Scripts (formatter / styler)
+### Minimal template JSON
 
-hiprint-compatible. Both text elements and table columns support:
+A4 paper + one text element + one table — the bare minimum:
 
 ```json
 {
-  "typeKey": "table",
-  "table": {
-    "columns": [
-      {
-        "field": "price",
-        "title": "Price",
-        "formatter": "function(value){ return '$' + (value || 0).toFixed(2); }",
-        "styler": "function(value){ return value > 1000 ? { color:'#c0392b', fontWeight:'bold' } : ''; }"
+  "paper": { "preset": "A4", "widthMm": 210, "heightMm": 297, "orientation": 0 },
+  "margins": { "topMm": 5, "bottomMm": 5, "leftMm": 5, "rightMm": 5 },
+  "elements": [
+    {
+      "id": "title",
+      "typeKey": "text",
+      "xMm": 10, "yMm": 8, "widthMm": 80, "heightMm": 10,
+      "text": { "content": "Invoice No.{{orderNo}}", "fontSizePt": 18, "bold": true }
+    },
+    {
+      "id": "items",
+      "typeKey": "table",
+      "xMm": 10, "yMm": 25, "widthMm": 190, "heightMm": 80,
+      "table": {
+        "field": "items",
+        "columns": [
+          { "title": "#", "formatter": "function(v,r,i){return i+1;}" },
+          { "title": "Product", "field": "name" },
+          { "title": "Unit Price", "field": "price",
+            "formatter": "function(v){return '$'+(+v).toFixed(2);}",
+            "styler": "function(v){return +v>1000?'color:#c0392b;font-weight:bold':null;}" },
+          { "title": "Qty", "field": "qty" },
+          { "title": "Subtotal", "formatter": "function(v,r){return '$'+((+r.price)*(+r.qty)).toFixed(2);}" }
+        ]
       }
-    ]
-  }
+    }
+  ]
 }
 ```
 
-- **formatter** returns a replacement string; `null` / `undefined` keeps the original.
-- **styler** accepts JS objects (camelCase) or CSS strings (kebab-case).
-- **Safety**: Jint sandbox, no CLR access. 250ms per-run timeout, 100k statements, 64-level recursion cap. **Rendering never interrupts**.
-- **Designer-visible**: scripts run at design time; you see the effect on the canvas.
+---
 
-Full field tables and examples in [`docs/template-schema.md`](docs/template-schema.md).
+## Host support
+
+| Host | Minimum .NET | Platform | Notes |
+|---|---|---|---|
+| Avalonia 11.3 | .NET 8 | Windows / Linux / macOS + Browser/WASM | **Only host that does WASM** |
+| WPF | .NET 8 (Windows) | Windows | —— |
+| WinForms | .NET 8 (Windows) | Windows | —— |
+| Eto.Forms 2.10 | .NET 8 | Windows (portable to other platforms) | —— |
+| WinUI 3 (WindowsAppSDK 1.6) | .NET 8 (Windows) | Windows | —— |
+| Uno 5.6 | .NET 8 | Windows | Uno 6.x requires SkiaSharp 3.x + net9 — not tracked |
+| .NET MAUI 8 | .NET 8 | Windows | —— |
+
+**Core layer has zero UI-framework dependencies** — so on Linux/macOS you can reference just `CrossPrint.Engine` + `CrossPrint.Printing` and run headless PDF generation as a backend service.
 
 ---
 
-## Host Support
+## Deploying the WebAssembly demo
 
-| Host | Minimum Framework | Platform |
-|---|---|---|
-| Avalonia 11.3 | .NET 8 | Windows / Linux / macOS + Browser/WASM |
-| WPF | .NET 8 (Windows) | Windows |
-| WinForms | .NET 8 (Windows) | Windows |
-| Eto.Forms 2.10 | .NET 8 | Windows (portable — Linux/macOS need self-publish) |
-| WinUI 3 (WindowsAppSDK 1.6) | .NET 8 (Windows) | Windows |
-| Uno 5.6 (Skia Desktop) | .NET 8 | Windows |
-| .NET MAUI 8 | .NET 8 | Windows |
+The Avalonia Browser sample compiles to **pure static files** (~40MB first load, self-contained .NET WASM runtime + main assembly). Drop it on GitHub Pages, Cloudflare Pages, Vercel — any static host works:
 
-The core layer (CrossPrint.Core / Engine / Designer / Printing) has **zero UI-framework dependencies** and builds/tests on Windows, Linux and macOS.
-
----
-
-## Known Limitations
-
-- **QR quiet zone** drawn at 4 modules; some scanners use stricter/looser tolerances.
-- **hiprint import** does not execute import-time JavaScript (watermarks, page numbers, HTML, cross-page text have no equivalent); multi-panel templates import one panel at a time.
-- **Undo/redo** — every change produces a revertable command; hosts can wire up their own stack.
-- **Uno 6.x** requires SkiaSharp 3.x and net9; we follow SkiaSharp 2.88.9 and don't track Uno 6 yet.
-- **WASM sample** has no file dialogs (browser sandbox); hiprint import goes through the template JSON panel.
-
----
-
-## Deploying the WebAssembly Demo
-
-The Avalonia Browser sample compiles to pure static files (~40MB first-load, self-contained .NET WASM runtime + main assembly). Drop it on GitHub Pages, Cloudflare Pages, Vercel or any static host:
-
-```bash
+```powershell
 dotnet workload install wasm-tools
 dotnet publish samples/CrossPrint.Samples.Avalonia.Browser -c Release
 # Output: samples/CrossPrint.Samples.Avalonia.Browser/bin/Release/net8.0-browser/publish/wwwroot
 ```
 
-Sub-path deployments (e.g. `/OODD.CrossPrint/` on GitHub Pages) are handled by `<base href="./">` in `index.html`. The repo ships a GitHub Actions workflow ([`.github/workflows/pages-demo.yml`](.github/workflows/pages-demo.yml)) that auto-publishes on every push to main.
+**Sub-path deployments** (e.g. `/OODD.CrossPrint/` on GitHub Pages) — already handled by `<base href="./">` in `index.html`. You don't need to change anything.
+
+The repo ships a GitHub Actions workflow ([`.github/workflows/pages-demo.yml`](.github/workflows/pages-demo.yml)) that auto-publishes on every push to main.
+
+---
+
+## Known limitations (read this before filing an issue)
+
+- **QR quiet zone** drawn at 4 modules. Extremely strict scanners might complain — most phones are fine.
+- **No manual pagination** — the template renders as one long page. If it's taller than paper, the bottom is clipped. For multi-page layouts, use multiple templates (one per page).
+- **No watermark** — hiprint's `watermarkOptions` can't be drawn. Workaround: use a background ImageElement (bottom layer, semi-transparent).
+- **No page numbers** — `paperNumberFormat` and friends aren't recognized. Let us know if you actually need this.
+- **WASM sample** has no file dialogs (browser sandbox). Importing hiprint templates goes through the template JSON panel at the bottom.
+- **.NET Framework 4.x not supported** — SkiaSharp 2.88.9 can run net461, but Jint 4.x and System.Text.Json 8.0 require net8.0. Supporting old .NET would mean downgrading every dependency and maintaining a fork. .NET 8 minimum.
 
 ---
 
 ## Documentation
 
-- [`docs/template-schema.md`](docs/template-schema.md) — Complete template JSON field reference + hiprint import mapping
-- [`docs/rendering-spec.md`](docs/rendering-spec.md) — Per-element rendering specification
-- [`docs/webassembly-demo.md`](docs/webassembly-demo.md) — WASM demo build & deploy guide
-- [`docs/third-party-licenses.md`](docs/third-party-licenses.md) — Third-party dependencies and licenses
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — Contributing guide
+- [`docs/template-schema.md`](docs/template-schema.md) — Complete template JSON field reference + hiprint property mapping table
+- [`docs/rendering-spec.md`](docs/rendering-spec.md) — Per-element rendering specification (coordinate calc, kerning, table row height…)
+- [`docs/webassembly-demo.md`](docs/webassembly-demo.md) — Step-by-step WASM build & deploy guide
+- [`docs/third-party-licenses.md`](docs/third-party-licenses.md) — Third-party dependencies, licenses, and links
 
 ## License
 

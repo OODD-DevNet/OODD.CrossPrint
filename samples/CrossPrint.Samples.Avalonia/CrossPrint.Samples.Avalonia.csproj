@@ -11,7 +11,8 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
-    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <!-- Semi Design 主题：圆角按钮、阴影输入框、Ant Design 风格主色调，原生控件自动套用 -->
+    <PackageReference Include="Semi.Avalonia" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,7 +1,11 @@
 using System;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+#if !BROWSER
+using Semi.Avalonia;
+#else
 using Avalonia.Themes.Fluent;
+#endif
 
 namespace CrossPrint.Samples.Avalonia;
 
@@ -21,7 +25,14 @@ public sealed class App : Application
 
     public override void Initialize()
     {
+#if !BROWSER
+        // 桌面端：Semi Design 主题（圆角按钮、阴影输入框、Ant Design 蓝主色调）
+        // Semi.Avalonia 是主题不是控件库——原生 Button/TextBox/ComboBox/DataGrid 自动套用 Semi 风格
+        Styles.Add(new SemiTheme());
+#else
+        // 浏览器 WASM：Semi 未经过 WASM 验证，保持 FluentTheme
         Styles.Add(new FluentTheme());
+#endif
     }
 
     public override void OnFrameworkInitializationCompleted()
