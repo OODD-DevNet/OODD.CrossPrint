@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>CrossPrint.Samples.Wpf</RootNamespace>
+    <AssemblyName>CrossPrint.Samples.Wpf</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CrossPrint.Hosts.Wpf\CrossPrint.Hosts.Wpf.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Condition="'$(OS)' == 'Windows_NT'" />
+    <None Include="..\..\docs\samples\kitchen-sink.template.json" Link="kitchen-sink.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\complex-receipt.template.json" Link="complex-receipt.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\hiprint-sample.js" Link="hiprint-sample.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

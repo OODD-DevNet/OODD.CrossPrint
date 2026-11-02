@@ -1,0 +1,15 @@
+<Project>
+
+  <!--
+    本机只有 dotnet CLI（无 Visual Studio），而 Windows App SDK 1.6 的 MrtCore.PriGen.targets 把
+    GetMrtPackagingOutputs / _GetDefaultResourceLanguage 无条件挂进 PrepareForRun；这两个目标内部调用
+    Microsoft.Build.AppxPackage.dll / Microsoft.Build.Packaging.Pri.Tasks.dll —— 这两个任务程序集随 VS 的
+    AppxPackage 工具安装，`dotnet build` 下不存在，于是报 MSB4062（Microsoft.Build.Packaging.Pri.Tasks.ExpandPriContent /
+    Microsoft.Build.AppxPackage.RemovePayloadDuplicates / ExpandPayloadDirectories）。
+    本适配层没有 .resw / XAML / PRI 资源（AppxGeneratePriEnabled=false），这两个目标没有输入，
+    在 Directory.Build.targets（最后导入，覆盖包内目标）里置空即可，构建语义不变。
+  -->
+  <Target Name="GetMrtPackagingOutputs" Returns="@(PackagingOutputs)" />
+  <Target Name="_GetDefaultResourceLanguage" />
+
+</Project>

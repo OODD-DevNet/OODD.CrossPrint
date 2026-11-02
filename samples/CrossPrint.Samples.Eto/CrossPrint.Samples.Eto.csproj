@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Eto.Forms 示例。TFM 选 net8.0-windows7.0：Eto.Platform.Windows 2.10.0 只提供
+    net6.0-windows7.0 资产（net8.0-windows7.0 向下兼容该 TFM），且其 nuspec 带
+    Microsoft.WindowsDesktop.App.WindowsForms 框架引用。
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows7.0</TargetFramework>
+    <RootNamespace>CrossPrint.Samples.Eto</RootNamespace>
+    <AssemblyName>CrossPrint.Samples.Eto</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CrossPrint.Hosts.Eto\CrossPrint.Hosts.Eto.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Eto.Platform.Windows" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Condition="'$(OS)' == 'Windows_NT'" />
+    <None Include="..\..\docs\samples\kitchen-sink.template.json" Link="kitchen-sink.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\complex-receipt.template.json" Link="complex-receipt.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\hiprint-sample.js" Link="hiprint-sample.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

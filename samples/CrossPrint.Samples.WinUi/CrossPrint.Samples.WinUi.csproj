@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    WinUI 3 示例（非打包、框架依赖）：WindowsPackageType=None ⇒ 启动时引导器自动初始化，
+    加载系统已安装的 Windows App Runtime 1.6+（需含 DDLM 主包；用官方 WindowsAppRuntimeSetup
+    安装即可）。未安装时弹"需要 Windows App Runtime"引导框。不需要 Package.appxmanifest。
+    UI 全部用 C# 组合（无 .xaml），因此不依赖 XAML 编译器产物。
+
+    注意：不建议改用 WindowsAppSDKSelfContained=true（非打包自包含）。该形态下框架自身的
+    resources.pri 不会随输出分发，XamlControlsResources 的 ms-appx 主题资源查找会失败；
+    且 dotnet CLI 拿不到 VS 专有的 PRI 生成链（MrtCore.PriGen 的任务位于 VS AppxPackage
+    工具目录），构建也会失败。框架依赖模式无此问题。
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <RootNamespace>CrossPrint.Samples.WinUi</RootNamespace>
+    <AssemblyName>CrossPrint.Samples.WinUi</AssemblyName>
+
+    <!-- 示例没有任何 PRI 资源，关闭生成开关即跳过整个 PRI 流程；框架依赖模式下运行时资源
+         由已装运行时的包图提供。（PRI 任务"只随 VS 分发"的旧结论已过时：WindowsAppSDK 1.6
+         自带的 PRI 工具链在 dotnet CLI 下可用，Samples.Maui 已实测——这里关掉只因没有资源。） -->
+    <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
+    <IncludeProjectPriFile>false</IncludeProjectPriFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CrossPrint.Hosts.WinUi\CrossPrint.Hosts.WinUi.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Condition="'$(OS)' == 'Windows_NT'" />
+    <None Include="..\..\docs\samples\kitchen-sink.template.json" Link="kitchen-sink.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\complex-receipt.template.json" Link="complex-receipt.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\hiprint-sample.js" Link="hiprint-sample.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

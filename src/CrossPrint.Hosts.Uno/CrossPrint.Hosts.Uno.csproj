@@ -1,0 +1,39 @@
+<Project Sdk="Uno.Sdk/5.6.54">
+
+  <!--
+    Uno Platform 适配层（Skia 桌面头）：画布走 Uno.WinUI.Graphics2DSK 的 SKCanvasElement，
+    RenderOverride 软件合成直绘（SKSwapChainPanel 仅 WinUI/WinAppSDK 交换链可用，桌面头构造即抛异常）。
+
+    TFM 说明：net8.0-desktop 是 Uno 5.6 的 Skia 桌面单投影（Uno.Common.Desktop.targets 注册的
+    目标平台标识），与仓库 .NET 8 基线一致。
+
+    版本对齐：本仓锁 SkiaSharp 2.88.9；Uno 5.6 的 Skia 运行时（Uno.WinUI.Runtime.Skia.*）要求
+    SkiaSharp >= 2.88.7，2.88.9 向上兼容且不会触发 NU1605。Uno 6.7 的 Skia 栈要求 SkiaSharp 3.119，
+    与本仓 2.88.9 锁冲突，故本适配层以 Uno 5.6 为基线（见 docs/02-architecture.md §5）。
+
+    包版本：Uno.Sdk 的隐式包（Uno.WinUI / SkiaSharp.Views.Uno.WinUI 等）在 CPM 下会与
+    Directory.Packages.props 的版本真源冲突，故本工程关闭集中包管理，SkiaSharpVersion 把隐式
+    SkiaSharp.* 钉回本仓的 2.88.9。
+
+    SDK 解析：Sdk 属性里写死 Uno.Sdk 版本，不依赖 global.json 的 msbuild-sdks 段。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-desktop</TargetFramework>
+    <RootNamespace>CrossPrint.Hosts.Uno</RootNamespace>
+    <AssemblyName>CrossPrint.Hosts.Uno</AssemblyName>
+    <PackageId>CrossPrint.Hosts.Uno</PackageId>
+    <Description>CrossPrint Uno Platform 宿主适配层：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
+    <!-- Uno.Sdk 默认 IsPackable=false（它把工程当应用看），适配层要和其它宿主一样出包。 -->
+    <IsPackable>true</IsPackable>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <!-- 与本仓 SkiaSharp 2.88.9 锁保持一致；Uno.Sdk 会把它套到隐式 SkiaSharp.* 包上。 -->
+    <SkiaSharpVersion>2.88.9</SkiaSharpVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossPrint.Core\CrossPrint.Core.csproj" />
+    <ProjectReference Include="..\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\CrossPrint.Designer\CrossPrint.Designer.csproj" />
+  </ItemGroup>
+
+</Project>

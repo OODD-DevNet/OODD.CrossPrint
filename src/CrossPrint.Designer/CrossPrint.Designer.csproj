@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CrossPrint.Designer</RootNamespace>
+    <AssemblyName>CrossPrint.Designer</AssemblyName>
+    <PackageId>CrossPrint.Designer</PackageId>
+    <Description>CrossPrint 设计器内核：视口、命中测试、交互状态机、命令、属性描述符与叠加层绘制。不引用任何宿主 UI 框架。</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\CrossPrint.Core\CrossPrint.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    .NET MAUI 示例（仅 Windows 目标，非打包框架依赖）：WindowsPackageType=None ⇒ 启动时由
+    Windows App SDK Bootstrap 引导，加载系统已安装的 Windows App Runtime（需含 DDLM 主包；
+    用官方 WindowsAppRuntimeSetup 安装即可），未安装时弹"需要 Windows App Runtime"引导框。
+
+    UI 主体用 C# 组合，但保留官方模板形态的 Platforms\Windows\App.xaml（ApplicationDefinition）：
+    WinUI XAML 编译器以它为根生成 Main 入口点（App.xaml.g.cs）+ XamlTypeInfo（IXamlMetadataProvider），
+    并由 WindowsAppSDK 1.6 自带的 PRI 工具链把 MAUI 库 pri 合并进应用 resources.pri——
+    三者缺一，MAUI 的 Resources.xbf（引用 Microsoft.Maui.Platform 自定义类型）无法解析，
+    以 0xC000027B stowed exception 静默崩溃。
+
+    版本与宿主一致：MAUI 8.0.82 + WindowsAppSDK 1.6.250205002 + SkiaSharp.Views.Maui 2.88.9。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <UseMaui>true</UseMaui>
+    <!-- MAUI 单项目模式：自动按宿主架构注入 RuntimeIdentifier，并自动把 Platforms\Windows\*
+         纳入编译、App.xaml 注册为 ApplicationDefinition。 -->
+    <SingleProject>true</SingleProject>
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- MAUI 的 WinUI targets 默认注入 WindowsAppSDKSelfContained=true；本示例与 WinUI 样例一致走
+         框架依赖（Bootstrap 加载系统已装运行时），这里显式关掉。 -->
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <RootNamespace>CrossPrint.Samples.Maui</RootNamespace>
+    <AssemblyName>CrossPrint.Samples.Maui</AssemblyName>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="8.0.82" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
+    <PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="2.88.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CrossPrint.Hosts.Maui\CrossPrint.Hosts.Maui.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\docs\samples\kitchen-sink.template.json" Link="kitchen-sink.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\complex-receipt.template.json" Link="complex-receipt.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\hiprint-sample.js" Link="hiprint-sample.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

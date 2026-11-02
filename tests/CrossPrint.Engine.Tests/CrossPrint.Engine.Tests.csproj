@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>CrossPrint.Engine.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="FluentAssertions" />
+    <!-- 渲染断言必须真的栅格化，缺原生库会在首次 SKCanvas 构造时抛 DllNotFoundException -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Condition="'$(OS)' == 'Windows_NT'" />
+    <PackageReference Include="SkiaSharp.NativeAssets.macOS" Condition="'$(OS)' == 'Unix' And $([MSBuild]::IsOSPlatform('OSX'))" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Condition="'$(OS)' == 'Unix' And !$([MSBuild]::IsOSPlatform('OSX'))" />
+    <!-- 反解渲染结果，证明二维码/条码真的可被扫描枪读出 -->
+    <PackageReference Include="ZXing.Net" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Core\CrossPrint.Core.csproj" />
+  </ItemGroup>
+
+</Project>

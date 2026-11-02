@@ -1,0 +1,45 @@
+<Project>
+  <!--
+    全仓依赖版本唯一真源。禁止在 csproj 内写 Version=。
+    SkiaSharp 锁 2.88.9：Views.* 系列在 3.x/4.x 的 TFM 支持面分裂（见 docs/02-architecture.md A2），
+    混装会导致原生库版本冲突。
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 渲染核心 -->
+    <PackageVersion Include="SkiaSharp" Version="2.88.9" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="2.88.9" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="2.88.9" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.macOS" Version="2.88.9" />
+    <!-- 编码：ZXing 零传递依赖，纯 BitMatrix 输出。
+         不用 QRCoder——实测 1.8.1 传递引入 System.Drawing.Common（Linux 上不可用），
+         QRCoder.Core 2.0.0 又强制 SkiaSharp 3.119（与本仓 2.88.9 锁冲突）。见 docs/02 A4b。 -->
+    <PackageVersion Include="ZXing.Net" Version="0.16.11" />
+    <!-- JSON（显式锁版本，net8 已内置但源生成器需配套） -->
+    <PackageVersion Include="System.Text.Json" Version="8.0.5" />
+    <!-- 脚本：纯托管 JS 解释器（formatter/styler），默认无 CLR 访问，沙箱安全 -->
+    <PackageVersion Include="Jint" Version="4.17.0" />
+    <!-- 宿主 -->
+    <PackageVersion Include="Avalonia" Version="11.3.6" />
+    <PackageVersion Include="Avalonia.Browser" Version="11.3.6" />
+    <PackageVersion Include="Avalonia.Desktop" Version="11.3.6" />
+    <PackageVersion Include="Avalonia.Skia" Version="11.3.6" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="11.3.6" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.WebAssembly" Version="2.88.9" />
+    <PackageVersion Include="Eto.Forms" Version="2.10.0" />
+    <PackageVersion Include="Eto.Platform.Windows" Version="2.10.0" />
+    <PackageVersion Include="SkiaSharp.Views.Desktop.Common" Version="2.88.9" />
+    <PackageVersion Include="SkiaSharp.Views.WPF" Version="2.88.9" />
+    <PackageVersion Include="SkiaSharp.Views.WinUI" Version="2.88.9" />
+    <PackageVersion Include="SkiaSharp.Views.Uno.WinUI" Version="2.88.9" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
+    <!-- 测试 -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageVersion Include="FluentAssertions" Version="6.12.2" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Avalonia 适配层：不引用 SkiaSharp.Views.Avalonia（官方不存在）。
+    画布走 Control.OnRender → SkiaDrawingOperation → ISkiaSharpApiLeaseFeature → SKCanvas 直绘（零拷贝）。
+    因此只需要 Avalonia + Avalonia.Skia（Skia 后端），SkiaSharp 2.88.9 由 Avalonia.Skia 传递引入且版本与本仓锁一致。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CrossPrint.Hosts.Avalonia</RootNamespace>
+    <AssemblyName>CrossPrint.Hosts.Avalonia</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Skia" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 命中测试直接断言 ICustomDrawOperation.HitTest，操作类保持 internal。 -->
+    <InternalsVisibleTo Include="CrossPrint.Hosts.Avalonia.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossPrint.Core\CrossPrint.Core.csproj" />
+    <ProjectReference Include="..\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\CrossPrint.Designer\CrossPrint.Designer.csproj" />
+  </ItemGroup>
+
+</Project>

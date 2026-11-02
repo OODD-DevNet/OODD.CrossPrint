@@ -1,0 +1,28 @@
+{
+  "solution": {
+    "path": "OODD.CrossPrint.sln",
+    "projects": [
+      "samples\\CrossPrint.Samples.Avalonia\\CrossPrint.Samples.Avalonia.csproj",
+      "samples\\CrossPrint.Samples.Eto\\CrossPrint.Samples.Eto.csproj",
+      "samples\\CrossPrint.Samples.WinForms\\CrossPrint.Samples.WinForms.csproj",
+      "samples\\CrossPrint.Samples.Uno\\CrossPrint.Samples.Uno.csproj",
+      "samples\\CrossPrint.Samples.WinUi\\CrossPrint.Samples.WinUi.csproj",
+      "samples\\CrossPrint.Samples.Wpf\\CrossPrint.Samples.Wpf.csproj",
+      "src\\CrossPrint.Core\\CrossPrint.Core.csproj",
+      "src\\CrossPrint.Designer\\CrossPrint.Designer.csproj",
+      "src\\CrossPrint.Engine\\CrossPrint.Engine.csproj",
+      "src\\CrossPrint.Hosts.Avalonia\\CrossPrint.Hosts.Avalonia.csproj",
+      "src\\CrossPrint.Hosts.Eto\\CrossPrint.Hosts.Eto.csproj",
+      "src\\CrossPrint.Hosts.Uno\\CrossPrint.Hosts.Uno.csproj",
+      "src\\CrossPrint.Hosts.WinForms\\CrossPrint.Hosts.WinForms.csproj",
+      "src\\CrossPrint.Hosts.WinUi\\CrossPrint.Hosts.WinUi.csproj",
+      "src\\CrossPrint.Hosts.Wpf\\CrossPrint.Hosts.Wpf.csproj",
+      "src\\CrossPrint.Printing\\CrossPrint.Printing.csproj",
+      "tests\\CrossPrint.Core.Tests\\CrossPrint.Core.Tests.csproj",
+      "tests\\CrossPrint.Designer.Tests\\CrossPrint.Designer.Tests.csproj",
+      "tests\\CrossPrint.Engine.Tests\\CrossPrint.Engine.Tests.csproj",
+      "tests\\CrossPrint.Hosts.Avalonia.Tests\\CrossPrint.Hosts.Avalonia.Tests.csproj",
+      "tests\\CrossPrint.Printing.Tests\\CrossPrint.Printing.Tests.csproj"
+    ]
+  }
+}

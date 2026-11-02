@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CrossPrint.Printing</RootNamespace>
+    <AssemblyName>CrossPrint.Printing</AssemblyName>
+    <PackageId>CrossPrint.Printing</PackageId>
+    <Description>CrossPrint 打印目标抽象层：把渲染引擎的产物送出去的统一出口。v0.1 提供 PdfFilePrintTarget（PDF 落盘，FR-PRT-01）与 SystemPrintTarget（ShellExecute / lp 调起系统打印管线，FR-PRT-03）。</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\CrossPrint.Core\CrossPrint.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 系统打印目标的交付通道不可在 CI 上真发作业，测试注入替身需要 internal 接口。 -->
+    <InternalsVisibleTo Include="CrossPrint.Printing.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Eto.Forms 适配层：画布走 Drawable.Paint + Eto.Drawing.Bitmap(w, h, Format32bppRgba)，
+    经 Bitmap.Lock() 拿到 BitmapData 后把 Skia 直接画进这块像素内存，再整幅 DrawImage 回控件。
+    Eto 的控件尺寸/绘制坐标都是逻辑像素（Window.LogicalPixelSize 才是设备倍率），
+    因此位图按 Dpi/96 放大分配，内核收到的仍是宿主设备 px + 逻辑 DPI。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CrossPrint.Hosts.Eto</RootNamespace>
+    <AssemblyName>CrossPrint.Hosts.Eto</AssemblyName>
+    <PackageId>CrossPrint.Hosts.Eto</PackageId>
+    <Description>CrossPrint Eto.Forms 宿主适配层：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Eto.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossPrint.Core\CrossPrint.Core.csproj" />
+    <ProjectReference Include="..\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\CrossPrint.Designer\CrossPrint.Designer.csproj" />
+  </ItemGroup>
+
+</Project>

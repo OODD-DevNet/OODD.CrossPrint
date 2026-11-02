@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>CrossPrint.Demo.DataStudio</RootNamespace>
+    <AssemblyName>CrossPrint.Demo.DataStudio</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Condition="'$(OS)' == 'Windows_NT'" />
+    <None Include="..\..\docs\samples\kitchen-sink.template.json" Link="kitchen-sink.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\complex-receipt.template.json" Link="complex-receipt.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\invoice-a4.template.json" Link="invoice-a4.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\invoice-a4-500row.template.json" Link="invoice-a4-500row.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\label-100x150.template.json" Link="label-100x150.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\receipt-long.template.json" Link="receipt-long.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\hotel-folio.template.json" Link="hotel-folio.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\sticker-50.template.json" Link="sticker-50.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\edge-case-a6.template.json" Link="edge-case-a6.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\pick-list-a5.template.json" Link="pick-list-a5.template.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

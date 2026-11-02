@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <!--
+    Avalonia WebAssembly 头工程：把桌面样例的同一套源码（Compile Include 共享）编译成浏览器应用，
+    部署到 GitHub Pages 当在线示例。与桌面样例的分工：
+      - 桌面：samples/CrossPrint.Samples.Avalonia（net8.0，ClassicDesktopLifetime）
+      - 浏览器：本工程（net8.0-browser，SingleViewLifetime，入口见 Program.cs）
+    共享源码里只有 SampleAssets 用 #if BROWSER 分流（WASM 没有文件系统，读内嵌资源）。
+    发布：dotnet publish -f net8.0-browser -c Release，产物是纯静态文件（wwwroot）。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-browser</TargetFramework>
+    <RootNamespace>CrossPrint.Samples.Avalonia.Browser</RootNamespace>
+    <AssemblyName>CrossPrint.Samples.Avalonia.Browser</AssemblyName>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <!-- Avalonia.Browser 的 targets 会给 WasmBuildNative 设默认值，但时机晚于 SDK 的判定，
+         实测 NativeFileReference（libSkiaSharp/libHarfBuzz 静态库）不链接、画布租借 SKCanvas 直接崩。
+         显式置 true 让 emcc 把 SkiaSharp/HarfBuzz 原生件链进 dotnet.native.wasm。 -->
+    <WasmBuildNative>true</WasmBuildNative>
+    <!-- WebDiagnostics 用 JSImport 把启动期异常直接写进 DOM（见 WebDiagnostics.cs）。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Browser" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CrossPrint.Hosts.Avalonia\CrossPrint.Hosts.Avalonia.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 与桌面样例共用全部 UI 源码；只排除桌面的 Program.cs（本工程有自己的浏览器入口）。 -->
+    <Compile Include="..\CrossPrint.Samples.Avalonia\**\*.cs"
+             Exclude="..\CrossPrint.Samples.Avalonia\bin\**;..\CrossPrint.Samples.Avalonia\obj\**;..\CrossPrint.Samples.Avalonia\Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WASM 没有文件系统：样例资产内嵌进程序集，由共享源码 SampleAssets 按 LogicalName 读取。 -->
+    <EmbeddedResource Include="..\..\docs\samples\kitchen-sink.template.json" LogicalName="SampleAssets::kitchen-sink.template.json" />
+    <EmbeddedResource Include="..\..\docs\samples\complex-receipt.template.json" LogicalName="SampleAssets::complex-receipt.template.json" />
+    <EmbeddedResource Include="..\..\docs\samples\hiprint-sample.js" LogicalName="SampleAssets::hiprint-sample.js" />
+    <!-- WASM 没有系统字体：Noto Sans SC（SIL OFL 1.1）供 Avalonia UI 文本与 CrossPrint 画布文本共用。
+         必须用 AvaloniaResource（不是 EmbeddedResource）：EmbeddedFontCollection 走 avares 协议枚举
+         "avares://…/Assets/Fonts" 目录，EmbeddedResource 不进 Avalonia 资源清单（实测 collection count 0）。 -->
+    <AvaloniaResource Include="..\CrossPrint.Samples.Avalonia\Assets\Fonts\NotoSansSC-VF.ttf"
+                      Link="Assets\Fonts\NotoSansSC-VF.ttf" />
+    <None Include="..\CrossPrint.Samples.Avalonia\Assets\Fonts\LICENSE-NotoSansSC.txt" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 部署到 GitHub Pages 时带内容指纹，浏览器强缓存也能在发版后立即失效。 -->
+    <StaticWebAssetFingerprintPattern Include="JS" Pattern="*.js" Expression="#[.{fingerprint}]!" />
+  </ItemGroup>
+
+</Project>

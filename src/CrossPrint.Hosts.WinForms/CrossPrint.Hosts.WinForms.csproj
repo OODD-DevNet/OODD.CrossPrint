@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    WinForms 适配层：画布走仓内 SkiaCanvasControl（Bitmap.LockBits + SKSurface，与官方 SKControl 同法）。
+    Desktop.Common 2.88.9 不含 SKControl；官方 Views.WindowsForms 包会强拉 OpenTK/GLControl，故不引入。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>CrossPrint.Hosts.WinForms</RootNamespace>
+    <AssemblyName>CrossPrint.Hosts.WinForms</AssemblyName>
+    <PackageId>CrossPrint.Hosts.WinForms</PackageId>
+    <Description>CrossPrint WinForms 宿主适配层：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp.Views.Desktop.Common" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossPrint.Core\CrossPrint.Core.csproj" />
+    <ProjectReference Include="..\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\CrossPrint.Designer\CrossPrint.Designer.csproj" />
+  </ItemGroup>
+
+</Project>

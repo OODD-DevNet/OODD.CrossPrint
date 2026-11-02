@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    WinUI 3 适配层：画布走 SkiaSharp.Views.WinUI 2.88.9 的 SKXamlCanvas（SkiaSharp.Views.Windows 命名空间）。
+    实测该版本没有 SKSwapChainPanel（那是 UWP/旧版 Views 的路线，2.88.9 的 WinUI 包只导出 SKXamlCanvas），
+    故这里按包的真实 API 接线；契约不变：PaintSurface 的 e.Info 已是宿主设备 px。
+    DPI 取 XamlRoot.RasterizationScale × 96；WinUI 指针坐标是 DIP，需乘回缩放才能交给内核。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <RootNamespace>CrossPrint.Hosts.WinUi</RootNamespace>
+    <AssemblyName>CrossPrint.Hosts.WinUi</AssemblyName>
+    <PackageId>CrossPrint.Hosts.WinUi</PackageId>
+    <Description>CrossPrint WinUI 3 宿主适配层：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
+
+    <!--
+      适配层不含任何 .resw/.xaml 资源，PRI 生成对本程序集没有输入，故整链关掉。
+      （早期"PRI 任务只随 VS 分发、dotnet CLI 下 MSB4062"的结论已过时：WindowsAppSDK 1.6
+      自带的 PRI 工具链在 dotnet CLI 下可用，Samples.Maui 已实测合并库 pri；这里关开关
+      只是因为没有资源要打包。）
+    -->
+    <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
+    <AppxGeneratePrisForPortableLibrariesEnabled>false</AppxGeneratePrisForPortableLibrariesEnabled>
+    <AppxGetPackagePropertiesEnabled>false</AppxGetPackagePropertiesEnabled>
+    <IncludeProjectPriFile>false</IncludeProjectPriFile>
+    <EnableDefaultWindowsAppSdkPRIResourceItems>false</EnableDefaultWindowsAppSdkPRIResourceItems>
+    <!-- 无 XAML/资源要按 SDK 布局落盘；PrepareLibraryLayout 会拉 GetPackagingOutputs → 同一批 VS 专有任务。 -->
+    <GenerateLibraryLayout>false</GenerateLibraryLayout>
+    <!-- PrepareForRun 会无条件跑 GetMrtPackagingOutputs；这条输出组用到 AppxPackage 任务（本机没有 VS）。 -->
+    <IncludeCopyLocalFilesOutputGroup>false</IncludeCopyLocalFilesOutputGroup>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="SkiaSharp.Views.WinUI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossPrint.Core\CrossPrint.Core.csproj" />
+    <ProjectReference Include="..\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\CrossPrint.Designer\CrossPrint.Designer.csproj" />
+  </ItemGroup>
+
+</Project>

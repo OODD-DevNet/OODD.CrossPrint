@@ -1,0 +1,11 @@
+<Project>
+
+  <!--
+    同 src/CrossPrint.Hosts.WinUi/Directory.Build.targets：本机 dotnet CLI 没有 VS 的 AppxPackage 任务，
+    而 MrtCore 把 GetMrtPackagingOutputs / _GetDefaultResourceLanguage 无条件挂进 PrepareForRun。
+    示例是 WindowsPackageType=None 且无任何 PRI 资源，两个目标没有输入，置空以避开 MSB4062。
+  -->
+  <Target Name="GetMrtPackagingOutputs" Returns="@(PackagingOutputs)" />
+  <Target Name="_GetDefaultResourceLanguage" />
+
+</Project>

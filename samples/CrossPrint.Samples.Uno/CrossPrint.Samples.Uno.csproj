@@ -1,0 +1,34 @@
+<Project Sdk="Uno.Sdk/5.6.54">
+
+  <!--
+    Uno Platform 示例（Skia 桌面单投影，net8.0-desktop）。
+    入口点见 Program.cs：Application.Start(_ => new App())，随后 App.OnLaunched 打开 MainWindow。
+    模板文件随输出复制，运行目录下可直接读取。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-desktop</TargetFramework>
+    <UnoSingleProject>true</UnoSingleProject>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>CrossPrint.Samples.Uno</RootNamespace>
+    <AssemblyName>CrossPrint.Samples.Uno</AssemblyName>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <!-- Uno 5.6 的 Skia 运行时要求 SkiaSharp >= 2.88.7，这里锁到仓库统一的 2.88.9；
+         Uno 6.7 要求 SkiaSharp 3.119，与仓库锁不兼容，暂不跟进。 -->
+    <SkiaSharpVersion>2.88.9</SkiaSharpVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Skia 桌面运行时（WPF 后端）；UnoSingleProject 只负责卸掉传递的 WPF 框架引用，运行时要显式引入。 -->
+    <PackageReference Include="Uno.WinUI.Runtime.Skia.Wpf" Version="5.6.99" />
+    <ProjectReference Include="..\..\src\CrossPrint.Hosts.Uno\CrossPrint.Hosts.Uno.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\docs\samples\kitchen-sink.template.json" Link="kitchen-sink.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\complex-receipt.template.json" Link="complex-receipt.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\docs\samples\hiprint-sample.js" Link="hiprint-sample.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

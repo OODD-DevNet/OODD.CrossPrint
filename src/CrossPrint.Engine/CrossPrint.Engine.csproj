@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CrossPrint.Engine</RootNamespace>
+    <AssemblyName>CrossPrint.Engine</AssemblyName>
+    <PackageId>CrossPrint.Engine</PackageId>
+    <Description>CrossPrint 渲染引擎：SkiaSharp 元素渲染、PDF/PNG 导出、数据绑定。无 UI 框架依赖。</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CrossPrint.Engine.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossPrint.Core\CrossPrint.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="ZXing.Net" />
+    <PackageReference Include="Jint" />
+  </ItemGroup>
+
+</Project>

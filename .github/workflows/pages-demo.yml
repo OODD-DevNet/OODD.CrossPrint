@@ -1,0 +1,52 @@
+name: pages-demo
+
+# 把 Avalonia WASM 在线示例发布到 GitHub Pages。
+# 前置设置（仓库一次性配置）：Settings → Pages → Source 选 "GitHub Actions"。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "samples/CrossPrint.Samples.Avalonia/**"
+      - "samples/CrossPrint.Samples.Avalonia.Browser/**"
+      - "docs/samples/**"
+      - ".github/workflows/pages-demo.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      # CI 上正常 SDK + workload 安装即可，无需本机便携 SDK 的绕行方案。
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
+      - name: Publish (WebAssembly)
+        run: dotnet publish samples/CrossPrint.Samples.Avalonia.Browser -c Release
+      # publish 产物已含 .br/.gz 预压缩变体；Pages 的 CDN 会自行协商压缩，
+      # 这里直接上传 wwwroot，浏览器强缓存由内容指纹的 JS 文件名保证失效。
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: samples/CrossPrint.Samples.Avalonia.Browser/bin/Release/net8.0-browser/publish/wwwroot
+      - id: deployment
+        uses: actions/deploy-pages@v4

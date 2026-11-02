@@ -1,0 +1,15 @@
+{
+  "solution": {
+    "path": "OODD.CrossPrint.sln",
+    "projects": [
+      "src\\CrossPrint.Core\\CrossPrint.Core.csproj",
+      "src\\CrossPrint.Engine\\CrossPrint.Engine.csproj",
+      "src\\CrossPrint.Designer\\CrossPrint.Designer.csproj",
+      "src\\CrossPrint.Printing\\CrossPrint.Printing.csproj",
+      "tests\\CrossPrint.Core.Tests\\CrossPrint.Core.Tests.csproj",
+      "tests\\CrossPrint.Designer.Tests\\CrossPrint.Designer.Tests.csproj",
+      "tests\\CrossPrint.Engine.Tests\\CrossPrint.Engine.Tests.csproj",
+      "tests\\CrossPrint.Printing.Tests\\CrossPrint.Printing.Tests.csproj"
+    ]
+  }
+}

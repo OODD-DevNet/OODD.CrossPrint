@@ -1,0 +1,14 @@
+/* 画布铺满视口：Avalonia 挂载容器占满整个页面，滚动交给设计器内部处理。 */
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #f0f0f0;
+}
+
+#out {
+    width: 100%;
+    height: 100%;
+}

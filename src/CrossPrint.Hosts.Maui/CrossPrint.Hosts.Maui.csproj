@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    .NET MAUI 适配层（仅 Windows 目标）：画布走 SkiaSharp.Views.Maui 2.88.9 的 SKCanvasView，
+    其 Windows 平台视图就是 Hosts.WinUi 用的 SKXamlCanvas（SkiaSharp.Views.Windows），
+    渲染契约相同：PaintSurface 的 e.Info 已是宿主设备 px。
+
+    指针/滚轮/键盘不使用 SKCanvasView 的 EnableTouchEvents 抽象，而是取 PlatformView
+    （SKXamlCanvas）直接挂 WinUI 指针事件——与 Hosts.WinUi 完全同一套翻译逻辑，
+    显式 CapturePointer / MouseWheelDelta(±120) / InputKeyboardSource 修饰键，行为可预期。
+
+    焦点设计：本控件派生自 MAUI ScrollView——Windows 平台视图是 ScrollViewer（Control），
+    可持有键盘焦点；SKXamlCanvas 是 Panel 拿不到焦点（与 WinUI 宿主包 UserControl 同理）。
+
+    版本对齐：仓库锁 SkiaSharp 2.88.9（见 Directory.Packages.props）；MAUI 取 8.0.82
+    （与 maui-windows 8.0.100 workload 配套）。本工程关闭集中包管理（MAUI 传递依赖多，
+    CentralPackageTransitivePinningEnabled 会引发全图钉版本风暴），并显式钉 WindowsAppSDK
+    1.6.250205002 与仓库其它 Windows 宿主一致——运行时包图与本机已装 Windows App Runtime 1.6 匹配。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <UseMaui>true</UseMaui>
+    <RootNamespace>CrossPrint.Hosts.Maui</RootNamespace>
+    <AssemblyName>CrossPrint.Hosts.Maui</AssemblyName>
+    <PackageId>CrossPrint.Hosts.Maui</PackageId>
+    <Description>CrossPrint .NET MAUI 宿主适配层（Windows）：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+
+    <!--
+      dotnet CLI 没有 VS 的 AppxPackage PRI 任务（MrtCore.PriGen 的 ExpandPriContent 在
+      Microsoft.Build.Packaging.Pri.Tasks.dll 里，仅随 VS 分发），适配层不含 .resw/.xaml
+      资源，整链关掉 PRI 生成。约束同 Hosts.WinUi，见其 csproj 注释。
+    -->
+    <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
+    <AppxGeneratePrisForPortableLibrariesEnabled>false</AppxGeneratePrisForPortableLibrariesEnabled>
+    <AppxGetPackagePropertiesEnabled>false</AppxGetPackagePropertiesEnabled>
+    <IncludeProjectPriFile>false</IncludeProjectPriFile>
+    <EnableDefaultWindowsAppSdkPRIResourceItems>false</EnableDefaultWindowsAppSdkPRIResourceItems>
+    <GenerateLibraryLayout>false</GenerateLibraryLayout>
+    <IncludeCopyLocalFilesOutputGroup>false</IncludeCopyLocalFilesOutputGroup>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="8.0.82" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
+    <PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="2.88.9" />
+    <!-- 显式引用：平台控件直接使用 SKXamlCanvas（SkiaSharp.Views.Windows），不依赖传递引入 -->
+    <PackageReference Include="SkiaSharp.Views.WinUI" Version="2.88.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossPrint.Core\CrossPrint.Core.csproj" />
+    <ProjectReference Include="..\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\CrossPrint.Designer\CrossPrint.Designer.csproj" />
+  </ItemGroup>
+
+</Project>

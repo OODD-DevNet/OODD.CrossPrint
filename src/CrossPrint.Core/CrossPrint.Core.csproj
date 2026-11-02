@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CrossPrint.Core</RootNamespace>
+    <AssemblyName>CrossPrint.Core</AssemblyName>
+    <PackageId>CrossPrint.Core</PackageId>
+    <Description>CrossPrint 模板模型、单位换算与 JSON 序列化（无 UI 依赖）。</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="System.Text.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 列结构变更命令（CrossPrint.Designer 的 TableColumnCommand）需要 Clone 系列做整体快照。 -->
+    <InternalsVisibleTo Include="CrossPrint.Designer" />
+    <!-- 字体缓存的容量纪律测试要读 CacheCount / Capacity。 -->
+    <InternalsVisibleTo Include="CrossPrint.Core.Tests" />
+  </ItemGroup>
+
+</Project>

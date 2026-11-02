@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  # 内核四层在 Linux/macOS 上必须原样可构建、可测试：它们是纯托管 + SkiaSharp 原生库。
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build (portable slice)
+        run: dotnet build OODD.CrossPrint.Portable.slnf -c Release
+      - name: Test
+        run: |
+          dotnet test tests/CrossPrint.Core.Tests -c Release --no-build
+          dotnet test tests/CrossPrint.Engine.Tests -c Release --no-build
+          dotnet test tests/CrossPrint.Designer.Tests -c Release --no-build
+          dotnet test tests/CrossPrint.Printing.Tests -c Release --no-build
+
+  # 宿主适配与样例只在 Windows 上构建（WinForms/WPF 目标不可移植）。
+  windows-hosts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build (all shipped hosts + samples)
+        run: dotnet build OODD.CrossPrint.slnf -c Release
+      - name: Pack
+        run: |
+          dotnet pack src/CrossPrint.Core -c Release -o artifacts/packages
+          dotnet pack src/CrossPrint.Engine -c Release -o artifacts/packages
+          dotnet pack src/CrossPrint.Designer -c Release -o artifacts/packages
+          dotnet pack src/CrossPrint.Printing -c Release -o artifacts/packages
+          dotnet pack src/CrossPrint.Hosts.Avalonia -c Release -o artifacts/packages
+          dotnet pack src/CrossPrint.Hosts.WinForms -c Release -o artifacts/packages
+          dotnet pack src/CrossPrint.Hosts.Wpf -c Release -o artifacts/packages
+          dotnet pack src/CrossPrint.Hosts.Eto -c Release -o artifacts/packages
+          dotnet pack src/CrossPrint.Hosts.WinUi -c Release -o artifacts/packages
+          dotnet pack src/CrossPrint.Hosts.Uno -c Release -o artifacts/packages
+      - name: Verify packages (README embedded, count)
+        shell: pwsh
+        run: |
+          $pkgs = Get-ChildItem artifacts/packages/*.nupkg
+          if ($pkgs.Count -ne 10) { throw "预期 10 个包，实际 $($pkgs.Count)" }
+          foreach ($p in $pkgs) {
+            $zip = [IO.Compression.ZipFile]::OpenRead($p.FullName)
+            try {
+              if (-not ($zip.Entries.FullName -contains "README.md")) { throw "$($p.Name) 未嵌入 README.md" }
+            } finally { $zip.Dispose() }
+          }
+      - name: Trim smoke (Avalonia sample, no AOT)
+        shell: pwsh
+        run: |
+          dotnet publish samples/CrossPrint.Samples.Avalonia -c Release -r win-x64 `
+            "-p:PublishTrimmed=true" "-p:TrimMode=partial" `
+            -o artifacts/trim-avalonia 2>&1 | Tee-Object -FilePath artifacts/trim.log
+          if ($LASTEXITCODE -ne 0) { throw "trim publish 失败" }
+          $ours = Select-String -Path artifacts/trim.log -Pattern 'warning IL\d+:.*\bCrossPrint\.(Core|Engine|Designer|Printing|Hosts)\.'
+          if ($ours) { $ours | ForEach-Object { Write-Error $_.Line }; throw "本仓库程序集在裁剪下产生了 IL 警告" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: artifacts/packages/*.nupkg

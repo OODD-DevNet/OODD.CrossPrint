@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    WPF 适配层：画布走 SKElement（SkiaSharp.Views.WPF 的 SkiaSharp.Views.WPF.SKElement）。
+    DPI 取 VisualTreeHelper.GetDpi(this) 的 DpiScaleX×96，事件坐标已是设备无关单位，需乘回 DPI 才能交给内核。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>CrossPrint.Hosts.Wpf</RootNamespace>
+    <AssemblyName>CrossPrint.Hosts.Wpf</AssemblyName>
+    <PackageId>CrossPrint.Hosts.Wpf</PackageId>
+    <Description>CrossPrint WPF 宿主适配层：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp.Views.WPF" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CrossPrint.Core\CrossPrint.Core.csproj" />
+    <ProjectReference Include="..\CrossPrint.Engine\CrossPrint.Engine.csproj" />
+    <ProjectReference Include="..\CrossPrint.Designer\CrossPrint.Designer.csproj" />
+  </ItemGroup>
+
+</Project>
