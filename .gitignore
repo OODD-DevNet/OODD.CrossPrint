@@ -7,34 +7,76 @@ obj/
 .vscode/
 *.DotSettings.user
 
-# 构建产物
+# 构建产物（研发临时目录，命名花样繁多，统一忽略）
 artifacts/
 [Bb]uild/[Oo]ut/
 *.nupkg
 TestResults/
 *.coverage
 *.trx
+[Rr]eleases/
+publish/[Ww]indows/
+publish/[Ll]inux/
+publish/[Mm]ac/
 
 # NuGet
 packages/
 *.nuget.props
 *.nuget.targets
 
-# 探测/临时目录（架构验证用的一次性工程，不入库）
+# 研发临时产物（一次性探针 / 临时工程 / 手工 debug trace / SDK 便携版）
 .tmp/
 .tmp*/
 probe*/
-.trae-html-share-packages/
-*.err.txt
-*trace.txt
+**/probe/
+.probe*/
+*probe*.txt
+*probe*.json
+*probe*.cs
+*temp*.txt
+*temp*.log
+*debug*.txt
+*debug*.log
+*trace*.txt
+*trace*.log
+*benchmark*.txt
+*err*.txt
+*error*.txt
+*.dump
+*.dmp
+*.etl
 
-# 编辑器
-*.tmp
-*.bak
+# docs/ 下 .md 不上传（用户明确要求只留 README.md / README.en.md 于仓库根）
+docs/*.md
+
+# 便携 SDK / 本机 dotnet-workload-manifests（绕过官方安装时的临时补丁目录）
+.cache/
+[Dd]otnetSdk/
+dotnet-sdk-*/
+dotnet-workload-manifests/
+dotnet-workload-packs-*/
+
+# 编辑器 / AI 工具
+.trae/
+.trae-cn/
+.trae-html-share-packages/
+.screenshots/
+*.screenshots/
+*.cache/
+.trae-doc-*
+
+# 本机 / 个人
+.idea/
+JetBrains.Rider*/
 *.swp
+*.bak
+*.tmp
 ~$*
 
-# OS
+# 运行时产生
 Thumbs.db
 Desktop.ini
 .DS_Store
+[Ll]ogs/
+[Ll]og/
+*.log
