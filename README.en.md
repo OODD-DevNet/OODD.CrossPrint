@@ -566,19 +566,21 @@ A4 paper + one text element + one table — the bare minimum:
 
 ---
 
-## Host support
+## Hosts & minimum framework
 
-| Host | Minimum .NET | Platform | Notes |
-|---|---|---|---|
-| Avalonia 11.3 | .NET 8 | Windows / Linux / macOS + Browser/WASM | **Only host that does WASM** |
-| WPF | .NET 8 (Windows) | Windows | —— |
-| WinForms | .NET 8 (Windows) | Windows | —— |
-| Eto.Forms 2.10 | .NET 8 | Windows (portable to other platforms) | —— |
-| WinUI 3 (WindowsAppSDK 1.6) | .NET 8 (Windows) | Windows | —— |
-| Uno 5.6 | .NET 8 | Windows | Uno 6.x requires SkiaSharp 3.x + net9 — not tracked |
-| .NET MAUI 8 | .NET 8 | Windows | —— |
+| Component | Minimum .NET | Notes |
+|---|---|---|
+| **Core** (CrossPrint.Core / Engine / Designer / Printing) | **.NET 8.0** | SkiaSharp 2.88.9 + Jint 4.x + System.Text.Json 8.0 all require net8.0 |
+| CrossPrint.I18n | net8.0 / **netstandard2.0** / **net461** | Triple-target — hosts on netstandard2.0 (e.g. WPF/WinForms net461) can still reference it |
+| CrossPrint.Hosts.Avalonia | net8.0 | Avalonia 11.x requirement |
+| CrossPrint.Hosts.Wpf | **net8.0-windows** | WPF runs on .NET 8, not net461 |
+| CrossPrint.Hosts.WinForms | **net8.0-windows** | WinForms runs on .NET 8, not net461 |
+| CrossPrint.Hosts.Eto | net8.0-windows | |
+| CrossPrint.Hosts.WinUi | net8.0-windows10.0.19041.0 | |
+| CrossPrint.Hosts.Uno | net8.0-desktop | |
+| CrossPrint.Hosts.Maui | net8.0 | |
 
-**Core layer has zero UI-framework dependencies** — so on Linux/macOS you can reference just `CrossPrint.Engine` + `CrossPrint.Printing` and run headless PDF generation as a backend service.
+**About .NET Framework 4.x support**: Jint 4.x (template inline JS) and System.Text.Json 8.0 (template JSON) require net8.0. SkiaSharp 2.88.9 alone can target net461, but the full dependency chain cannot. **CrossPrint.I18n** is the only project that provides net461/netstandard2.0 targets — that exists so net461 hosts can reference it. The rendering engine, script runner, and JSON serializer all need net8.0. **.NET 8.0 minimum**.
 
 ---
 

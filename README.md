@@ -573,19 +573,21 @@ foreach (var issue in result.Issues)             // 遍历所有降级/忽略告
 
 ---
 
-## 宿主支持（最低框架要求）
+## 最低框架要求
 
-| 宿主 | 最低 .NET | 平台 | 备注 |
-|---|---|---|---|
-| Avalonia 11.3 | .NET 8 | Windows / Linux / macOS + Browser/WASM | **唯一能跑 WASM 的宿主** |
-| WPF | .NET 8（Windows） | Windows | —— |
-| WinForms | .NET 8（Windows） | Windows | —— |
-| Eto.Forms 2.10 | .NET 8 | Windows（可移植到其他平台） | —— |
-| WinUI 3（WindowsAppSDK 1.6） | .NET 8（Windows） | Windows | —— |
-| Uno 5.6 | .NET 8 | Windows | Uno 6.x 要求 SkiaSharp 3.x + net9，暂不跟进 |
-| .NET MAUI 8 | .NET 8 | Windows | —— |
+| 组件 | 最低 .NET | 备注 |
+|---|---|---|
+| **核心层**（CrossPrint.Core / Engine / Designer / Printing） | **.NET 8.0** | SkiaSharp 2.88.9 + Jint 4.x + System.Text.Json 8.0 全都要求 net8.0 |
+| CrossPrint.I18n | net8.0 / **netstandard2.0** / **net461** | 三目标框架，netstandard2.0 宿主（WPF/WinForms net461）也能引用 |
+| CrossPrint.Hosts.Avalonia | net8.0 | Avalonia 11.x 要求 |
+| CrossPrint.Hosts.Wpf | **net8.0-windows** | WPF 走 .NET 8.0，不走 net461 |
+| CrossPrint.Hosts.WinForms | **net8.0-windows** | WinForms 走 .NET 8.0，不走 net461 |
+| CrossPrint.Hosts.Eto | net8.0-windows | |
+| CrossPrint.Hosts.WinUi | net8.0-windows10.0.19041.0 | |
+| CrossPrint.Hosts.Uno | net8.0-desktop | |
+| CrossPrint.Hosts.Maui | net8.0 | |
 
-**内核层不依赖任何 UI 框架**——所以你可以在 Linux/macOS 上只引用 `CrossPrint.Engine` + `CrossPrint.Printing`，跑无头渲染/生成 PDF 的后台服务。
+**关于 .NET Framework 4.x 支持**：Jint 4.x（模板内 JS 脚本）和 System.Text.Json 8.0（模板 JSON 读写）的最低 TFM 是 net8.0。虽然 SkiaSharp 2.88.9 单独可以跑 net461，但整个依赖链不允许。**CrossPrint.I18n 项目**是唯一提供 net461/netstandard2.0 目标的——那是给 WPF/WinForms net461 宿主引用它用的。核心渲染引擎、脚本执行、JSON 序列化都需要 net8.0。**最低 .NET 8.0**。
 
 ---
 
