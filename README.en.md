@@ -1,5 +1,9 @@
 # CrossPrint
 
+<p align="center">
+  <img src="assets/oodd-crossprint-logo.png" width="128" alt="OODD CrossPrint Logo" />
+</p>
+
 Cross-platform .NET print-template component: one template, one rendering kernel, embeddable into Avalonia / WPF / WinForms / Eto.Forms / WinUI / Uno / .NET MAUI. Design, preview, PDF export and printing all share the same SkiaSharp rendering path. Imports templates exported from hiprint designers (vue-plugin-hiprint / Vue-Print-Designer) directly.
 
 > Templates only speak millimeters and points; the engine draws every element, host controls just "put the canvas on screen". What you see in the designer is what gets exported — and what gets printed.
@@ -17,6 +21,15 @@ Cross-platform .NET print-template component: one template, one rendering kernel
 - **Pluggable print targets**: `PdfFilePrintTarget` (print to a PDF file) and `SystemPrintTarget` (hand off to the OS print pipeline: Windows opens the associated app's print dialog; macOS / Linux go through CUPS).
 - **Trim / AOT friendly**: template JSON uses System.Text.Json source generators; zero IL warnings from Core.
 - **Units are semantics**: page and geometry in millimeters (`WidthMm` / `Xmm`…), fonts in points (`SizePt`). No pixel-conversion traps.
+
+## Designer & Print Preview
+
+<p align="center">
+  <img src="assets/print-design-screenshot.png" width="48%" alt="Designer canvas" />
+  <img src="assets/print-preview-screenshot.png" width="48%" alt="Print preview" />
+</p>
+
+Left: Avalonia-hosted designer (kitchen-sink template with all eight element types + scripts). Right: print preview / PDF render of the same template. Both go through the same `TemplateRenderer` — WYSIWYG.
 
 ## Online demo (WebAssembly)
 

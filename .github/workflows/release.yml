@@ -1,0 +1,193 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: "Tag name (e.g. v0.2.0). Only used for manual dispatch; push-tag ignores this."
+        required: false
+        default: ""
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  VERSION: ${{ github.ref_name }}
+  RELEASE_BODY: |
+    ## OODD CrossPrint ${{ github.ref_name }}
+
+    跨平台 .NET 打印模板组件。一份模板、一个 SkiaSharp 渲染内核，嵌入 Avalonia / WPF / WinForms / Eto.Forms / WinUI / Uno / .NET MAUI。
+
+    ### Downloads
+
+    - `CrossPrint-Avalonia-win-x64.zip` — Avalonia 桌面样例（Windows x64，自包含）
+    - `CrossPrint-Avalonia-linux-x64.zip` — Avalonia 桌面样例（Linux x64，自包含）
+    - `CrossPrint-Avalonia-osx-x64.zip` — Avalonia 桌面样例（macOS Intel，自包含）
+    - `CrossPrint-Avalonia-osx-arm64.zip` — Avalonia 桌面样例（macOS Apple Silicon，自包含）
+    - `CrossPrint-Wpf-win-x64.zip` — WPF 样例（Windows x64，自包含）
+    - `CrossPrint-WinForms-win-x64.zip` — WinForms 样例（Windows x64，自包含）
+    - `CrossPrint-NuGet-packages.zip` — 全部 10 个库包（.nupkg）
+
+    ### System Requirements
+
+    .NET 8.0 桌面运行时（自包含版不需要预装）。WinForms/WPF 样例仅支持 Windows。
+
+    ### Thanks
+
+    感谢 SkiaSharp、ZXing.Net、Jint、Avalonia、System.Text.Json 的维护者。
+
+jobs:
+  # Avalonia 多平台：win-x64 / linux-x64 / osx-x64 / osx-arm64
+  avalonia-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+            os_label: Windows
+            arch_label: x64
+          - rid: linux-x64
+            os: ubuntu-latest
+            os_label: Linux
+            arch_label: x64
+          - rid: osx-x64
+            os: macos-13
+            os_label: macOS
+            arch_label: Intel
+          - rid: osx-arm64
+            os: macos-latest
+            os_label: macOS
+            arch_label: AppleSilicon
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Restore Avalonia workload (desktop)
+        run: dotnet workload install avalonia-desktop
+      - name: Publish Avalonia sample (${{ matrix.rid }})
+        shell: pwsh
+        run: |
+          dotnet publish samples/CrossPrint.Samples.Avalonia `
+            -c Release -r ${{ matrix.rid }} --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -o artifacts/avalonia-${{ matrix.rid }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Zip Avalonia output
+        shell: pwsh
+        run: |
+          Compress-Archive -Path artifacts/avalonia-${{ matrix.rid }}/* `
+            -DestinationPath artifacts/CrossPrint-Avalonia-${{ matrix.rid }}.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avalonia-${{ matrix.rid }}
+          path: artifacts/CrossPrint-Avalonia-${{ matrix.rid }}.zip
+
+  # Windows 专属宿主：WPF / WinForms
+  windows-hosts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Publish WPF (win-x64, self-contained single file)
+        shell: pwsh
+        run: |
+          dotnet publish samples/CrossPrint.Samples.Wpf `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -o artifacts/wpf-win-x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publish WinForms (win-x64, self-contained single file)
+        shell: pwsh
+        run: |
+          dotnet publish samples/CrossPrint.Samples.WinForms `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -o artifacts/winforms-win-x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Zip Windows host outputs
+        shell: pwsh
+        run: |
+          Compress-Archive -Path artifacts/wpf-win-x64/* `
+            -DestinationPath artifacts/CrossPrint-Wpf-win-x64.zip -Force
+          Compress-Archive -Path artifacts/winforms-win-x64/* `
+            -DestinationPath artifacts/CrossPrint-WinForms-win-x64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-hosts
+          path: |
+            artifacts/CrossPrint-Wpf-win-x64.zip
+            artifacts/CrossPrint-WinForms-win-x64.zip
+
+  # NuGet 库包（10 个）
+  nuget-packages:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Pack all library projects
+        shell: pwsh
+        run: |
+          $libs = @(
+            "src/CrossPrint.Core",
+            "src/CrossPrint.Engine",
+            "src/CrossPrint.Designer",
+            "src/CrossPrint.Printing",
+            "src/CrossPrint.I18n",
+            "src/CrossPrint.Hosts.Avalonia",
+            "src/CrossPrint.Hosts.Wpf",
+            "src/CrossPrint.Hosts.WinForms",
+            "src/CrossPrint.Hosts.Eto",
+            "src/CrossPrint.Hosts.WinUi",
+            "src/CrossPrint.Hosts.Uno",
+            "src/CrossPrint.Hosts.Maui"
+          )
+          foreach ($lib in $libs) {
+            dotnet pack $lib -c Release -o artifacts/packages
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Zip packages
+        shell: pwsh
+        run: |
+          Compress-Archive -Path artifacts/packages/*.nupkg `
+            -DestinationPath artifacts/CrossPrint-NuGet-packages.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts/CrossPrint-NuGet-packages.zip
+
+  # 汇总所有 artifact 并创建 GitHub Release
+  create-release:
+    needs: [avalonia-desktop, windows-hosts, nuget-packages]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/raw
+          merge-multiple: true
+      - name: List release assets
+        shell: bash
+        run: ls -lh artifacts/raw/
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: OODD CrossPrint ${{ github.ref_name }}
+          body: ${{ env.RELEASE_BODY }}
+          files: artifacts/raw/*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false

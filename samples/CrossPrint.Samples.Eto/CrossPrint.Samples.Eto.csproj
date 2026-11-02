@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <!--
     Eto.Forms 示例。TFM 选 net8.0-windows7.0：Eto.Platform.Windows 2.10.0 只提供
@@ -16,6 +16,7 @@
     <ProjectReference Include="..\..\src\CrossPrint.Hosts.Eto\CrossPrint.Hosts.Eto.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.I18n\CrossPrint.I18n.csproj" />
   </ItemGroup>
 
   <ItemGroup>

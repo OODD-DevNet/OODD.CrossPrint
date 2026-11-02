@@ -4,11 +4,73 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CrossPrint 在线示例 — Avalonia WebAssembly</title>
+    <!--
+        <base href="./"> 让所有相对路径（main.js、_framework/*、app.css）
+        以 index.html 所在目录为根解析，GitHub Pages 子路径部署必须有这行——
+        用户如果用自定义域名部署把 href 改成 "/" 即可。
+    -->
+    <base href="./" />
     <link rel="stylesheet" href="app.css" />
+    <style>
+        /* 启动期 loading：首次下载 17MB+ 的 .NET WASM 运行时 + 主程序集，
+           弱网下会等几十秒甚至超时。这段纯 CSS 不依赖任何外部资源，
+           保证就算 .js 还没开始加载也能看到"正在加载…"而不是白屏。 */
+        #boot {
+            position: fixed; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+            color: #1B3A5C;
+            background: linear-gradient(135deg, #0D2137 0%, #1B3A5C 100%);
+        }
+        #boot .logo {
+            width: 120px; height: 120px;
+            border-radius: 24px;
+            background: #142840;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 800; font-size: 28px;
+            color: #20C6D6; letter-spacing: 2px;
+            box-shadow: 0 8px 32px rgba(0,0,0,.35), inset 0 0 0 2px #20C6D633;
+            margin-bottom: 24px;
+        }
+        #boot .title { font-size: 20px; font-weight: 600; color: #E8F4FF; margin-bottom: 8px; }
+        #boot .sub   { font-size: 13px; color: #8FAFC9; }
+        #boot .bar {
+            margin-top: 28px;
+            width: 240px; height: 4px;
+            background: #142840; border-radius: 2px; overflow: hidden;
+        }
+        #boot .bar > span {
+            display: block; height: 100%;
+            background: linear-gradient(90deg, #20C6D6, #7EE8F3);
+            animation: boot 1.4s ease-in-out infinite;
+        }
+        @keyframes boot {
+            0%   { width: 0%;   margin-left: 0; }
+            50%  { width: 60%;  margin-left: 20%; }
+            100% { width: 0%;   margin-left: 100%; }
+        }
+        /* Avalonia 接管后 #out 会被填满，我们把 boot 淡出隐藏 */
+        body.ready #boot { transition: opacity .4s; opacity: 0; pointer-events: none; }
+    </style>
 </head>
 <body>
     <!-- Avalonia.Browser 把 App 的 MainView（共享 MainWindow）挂进这个容器 -->
     <div id="out"></div>
+
+    <!-- 启动期遮罩：main.js 加载 .NET WASM 运行时会触发 body.ready -->
+    <div id="boot">
+        <div class="logo">OODD<br/>CrossPrint</div>
+        <div class="title">CrossPrint 在线示例</div>
+        <div class="sub">首次加载约 17 MB，请稍候…</div>
+        <div class="bar"><span></span></div>
+    </div>
+
     <script type="module" src="main.js"></script>
+    <!-- main.js 成功启动后给 body 加 .ready 隐藏启动遮罩；
+         这里再挂一个 fallback：10 秒后自动再触发一次——万一 main.js 里漏了，用户也不会永远看到 loading。 -->
+    <script>
+        window.addEventListener('load', () => setTimeout(() => document.body.classList.add('ready'), 15000));
+    </script>
 </body>
 </html>

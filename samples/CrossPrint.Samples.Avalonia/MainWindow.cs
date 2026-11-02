@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CrossPrint.Core;
@@ -11,6 +12,7 @@ using CrossPrint.Core.Hiprint;
 using CrossPrint.Designer;
 using CrossPrint.Engine;
 using CrossPrint.Hosts.Avalonia;
+using CrossPrint.I18n;
 using EditorPointerPoint = CrossPrint.Designer.PointerPoint;
 
 namespace CrossPrint.Samples.Avalonia;
@@ -24,26 +26,26 @@ public sealed class MainView : UserControl
 {
     static readonly PaperChoice[] PaperChoices =
     [
-        new(PaperTypePresets.A3, "A3（297×420）"),
-        new(PaperTypePresets.A4, "A4（210×297）"),
-        new(PaperTypePresets.A5, "A5（148×210）"),
-        new(PaperTypePresets.B5, "B5（176×250）"),
-        new(PaperTypePresets.Receipt80, "80mm 连续纸"),
-        new(PaperTypePresets.Receipt58, "58mm 连续纸"),
-        new(PaperTypePresets.Label100x150, "100×150 面单"),
-        new(null, "自定义…"),
+        new(PaperTypePresets.A3, Localizer.T("Paper.A3")),
+        new(PaperTypePresets.A4, Localizer.T("Paper.A4")),
+        new(PaperTypePresets.A5, Localizer.T("Paper.A5")),
+        new(PaperTypePresets.B5, Localizer.T("Paper.B5")),
+        new(PaperTypePresets.Receipt80, Localizer.T("Paper.Receipt80")),
+        new(PaperTypePresets.Receipt58, Localizer.T("Paper.Receipt58")),
+        new(PaperTypePresets.Label100x150, Localizer.T("Paper.Label100x150")),
+        new(null, Localizer.T("Paper.Custom")),
     ];
 
     static readonly (string Label, string Key)[] ElementButtons =
     [
-        ("文字", ElementTypeKeys.Text),
-        ("线段", ElementTypeKeys.Line),
-        ("矩形", ElementTypeKeys.Rectangle),
-        ("椭圆", ElementTypeKeys.Ellipse),
-        ("图片", ElementTypeKeys.Image),
-        ("二维码", ElementTypeKeys.QrCode),
-        ("一维码", ElementTypeKeys.Barcode),
-        ("表格", ElementTypeKeys.Table),
+        (Localizer.T("Element.Text"), ElementTypeKeys.Text),
+        (Localizer.T("Element.Line"), ElementTypeKeys.Line),
+        (Localizer.T("Element.Rectangle"), ElementTypeKeys.Rectangle),
+        (Localizer.T("Element.Ellipse"), ElementTypeKeys.Ellipse),
+        (Localizer.T("Element.Image"), ElementTypeKeys.Image),
+        (Localizer.T("Element.QrCode"), ElementTypeKeys.QrCode),
+        (Localizer.T("Element.Barcode"), ElementTypeKeys.Barcode),
+        (Localizer.T("Element.Table"), ElementTypeKeys.Table),
     ];
 
     readonly DesignerControl _designer;
@@ -99,8 +101,8 @@ public sealed class MainView : UserControl
         _designer.KeyDown += OnDesignerKeyDown;
 
         _status.Text = warnings.Count == 0
-            ? "已加载 kitchen-sink.template.json；点击元素编辑属性，右键画布打开菜单，Ctrl+D 创建副本。"
-            : "模板加载告警：" + string.Join("；", warnings);
+            ? Localizer.T("App.Status.Ready")
+            : Localizer.T("App.Status.Warnings", string.Join("；", warnings));
     }
 
     Control BuildRoot()
@@ -188,15 +190,21 @@ public sealed class MainView : UserControl
     /// <summary>顶部菜单栏：文档级操作（加载复杂测试模板、hiprint 导入）。</summary>
     Control BuildMenuBar()
     {
-        var fileMenu = new MenuItem { Header = "文件(_F)" };
+        var fileMenu = new MenuItem { Header = Localizer.T("Menu.File") };
 
-        var loadComplexItem = new MenuItem { Header = "加载复杂测试模板" };
+        var loadComplexItem = new MenuItem { Header = Localizer.T("Menu.File.LoadComplex") };
         loadComplexItem.Click += (_, _) => LoadComplexReceiptTemplate();
         fileMenu.Items.Add(loadComplexItem);
 
-        var importItem = new MenuItem { Header = "导入 hiprint 模板…" };
+        var importItem = new MenuItem { Header = Localizer.T("Menu.File.ImportHiprint") };
         importItem.Click += (_, _) => _ = ImportHiprintAsync();
         fileMenu.Items.Add(importItem);
+
+        fileMenu.Items.Add(new Separator());
+
+        var aboutItem = new MenuItem { Header = Localizer.T("Menu.Help.About") };
+        aboutItem.Click += (_, _) => _ = ShowAboutAsync();
+        fileMenu.Items.Add(aboutItem);
 
         var menu = new Menu();
         menu.Items.Add(fileMenu);
@@ -231,12 +239,12 @@ public sealed class MainView : UserControl
         _paperCombo.HorizontalAlignment = HorizontalAlignment.Stretch;
         _paperCombo.SelectionChanged += (_, _) => OnPaperChoiceChanged();
 
-        _rotateButton.Content = "转横向";
+        _rotateButton.Content = Localizer.T("Paper.Rotate");
         _rotateButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         _rotateButton.Margin = new Thickness(0, 0, 2, 0);
         _rotateButton.Click += (_, _) => TogglePaperOrientation();
 
-        _customPaperButton.Content = "自定义…";
+        _customPaperButton.Content = Localizer.T("Paper.CustomBtn");
         _customPaperButton.HorizontalAlignment = HorizontalAlignment.Stretch;
         _customPaperButton.Margin = new Thickness(2, 0, 0, 0);
         _customPaperButton.Click += (_, _) => _ = ShowCustomPaperDialogAsync();
@@ -264,7 +272,7 @@ public sealed class MainView : UserControl
         };
         content.Children.Add(new TextBlock
         {
-            Text = "纸张",
+            Text = Localizer.T("Paper.Section"),
             FontWeight = FontWeight.Bold,
             Margin = new Thickness(0, 0, 0, 2),
         });
@@ -291,7 +299,7 @@ public sealed class MainView : UserControl
 
         grid.Children.Add(new TextBlock
         {
-            Text = "工具箱",
+            Text = Localizer.T("Toolbox.Section"),
             FontWeight = FontWeight.Bold,
             Margin = new Thickness(0, 0, 0, 4),
         });
@@ -312,7 +320,7 @@ public sealed class MainView : UserControl
 
         var add = new Button
         {
-            Content = "添加到画布",
+            Content = Localizer.T("Toolbox.AddToCanvas"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
         };
@@ -322,7 +330,7 @@ public sealed class MainView : UserControl
 
         var hint = new TextBlock
         {
-            Text = "双击工具或按回车添加到画布中心。",
+            Text = Localizer.T("Toolbox.Hint"),
             FontSize = 11,
             Foreground = Brushes.DimGray,
             TextWrapping = TextWrapping.Wrap,
@@ -339,44 +347,44 @@ public sealed class MainView : UserControl
         var panel = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 4) };
 
         foreach (var (label, key) in ElementButtons)
-            panel.Children.Add(ToolbarButton(label, () => AddElement(key), "添加" + label));
+            panel.Children.Add(ToolbarButton(label, () => AddElement(key), Localizer.T("Toolbar.AddWithLabel", label)));
 
         panel.Children.Add(Separator());
         // 标签尽量短（完整说明放 ToolTip）：工具带项目多，窄窗口换行时省横向空间。
-        panel.Children.Add(ToolbarButton("副本", DuplicateSelection, "创建选中元素的副本（Ctrl+D）"));
-        panel.Children.Add(ToolbarButton("删除", DeleteSelection, "删除选中元素（Delete）"));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.Duplicate"), DuplicateSelection, Localizer.T("Toolbar.DuplicateTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.Delete"), DeleteSelection, Localizer.T("Toolbar.DeleteTip")));
 
         panel.Children.Add(Separator());
-        panel.Children.Add(ToolbarButton("上移", () => RunKernel(kernel => kernel.BringForward()), "Z 序上移一层"));
-        panel.Children.Add(ToolbarButton("下移", () => RunKernel(kernel => kernel.SendBackward()), "Z 序下移一层"));
-        panel.Children.Add(ToolbarButton("置顶", () => RunKernel(kernel => kernel.BringToFront()), "置于顶层"));
-        panel.Children.Add(ToolbarButton("置底", () => RunKernel(kernel => kernel.SendToBack()), "置于底层"));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.BringForward"), () => RunKernel(kernel => kernel.BringForward()), Localizer.T("Toolbar.BringForwardTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.SendBackward"), () => RunKernel(kernel => kernel.SendBackward()), Localizer.T("Toolbar.SendBackwardTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.BringToFront"), () => RunKernel(kernel => kernel.BringToFront()), Localizer.T("Toolbar.BringToFrontTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.SendToBack"), () => RunKernel(kernel => kernel.SendToBack()), Localizer.T("Toolbar.SendToBackTip")));
 
         panel.Children.Add(Separator());
-        panel.Children.Add(ToolbarButton("适合窗口", FitToPage, "整页适配到窗口大小"));
-        panel.Children.Add(ToolbarButton("100%", ZoomActual, "实际大小显示"));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.FitToPage"), FitToPage, Localizer.T("Toolbar.FitToPageTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.ZoomActual"), ZoomActual, Localizer.T("Toolbar.ZoomActualTip")));
 
         panel.Children.Add(Separator());
-        panel.Children.Add(Toggle("网格", true, value =>
+        panel.Children.Add(Toggle(Localizer.T("Toolbar.Grid"), true, value =>
         {
             _designer.Overlay.Options.ShowGrid = value;
             _designer.Redraw();
         }));
-        panel.Children.Add(Toggle("标尺", true, value =>
+        panel.Children.Add(Toggle(Localizer.T("Toolbar.Rulers"), true, value =>
         {
             _designer.Overlay.Options.ShowRulers = value;
             _designer.Redraw();
         }));
-        panel.Children.Add(Toggle("安全区", true, value =>
+        panel.Children.Add(Toggle(Localizer.T("Toolbar.SafeArea"), true, value =>
         {
             _designer.Overlay.Options.ShowMarginGuides = value;
             _designer.Redraw();
         }));
 
         panel.Children.Add(Separator());
-        panel.Children.Add(ToolbarButton("导入", () => _ = ImportHiprintAsync(), "导入 hiprint / vue-plugin-hiprint 导出的模板"));
-        panel.Children.Add(ToolbarButton("导出 PDF", () => _ = ExportPdfAsync(), "导出当前模板（绑定示例数据）"));
-        panel.Children.Add(ToolbarButton("预览", OpenPreview, "打开打印预览窗口"));
+        panel.Children.Add(ToolbarButton(Localizer.T("Menu.File.ImportHiprint"), () => _ = ImportHiprintAsync(), Localizer.T("Toolbar.ImportTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.ExportPdf"), () => _ = ExportPdfAsync(), Localizer.T("Toolbar.ExportPdfTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.Preview"), OpenPreview, Localizer.T("Toolbar.PreviewTip")));
 
         return panel;
     }
@@ -415,7 +423,7 @@ public sealed class MainView : UserControl
     {
         _designer.Kernel.AddElementAtCenter(typeKey);
         _designer.Focus();
-        SetStatus($"已添加元素（{typeKey}）：拖动移动，方向键微调，Delete 删除。");
+        SetStatus(Localizer.T("Status.ElementAdded", typeKey));
     }
 
     /// <summary>把工具箱当前选中的元素添加到画布中心。</summary>
@@ -424,14 +432,14 @@ public sealed class MainView : UserControl
         var index = _toolbox.SelectedIndex;
         if (index < 0)
         {
-            SetStatus("请先在工具箱里选择一个元素类型。");
+            SetStatus(Localizer.T("Status.SelectFirstInToolbox"));
             return;
         }
 
         var (label, key) = ElementButtons[index];
         _designer.Kernel.AddElementAtCenter(key);
         _designer.Focus();
-        SetStatus($"已添加{label}元素；右侧属性面板可直接编辑。");
+        SetStatus(Localizer.T("Status.ToolboxAdded", label));
     }
 
     /// <summary>加载 80mm 连续纸长小票复杂模板：写法照抄 kitchen-sink 的 LoadSampleTemplate，失败时状态栏提示。</summary>
@@ -441,7 +449,7 @@ public sealed class MainView : UserControl
         var text = SampleAssets.Read("complex-receipt.template.json");
         if (text is null)
         {
-            SetStatus("未找到 complex-receipt.template.json，已保留当前模板。");
+            SetStatus(Localizer.T("Status.LoadComplexNotFound"));
             return;
         }
 
@@ -450,9 +458,9 @@ public sealed class MainView : UserControl
             var result = TemplateJson.Load(text, TemplateJsonLoadOptions.Tolerant);
             // LoadTemplate 会换内核：属性面板、纸张栏和 JSON 面板都要接到新内核上。
             _designer.LoadTemplate(result.Template);
-            BindKernel("已加载 complex-receipt.template.json。");
+            BindKernel(Localizer.T("Status.LoadComplex"));
 
-            var status = $"已加载 complex-receipt.template.json（80mm 连续纸长小票，{result.Template.Elements.Count} 个元素）：滚轮/滚动条查看全页。";
+            var status = Localizer.T("Status.LoadComplexDetail", result.Template.Elements.Count);
             if (result.Warnings.Count > 0)
                 status += "；" + string.Join("；", result.Warnings);
             SetStatus(status);
@@ -460,7 +468,7 @@ public sealed class MainView : UserControl
         }
         catch (Exception ex)
         {
-            SetStatus("加载 complex-receipt.template.json 失败：" + ex.Message);
+            SetStatus(Localizer.T("Status.LoadComplexFailed", ex.Message));
         }
     }
 
@@ -474,14 +482,14 @@ public sealed class MainView : UserControl
     {
         if (_designer.Kernel.Selection.IsEmpty)
         {
-            SetStatus("先选中元素再创建副本。");
+            SetStatus(Localizer.T("Status.SelectFirstBeforeDuplicate"));
             _designer.Focus();
             return;
         }
 
         _designer.Kernel.DuplicateSelection();
         _designer.Focus();
-        SetStatus($"已创建副本：向页内偏移 {EditorKernel.DuplicateOffsetMm:0.#} mm 并选中副本。");
+        SetStatus(Localizer.T("Status.Duplicated", EditorKernel.DuplicateOffsetMm));
     }
 
     void RunKernel(Action<EditorKernel> action)
@@ -506,29 +514,29 @@ public sealed class MainView : UserControl
     {
         _canvasMenu.Placement = PlacementMode.Pointer;
 
-        AddSelectionItem("创建副本", "Ctrl+D", DuplicateSelection);
-        AddSelectionItem("删除", "Delete", DeleteSelection);
+        AddSelectionItem(Localizer.T("Canvas.Context.Duplicate"), "Ctrl+D", DuplicateSelection);
+        AddSelectionItem(Localizer.T("Canvas.Context.Delete"), "Delete", DeleteSelection);
         _canvasMenu.Items.Add(new Separator());
-        AddSelectionItem("上移一层", null, () => RunKernel(kernel => kernel.BringForward()));
-        AddSelectionItem("下移一层", null, () => RunKernel(kernel => kernel.SendBackward()));
-        AddSelectionItem("置于顶层", null, () => RunKernel(kernel => kernel.BringToFront()));
-        AddSelectionItem("置于底层", null, () => RunKernel(kernel => kernel.SendToBack()));
+        AddSelectionItem(Localizer.T("Canvas.Context.BringForward"), null, () => RunKernel(kernel => kernel.BringForward()));
+        AddSelectionItem(Localizer.T("Canvas.Context.SendBackward"), null, () => RunKernel(kernel => kernel.SendBackward()));
+        AddSelectionItem(Localizer.T("Canvas.Context.BringToFront"), null, () => RunKernel(kernel => kernel.BringToFront()));
+        AddSelectionItem(Localizer.T("Canvas.Context.SendToBack"), null, () => RunKernel(kernel => kernel.SendToBack()));
         _canvasMenu.Items.Add(new Separator());
-        AddSelectionItem("水平居中", null, () =>
+        AddSelectionItem(Localizer.T("Canvas.Context.AlignCenter"), null, () =>
         {
             RunKernel(kernel => kernel.CenterSelectionHorizontally());
-            SetStatus("选中元素已在页面上水平居中。");
+            SetStatus(Localizer.T("Status.AlignHorizontally"));
         });
-        _verticalCenterItem = AddSelectionItem("垂直居中", null, () =>
+        _verticalCenterItem = AddSelectionItem(Localizer.T("Canvas.Context.AlignMiddle"), null, () =>
         {
             RunKernel(kernel => kernel.CenterSelectionVertically());
-            SetStatus("选中元素已在页面上垂直居中。");
+            SetStatus(Localizer.T("Status.AlignVertically"));
         });
         _canvasMenu.Items.Add(new Separator());
-        AddCanvasItem("适合窗口", null, FitToPage);
-        AddCanvasItem("实际大小（100%）", null, ZoomActual);
+        AddCanvasItem(Localizer.T("Canvas.Context.FitToPage"), null, FitToPage);
+        AddCanvasItem(Localizer.T("Canvas.Context.ZoomActual"), null, ZoomActual);
         _canvasMenu.Items.Add(new Separator());
-        _rotatePaperItem = AddCanvasItem("旋转为横向", null, TogglePaperOrientation);
+        _rotatePaperItem = AddCanvasItem(Localizer.T("Canvas.Context.RotateLandscape"), null, TogglePaperOrientation);
         _canvasMenu.Items.Add(CreateCustomPaperItem());
     }
 
@@ -558,7 +566,7 @@ public sealed class MainView : UserControl
 
     MenuItem CreateCustomPaperItem()
     {
-        var item = new MenuItem { Header = "自定义纸张…" };
+        var item = new MenuItem { Header = Localizer.T("Canvas.Context.CustomPaper") };
         // 等菜单关完再开模态窗，避免弹出顺序/焦点打架。
         item.Click += (_, _) => Dispatcher.UIThread.Post(() => _ = ShowCustomPaperDialogAsync());
         return item;
@@ -602,8 +610,8 @@ public sealed class MainView : UserControl
         _verticalCenterItem.IsEnabled = hasSelection && !paper.IsContinuous;
         _rotatePaperItem.IsEnabled = !paper.IsContinuous;
         _rotatePaperItem.Header = paper.Orientation == PaperOrientation.Landscape
-            ? "旋转为纵向"
-            : "旋转为横向";
+            ? Localizer.T("Canvas.Context.RotatePortrait")
+            : Localizer.T("Canvas.Context.RotateLandscape");
 
         SyncPaperControls();
     }
@@ -642,11 +650,11 @@ public sealed class MainView : UserControl
         {
             _designer.Kernel.SetPaperPreset(choice.Key);
             var paper = _designer.Kernel.Template.Paper;
-            SetStatus($"纸张已设为 {paper.PageWidthMm:0.##} × {paper.PageHeightMm:0.##} mm。");
+            SetStatus(Localizer.T("Status.PaperSet", paper.PageWidthMm, paper.PageHeightMm));
         }
         catch (Exception ex)
         {
-            SetStatus("设置纸张失败：" + ex.Message);
+            SetStatus(Localizer.T("Error.PaperFailed", ex.Message));
         }
 
         SyncPaperControls();
@@ -661,7 +669,7 @@ public sealed class MainView : UserControl
             // 浏览器单视图没有 Window 可作模态宿主，弹窗只支持桌面。
             if (TopLevel.GetTopLevel(this) is not Window owner)
             {
-                SetStatus("浏览器版不支持自定义纸张弹窗，请在桌面示例中设置。");
+                SetStatus(Localizer.T("Error.NotSupportedInBrowser"));
                 return;
             }
             await dialog.ShowDialog(owner);
@@ -669,13 +677,13 @@ public sealed class MainView : UserControl
             {
                 _designer.Kernel.SetCustomPaper(dialog.WidthMm, dialog.HeightMm);
                 SetStatus(dialog.HeightMm > 0
-                    ? $"自定义纸张：{dialog.WidthMm:0.##} × {dialog.HeightMm:0.##} mm。"
-                    : $"自定义连续纸：宽 {dialog.WidthMm:0.##} mm，长度随内容自适应。");
+                    ? Localizer.T("Status.CustomPaperSet", dialog.WidthMm, dialog.HeightMm)
+                    : Localizer.T("Status.CustomContinuousPaperSet", dialog.WidthMm));
             }
         }
         catch (Exception ex)
         {
-            SetStatus("设置纸张失败：" + ex.Message);
+            SetStatus(Localizer.T("Error.PaperFailed", ex.Message));
         }
         finally
         {
@@ -689,7 +697,7 @@ public sealed class MainView : UserControl
         var kernel = _designer.Kernel;
         if (kernel.Template.Paper.IsContinuous)
         {
-            SetStatus("连续纸没有固定页高，不能旋转。");
+            SetStatus(Localizer.T("Status.ContinuousCannotRotate"));
             _designer.Focus();
             return;
         }
@@ -700,15 +708,15 @@ public sealed class MainView : UserControl
         }
         catch (Exception ex)
         {
-            SetStatus("旋转纸张失败：" + ex.Message);
+            SetStatus(Localizer.T("Error.RotateFailed", ex.Message));
             _designer.Focus();
             return;
         }
 
         SyncPaperControls();
         SetStatus(kernel.Template.Paper.Orientation == PaperOrientation.Landscape
-            ? "纸张已转为横向。"
-            : "纸张已转为纵向。");
+            ? Localizer.T("Status.PaperLandscape")
+            : Localizer.T("Status.PaperPortrait"));
         _designer.Focus();
     }
 
@@ -729,14 +737,14 @@ public sealed class MainView : UserControl
 
             var continuous = paper.IsContinuous;
             _rotateButton.IsEnabled = !continuous;
-            _rotateButton.Content = paper.Orientation == PaperOrientation.Landscape ? "转纵向" : "转横向";
+            _rotateButton.Content = paper.Orientation == PaperOrientation.Landscape ? Localizer.T("Paper.RotatePortrait") : Localizer.T("Paper.Rotate");
 
             if (_rotatePaperItem is not null)
             {
                 _rotatePaperItem.IsEnabled = !continuous;
                 _rotatePaperItem.Header = paper.Orientation == PaperOrientation.Landscape
-                    ? "旋转为纵向"
-                    : "旋转为横向";
+                    ? Localizer.T("Canvas.Context.RotatePortrait")
+                    : Localizer.T("Canvas.Context.RotateLandscape");
             }
 
             _paperInfo.Text = DescribePaper(paper);
@@ -749,10 +757,13 @@ public sealed class MainView : UserControl
 
     static string DescribePaper(PaperSpec paper)
     {
-        var name = paper.Preset is null || paper.Preset == PaperTypePresets.Custom ? "自定义" : paper.Preset;
+        var name = paper.Preset is null || paper.Preset == PaperTypePresets.Custom ? Localizer.T("Paper.Custom") : paper.Preset;
+        var orientation = paper.Orientation == PaperOrientation.Landscape
+            ? Localizer.T("Paper.Orientation.Landscape")
+            : Localizer.T("Paper.Orientation.Portrait");
         return paper.IsContinuous
-            ? $"{name}：{paper.PageWidthMm:0.##} mm 宽，长度随内容（固定纵向）"
-            : $"{name}：{paper.PageWidthMm:0.##} × {paper.PageHeightMm:0.##} mm（{(paper.Orientation == PaperOrientation.Landscape ? "横向" : "纵向")}）";
+            ? $"{name}：{paper.PageWidthMm:0.##} mm 宽，长度随内容（{orientation}）"
+            : $"{name}：{paper.PageWidthMm:0.##} × {paper.PageHeightMm:0.##} mm（{orientation}）";
     }
 
     void SetStatus(string text) => _status.Text = text;
@@ -760,17 +771,17 @@ public sealed class MainView : UserControl
     Control BuildTemplateJsonPanel()
     {
         // 折叠开关：JSON 面板是低频的调试/导入入口，默认收起只留一条标题带，把竖向空间还给画布。
-        _jsonToggle.Content = "▸ 模板 JSON";
+        _jsonToggle.Content = "▸ " + Localizer.T("JsonPanel.Title");
         _jsonToggle.FontWeight = FontWeight.SemiBold;
         _jsonToggle.VerticalAlignment = VerticalAlignment.Center;
         _jsonToggle.Margin = new Thickness(0, 0, 10, 0);
         _jsonToggle.Click += (_, _) => SetJsonPanelExpanded(_jsonToggle.IsChecked == true);
 
-        var apply = new Button { Content = "应用 JSON" };
+        var apply = new Button { Content = Localizer.T("JsonPanel.Apply") };
         apply.Click += (_, _) => ApplyTemplateJson();
 
-        var reload = new Button { Content = "重新载入", Margin = new Thickness(4, 0, 0, 0) };
-        reload.Click += (_, _) => RefreshTemplateJson("已重新载入当前模板，未应用的编辑已丢弃。");
+        var reload = new Button { Content = Localizer.T("JsonPanel.Reload"), Margin = new Thickness(4, 0, 0, 0) };
+        reload.Click += (_, _) => RefreshTemplateJson(Localizer.T("Status.JsonReloaded"));
 
         _jsonState.FontSize = 12;
         _jsonState.Foreground = Brushes.DimGray;
@@ -835,7 +846,7 @@ public sealed class MainView : UserControl
     void SetJsonPanelExpanded(bool expanded)
     {
         _jsonToggle.IsChecked = expanded;
-        _jsonToggle.Content = expanded ? "▾ 模板 JSON" : "▸ 模板 JSON";
+        _jsonToggle.Content = (expanded ? "▾ " : "▸ ") + Localizer.T("JsonPanel.Title");
         _jsonContentRow.Height = new GridLength(expanded ? 230 : 0);
         // 分割条只在展开时可见：收起后留着会占 4px 高度，还能拖到一条看不见的带。
         _jsonSplitter.IsVisible = expanded;
@@ -866,13 +877,13 @@ public sealed class MainView : UserControl
             if (_jsonDirty)
             {
                 _jsonDirty = false;
-                SetJsonState($"已同步当前模板（{_designer.Kernel.Template.Elements.Count} 个元素）。", error: false);
+                SetJsonState(Localizer.T("JsonPanel.Synced", _designer.Kernel.Template.Elements.Count), error: false);
             }
             return;
         }
 
         _jsonDirty = true;
-        SetJsonState("有未应用的修改：点「应用 JSON」或按 Ctrl+Enter 生效。", error: false);
+        SetJsonState(Localizer.T("JsonPanel.Dirty"), error: false);
     }
 
     void OnTemplateJsonKeyDown(object? sender, KeyEventArgs e)
@@ -891,7 +902,7 @@ public sealed class MainView : UserControl
         _jsonDirty = false;
         _templateJson.Text = text;
         _templateJson.CaretIndex = 0;
-        SetJsonState(note ?? $"已同步当前模板（{_designer.Kernel.Template.Elements.Count} 个元素）。", error: false);
+        SetJsonState(note ?? Localizer.T("JsonPanel.Synced", _designer.Kernel.Template.Elements.Count), error: false);
     }
 
     static string NormalizeJsonText(string? text) =>
@@ -922,24 +933,24 @@ public sealed class MainView : UserControl
                 _designer.LoadTemplate(imported.Template);
                 BindKernel(summary);
                 SetJsonState(summary, error: imported.HasErrors);
-                SetStatus("已把 hiprint 模板转换为 CrossPrint 模板。");
+                SetStatus(Localizer.T("Status.HiprintImported"));
                 _designer.Focus();
                 return;
             }
 
             var load = TemplateJson.Load(text, TemplateJsonLoadOptions.Tolerant);
             var loadNote = load.Warnings.Count == 0
-                ? $"已应用 JSON：{load.Template.Elements.Count} 个元素。"
-                : $"已应用 JSON：{load.Template.Elements.Count} 个元素；{string.Join("；", load.Warnings)}";
+                ? Localizer.T("Status.JsonApplied", load.Template.Elements.Count)
+                : Localizer.T("Status.JsonAppliedWithWarnings", load.Template.Elements.Count, string.Join("；", load.Warnings));
             _designer.LoadTemplate(load.Template);
             BindKernel(loadNote);
             SetJsonState(loadNote, error: load.Warnings.Count > 0);
-            SetStatus("已从底部 JSON 面板应用模板。");
+            SetStatus(Localizer.T("Status.JsonAppliedFromPanel"));
             _designer.Focus();
         }
         catch (Exception ex)
         {
-            SetJsonState("JSON 未应用：" + ex.Message, error: true);
+            SetJsonState(Localizer.T("Status.JsonNotApplied", ex.Message), error: true);
         }
     }
 
@@ -957,17 +968,17 @@ public sealed class MainView : UserControl
             var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
             if (storage is null)
             {
-                SetStatus("当前环境不支持文件选择。");
+                SetStatus(Localizer.T("Error.NoFileAccess"));
                 return;
             }
 
             var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
             {
-                Title = "导入 hiprint 模板",
+                Title = Localizer.T("Dialog.Import.Title"),
                 AllowMultiple = false,
                 FileTypeFilter =
                 [
-                    new FilePickerFileType("hiprint 模板") { Patterns = ["*.js", "*.json", "*.txt"] },
+                    new FilePickerFileType(Localizer.T("Dialog.Import.HiprintFilter")) { Patterns = ["*.js", "*.json", "*.txt"] },
                     FilePickerFileTypes.All,
                 ],
             });
@@ -984,7 +995,7 @@ public sealed class MainView : UserControl
         }
         catch (Exception ex)
         {
-            SetStatus("导入 hiprint 模板失败：" + ex.Message);
+            SetStatus(Localizer.T("Error.HiprintImportFailed", ex.Message));
         }
     }
 
@@ -1023,13 +1034,13 @@ public sealed class MainView : UserControl
             var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
             if (storage is null)
             {
-                SetStatus("当前环境不支持保存文件。");
+                SetStatus(Localizer.T("Error.NoSaveAccess"));
                 return;
             }
 
             var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                Title = "导出 PDF",
+                Title = Localizer.T("Dialog.Export.Title"),
                 SuggestedFileName = "crossprint.pdf",
                 DefaultExtension = "pdf",
                 FileTypeChoices = [new FilePickerFileType("PDF") { Patterns = ["*.pdf"] }],
@@ -1047,12 +1058,12 @@ public sealed class MainView : UserControl
                 images: _designer.Images,
                 renderer: _designer.Renderer);
             _status.Text = report.HasIssues
-                ? $"已导出 {file.Name}；渲染告警 {report.Issues.Count} 条。"
-                : $"已导出 {file.Name}；无渲染告警。";
+                ? Localizer.T("Status.ExportedWithWarnings", file.Name, report.Issues.Count)
+                : Localizer.T("Status.Exported", file.Name);
         }
         catch (Exception ex)
         {
-            _status.Text = "导出失败：" + ex.Message;
+            _status.Text = Localizer.T("Error.ExportFailed", ex.Message);
         }
     }
 
@@ -1068,15 +1079,15 @@ public sealed class MainView : UserControl
             Margin = new Thickness(8, 4),
             TextWrapping = TextWrapping.Wrap,
             Foreground = Brushes.DimGray,
-            Text = "渲染告警：绘制中…",
+            Text = Localizer.T("Status.RenderingDrawing"),
         };
 
         preview.Rendered += (_, _) => Dispatcher.UIThread.Post(() =>
         {
             var report = preview.LastReport;
             warningLabel.Text = report is null || !report.HasIssues
-                ? "渲染告警：无"
-                : $"渲染告警（{report.Issues.Count} 条）：{Environment.NewLine}{report}";
+                ? Localizer.T("Status.RenderingNoWarnings")
+                : Localizer.T("Status.RenderingWarnings", report.Issues.Count, report);
         });
 
         var root = new DockPanel();
@@ -1087,13 +1098,13 @@ public sealed class MainView : UserControl
         // 浏览器单视图开不了预览窗口：new Window 在 Avalonia.Browser 直接抛，降级为提示。
         if (TopLevel.GetTopLevel(this) is not Window owner)
         {
-            SetStatus("浏览器版不支持预览弹窗，请使用「导出 PDF」查看渲染结果。");
+            SetStatus(Localizer.T("Status.PreviewNotSupportedInBrowser"));
             return;
         }
 
         var window = new Window
         {
-            Title = "预览 - CrossPrint",
+            Title = Localizer.T("Dialog.Preview.Title"),
             Width = 900,
             Height = 1000,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -1111,7 +1122,7 @@ public sealed class MainView : UserControl
             var text = SampleAssets.Read("kitchen-sink.template.json");
             if (text is null)
             {
-                warnings = ["未找到 kitchen-sink.template.json，使用空白 A4 模板。"];
+                warnings = [Localizer.T("Status.KitchenSinkNotFound")];
                 return PrintTemplate.CreateDefault(PaperTypePresets.A4);
             }
 
@@ -1121,9 +1132,172 @@ public sealed class MainView : UserControl
         }
         catch (Exception ex)
         {
-            warnings = ["模板加载失败：" + ex.Message];
+            warnings = [Localizer.T("Error.LoadFailed", ex.Message)];
             return PrintTemplate.CreateDefault(PaperTypePresets.A4);
         }
+    }
+
+    /// <summary>显示关于对话框窗口。浏览器环境降级为在状态栏提示。</summary>
+    async Task ShowAboutAsync()
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner)
+        {
+            SetStatus(Localizer.T("Error.NotSupportedInBrowser"));
+            return;
+        }
+
+        var productTitle = new TextBlock
+        {
+            Text = AboutInfo.ProductName,
+            FontSize = 22,
+            FontWeight = FontWeight.Bold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 12, 0, 4),
+        };
+
+        var version = new TextBlock
+        {
+            Text = Localizer.T("About.Version", AboutInfo.Version),
+            FontSize = 14,
+            Foreground = Brushes.DimGray,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+
+        var description = new TextBlock
+        {
+            Text = Localizer.T("About.Description"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(16, 4),
+            Foreground = Brushes.DimGray,
+        };
+
+        // 第三方依赖列表：名称 + 描述 + License
+        var thirdPartyPanel = new StackPanel { Margin = new Thickness(16, 8) };
+        thirdPartyPanel.Children.Add(new TextBlock
+        {
+            Text = Localizer.T("About.ThirdParty"),
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        foreach (var tp in AboutInfo.ThirdParty)
+        {
+            thirdPartyPanel.Children.Add(new TextBlock
+            {
+                Text = $"  • {tp.Name}  ({tp.License}) — {tp.Description}",
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = Brushes.DimGray,
+                Margin = new Thickness(0, 1, 0, 1),
+            });
+        }
+
+        var closeButton = new Button
+        {
+            Content = Localizer.T("About.Close"),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(16, 12),
+            Padding = new Thickness(16, 4),
+        };
+
+        var logoPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 4),
+            Spacing = 16,
+        };
+
+        // logo：优先从 I18n 内嵌资源加载；失败则退化为标题文字
+        logoPanel.Children.Add(TryLoadLogo());
+
+        var root = new StackPanel
+        {
+            Spacing = 2,
+            Children =
+            {
+                logoPanel,
+                productTitle,
+                version,
+                description,
+                new Separator(),
+                thirdPartyPanel,
+                closeButton,
+            },
+        };
+
+        var window = new Window
+        {
+            Title = Localizer.T("About.Title"),
+            Width = 560,
+            Height = 520,
+            MinWidth = 420,
+            MinHeight = 420,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = true,
+            Content = new Border
+            {
+                Padding = new Thickness(4),
+                Child = root,
+            },
+        };
+
+        try
+        {
+            using var stream = LogoLoader.GetLogoStream();
+            if (stream is not null) window.Icon = new WindowIcon(stream);
+        }
+        catch { }
+
+        closeButton.Click += (_, _) => window.Close();
+
+        await window.ShowDialog(owner);
+    }
+
+    /// <summary>
+    /// 从 CrossPrint.I18n 嵌入资源加载 OODD CrossPrint logo 作为 Avalonia Image 控件；
+    /// 找不到时退化为带标题的 Border 占位块。
+    /// </summary>
+    static Control TryLoadLogo()
+    {
+        try
+        {
+            using var stream = LogoLoader.GetLogoStream();
+            if (stream is not null)
+            {
+                var bitmap = Bitmap.DecodeToWidth(stream, 128);
+                return new Image
+                {
+                    Source = bitmap,
+                    Width = 128,
+                    Height = 128,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+            }
+        }
+        catch
+        {
+            // logo 资源加载失败（格式/路径），静默降级为文字占位。
+        }
+
+        // 降级：带产品名的占位 Border
+        return new Border
+        {
+            Width = 128,
+            Height = 128,
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = new SolidColorBrush(Color.FromRgb(0x1B, 0x3A, 0x5C)),
+            CornerRadius = new CornerRadius(12),
+            Child = new TextBlock
+            {
+                Text = "OODD\nCrossPrint",
+                Foreground = Brushes.White,
+                FontWeight = FontWeight.Bold,
+                FontSize = 14,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
     }
 
     sealed record PaperChoice(string? Key, string Label);

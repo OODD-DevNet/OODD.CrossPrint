@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Media.Imaging;
+using CrossPrint.I18n;
 
 namespace CrossPrint.Samples.Avalonia;
 
@@ -13,7 +15,7 @@ public sealed class MainWindow : Window
     /// <summary>创建桌面主窗口并承载 MainView。</summary>
     public MainWindow()
     {
-        Title = "CrossPrint Avalonia 示例";
+        Title = Localizer.T("App.Title.Short") + " — Avalonia";
         // 布局基准与 WPF 版一致：窗口 1320×880，最小 1024×640。
         Width = 1320;
         Height = 880;
@@ -21,5 +23,14 @@ public sealed class MainWindow : Window
         MinHeight = 640;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Content = new MainView();
+
+        // 设置窗口图标（从 I18n 嵌入资源加载，失败静默跳过）
+        try
+        {
+            using var stream = LogoLoader.GetLogoStream();
+            if (stream is not null)
+                Icon = new WindowIcon(stream);
+        }
+        catch { /* icon 加载失败不影响使用 */ }
     }
 }

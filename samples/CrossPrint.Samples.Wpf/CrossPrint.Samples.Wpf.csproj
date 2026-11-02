@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -12,6 +12,7 @@
     <ProjectReference Include="..\..\src\CrossPrint.Hosts.Wpf\CrossPrint.Hosts.Wpf.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.I18n\CrossPrint.I18n.csproj" />
   </ItemGroup>
 
   <ItemGroup>

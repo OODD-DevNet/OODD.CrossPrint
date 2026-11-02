@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <!--
     WinUI 3 示例（非打包、框架依赖）：WindowsPackageType=None ⇒ 启动时引导器自动初始化，
@@ -31,6 +31,7 @@
     <ProjectReference Include="..\..\src\CrossPrint.Hosts.WinUi\CrossPrint.Hosts.WinUi.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.I18n\CrossPrint.I18n.csproj" />
   </ItemGroup>
 
   <ItemGroup>

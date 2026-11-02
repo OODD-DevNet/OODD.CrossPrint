@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <!--
     .NET MAUI 示例（仅 Windows 目标，非打包框架依赖）：WindowsPackageType=None ⇒ 启动时由
@@ -40,6 +40,7 @@
     <ProjectReference Include="..\..\src\CrossPrint.Hosts.Maui\CrossPrint.Hosts.Maui.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.I18n\CrossPrint.I18n.csproj" />
   </ItemGroup>
 
   <ItemGroup>

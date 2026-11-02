@@ -32,6 +32,7 @@
     <ProjectReference Include="..\..\src\CrossPrint.Hosts.Avalonia\CrossPrint.Hosts.Avalonia.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
+    <ProjectReference Include="..\..\src\CrossPrint.I18n\CrossPrint.I18n.csproj" />
   </ItemGroup>
 
   <ItemGroup>

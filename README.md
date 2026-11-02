@@ -1,5 +1,9 @@
 # CrossPrint
 
+<p align="center">
+  <img src="assets/oodd-crossprint-logo.png" width="128" alt="OODD CrossPrint Logo" />
+</p>
+
 跨平台 .NET 打印模板组件：一份模板、一个渲染内核，嵌入 Avalonia / WPF / WinForms / Eto.Forms / WinUI / Uno / .NET MAUI，设计、预览、PDF 导出与打印共享同一条 SkiaSharp 渲染路径。可直接导入 hiprint（vue-plugin-hiprint / Vue-Print-Designer）设计器导出的模板。
 
 > 模板只写毫米与磅；元素外观由引擎画，宿主控件只负责"把画布放到屏幕上"。设计器里看到的就是导出的、导出的就是打印的。
@@ -17,6 +21,15 @@
 - **打印目标可插拔**：`PdfFilePrintTarget`（打印到 PDF 文件）、`SystemPrintTarget`（交给操作系统打印管线：Windows 弹关联应用打印框，macOS / Linux 交 CUPS）。
 - **可裁剪 / 可 AOT**：模板 JSON 走 System.Text.Json 源生成，Core 零 IL 警告。
 - **单位即语义**：页面与几何一律毫米（`WidthMm` / `Xmm`…），字体一律磅（`SizePt`），没有像素换算陷阱。
+
+## 设计器与打印预览
+
+<p align="center">
+  <img src="assets/print-design-screenshot.png" width="48%" alt="设计器画布" />
+  <img src="assets/print-preview-screenshot.png" width="48%" alt="打印预览" />
+</p>
+
+左：Avalonia 宿主设计器（厨房水槽模板，含全部八种元素 + 脚本）；右：同模板的打印预览（或导出 PDF 渲染结果）。两者走同一条 `TemplateRenderer`，所见即所得。
 
 ## 在线示例（WebAssembly）
 
