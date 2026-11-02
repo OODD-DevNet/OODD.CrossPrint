@@ -356,6 +356,7 @@ public static class TemplateJson
                 if (obj.TryGetPropertyValue("rowFillRules", out var rules) && rules is JsonArray arr)
                 {
                     var converted = new JsonArray();
+#pragma warning disable IL2026 // JsonArray.Add<T> 内部对非原始类型用 JsonSerializer 反射；此处入参全是原始类型样式字段（string/double/bool），安全
                     foreach (var rule in arr.OfType<JsonObject>())
                     {
                         var style = new JsonObject();

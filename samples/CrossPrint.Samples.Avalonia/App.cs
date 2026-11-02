@@ -43,6 +43,8 @@ public sealed class App : Application
 #if BROWSER
             CrossPrint.Samples.Avalonia.Browser.WebDiagnostics.Report(ex);
 #endif
+            // Trace 无条件执行，让非 BROWSER 构建也用到 ex（避免 CS0168 未使用变量警告）。
+            System.Diagnostics.Trace.TraceError(ex.ToString());
             throw;
         }
     }
