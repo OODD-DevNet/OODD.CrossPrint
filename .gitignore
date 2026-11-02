@@ -24,6 +24,9 @@ packages/
 .tmp/
 .tmp*/
 probe*/
+.trae-html-share-packages/
+*.err.txt
+*trace.txt
 
 # 编辑器
 *.tmp
