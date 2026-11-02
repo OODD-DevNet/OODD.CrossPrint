@@ -80,3 +80,11 @@ Desktop.ini
 [Ll]ogs/
 [Ll]og/
 *.log
+
+# IDE / AI 工具（持续补充）
+.trae/
+.trae-cn/
+.trae-html-share-packages/
+.screenshots/
+*.cache/
+.trae-doc-*
