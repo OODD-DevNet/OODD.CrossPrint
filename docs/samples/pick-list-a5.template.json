@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "0.1",
+  "paper": { "preset": "Custom", "widthMm": 148, "heightMm": 210, "orientation": "Landscape" },
+  "margins": { "top": 8, "right": 10, "bottom": 8, "left": 10 },
+  "designData": {
+    "pickNo": "PK-20261031-03",
+    "createdOn": "2026-10-31 08:00",
+    "zone": "B 区 · 冷链货架",
+    "pickLines[0].location": "B-01-03",
+    "pickLines[0].name": "冰博克牛奶 1L",
+    "pickLines[0].spec": "1L/盒",
+    "pickLines[0].planned": "12",
+    "pickLines[0].picked": "",
+    "pickLines[0].unit": "盒",
+    "picker": "仓管 · 老赵",
+    "checker": "复核 · 小何"
+  },
+  "elements": [
+    { "id": "pk-1", "type": "text", "xMm": 10, "yMm": 8, "widthMm": 190, "heightMm": 9, "zIndex": 0, "testData": "仓库拣货单（测试）",
+      "text": { "content": "仓库拣货单", "fontFamily": "Microsoft YaHei", "fontSizePt": 16, "bold": true, "italic": false, "underline": false, "strikethrough": false, "color": "#111111", "horizontalAlign": "Left", "verticalAlign": "Middle", "wrap": false, "lineSpacing": 1.2 } },
+    { "id": "pk-2", "type": "text", "xMm": 140, "yMm": 8, "widthMm": 60, "heightMm": 5.5, "zIndex": 1, "testData": "单号：PK-TEST-03",
+      "text": { "content": "单号：{{pickNo}}", "fontFamily": "Consolas", "fontSizePt": 8.5, "bold": false, "italic": false, "underline": false, "strikethrough": false, "color": "#222222", "horizontalAlign": "Right", "verticalAlign": "Middle", "wrap": false, "lineSpacing": 1.2 } },
+    { "id": "pk-3", "type": "text", "xMm": 140, "yMm": 14, "widthMm": 60, "heightMm": 5.5, "zIndex": 1, "testData": "生成时间：2026-10-31 08:00",
+      "text": { "content": "生成时间：{{createdOn}}", "fontFamily": "Microsoft YaHei", "fontSizePt": 8, "bold": false, "italic": false, "underline": false, "strikethrough": false, "color": "#222222", "horizontalAlign": "Right", "verticalAlign": "Middle", "wrap": false, "lineSpacing": 1.2 } },
+    { "id": "pk-4", "type": "text", "xMm": 10, "yMm": 18.5, "widthMm": 120, "heightMm": 5.5, "zIndex": 2, "testData": "拣货区：B 区 · 冷链货架（测试）",
+      "text": { "content": "拣货区：{{zone}}", "fontFamily": "Microsoft YaHei", "fontSizePt": 9.5, "bold": true, "italic": false, "underline": false, "strikethrough": false, "color": "#CC5500", "horizontalAlign": "Left", "verticalAlign": "Middle", "wrap": false, "lineSpacing": 1.2 } },
+    { "id": "pk-5", "type": "line", "xMm": 10, "yMm": 25.5, "widthMm": 190, "heightMm": 0, "zIndex": 3,
+      "line": { "strokeColor": "#333333", "strokeWidthMm": 0.35, "direction": "Horizontal", "dashPatternMm": null } },
+    { "id": "pk-6", "type": "table", "xMm": 10, "yMm": 29, "widthMm": 190, "heightMm": 88, "zIndex": 4, "testData": "B-01-03\t冰博克牛奶 1L\t1L/盒\t12\t\t盒\nB-02-08\t无糖酸奶 150g\t150g/杯\t24\t\t杯",
+      "table": {
+        "columns": [
+          { "title": "货位", "widthMm": 28, "field": "pickLines.location", "align": "Left", "fontSizePt": null },
+          { "title": "品名", "widthMm": 70, "field": "pickLines.name", "align": "Left", "fontSizePt": null },
+          { "title": "规格", "widthMm": 30, "field": "pickLines.spec", "align": "Left", "fontSizePt": null },
+          { "title": "应拣", "widthMm": 15, "field": "pickLines.planned", "align": "Right", "fontSizePt": null },
+          { "title": "实拣（手写）", "widthMm": 25, "field": "pickLines.picked", "align": "Right", "fontSizePt": null },
+          { "title": "单位", "widthMm": -1, "field": "pickLines.unit", "align": "Center", "fontSizePt": null }
+        ],
+        "rows": [],
+        "gridColor": "#333333", "gridWidthMm": 0.2,
+        "showBorder": true, "showHeader": true,
+        "headerFillColor": "#FFF1E0", "headerBold": true,
+        "stripeColor": "#FFF9F2",
+        "fontSizePt": 9, "fontFamily": "Microsoft YaHei",
+        "rowHeightMm": 8, "cellPaddingMm": 1.2, "lineSpacing": 1.2
+      } },
+    { "id": "pk-7", "type": "text", "xMm": 10, "yMm": 120, "widthMm": 190, "heightMm": 5.5, "zIndex": 5, "testData": "拣货员：仓管 · 老赵    复核：复核 · 小何",
+      "text": { "content": "拣货员：{{picker}}    复核：{{checker}}", "fontFamily": "Microsoft YaHei", "fontSizePt": 8.5, "bold": false, "italic": false, "underline": false, "strikethrough": false, "color": "#222222", "horizontalAlign": "Left", "verticalAlign": "Middle", "wrap": false, "lineSpacing": 1.2 } },
+    { "id": "pk-8", "type": "text", "xMm": 10, "yMm": 126.5, "widthMm": 190, "heightMm": 5.5, "zIndex": 5,
+      "text": { "content": "实拣列留白供仓管手写；冷链示 2 小时内出货，常温区当日出货。", "fontFamily": "Microsoft YaHei", "fontSizePt": 7.5, "bold": false, "italic": false, "underline": false, "strikethrough": false, "color": "#555555", "horizontalAlign": "Left", "verticalAlign": "Middle", "wrap": false, "lineSpacing": 1.2 } },
+    { "id": "pk-9", "type": "text", "xMm": 10, "yMm": 137, "widthMm": 190, "heightMm": 4, "zIndex": 6,
+      "text": { "content": "A5 横向拣货单样张 · CrossPrint 模板引擎生成", "fontFamily": "Microsoft YaHei", "fontSizePt": 6.5, "bold": false, "italic": false, "underline": false, "strikethrough": false, "color": "#999999", "horizontalAlign": "Center", "verticalAlign": "Middle", "wrap": false, "lineSpacing": 1.2 } }
+  ]
+}
