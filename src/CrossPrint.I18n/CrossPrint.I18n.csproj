@@ -7,7 +7,8 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <!-- 允许 net461 / netstandard2.0 宿主也引用（WinForms/WPF 宿主是 net461 目标） -->
+    <!-- 允许 net461 / netstandard2.0 宿主也引用（WinForms/WPF 宿主是 net461 目标）。
+         注意顺序：net8.0 必须在最前——trim/AOT publish 默认取第一个目标。 -->
     <TargetFrameworks>net8.0;netstandard2.0;net461</TargetFrameworks>
     <LangVersion>12.0</LangVersion>
     <Nullable>enable</Nullable>
@@ -15,6 +16,13 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <VersionPrefix>0.1.0</VersionPrefix>
+  </PropertyGroup>
+
+  <!-- netstandard2.0 / net461 不支持 PublishTrimmed，显式禁用。
+       否则 Avalonia sample 做 partial trim publish 时会报 NETSDK1124。 -->
+  <PropertyGroup Condition="'$(TargetFramework)' != 'net8.0'">
+    <IsTrimmable>false</IsTrimmable>
+    <PublishAot>false</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>

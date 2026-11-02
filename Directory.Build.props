@@ -22,8 +22,19 @@
     <Product>CrossPrint</Product>
     <Copyright>Copyright (c) 2026 OODD</Copyright>
     <RepositoryType>git</RepositoryType>
-    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionPrefix>1.0.0</VersionPrefix>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <!-- netstandard2.0 / net461 不支持 PublishTrimmed / PublishAot。
+       I18n 项目多目标框架时，Avalonia sample 做 partial trim publish 会 restore 所有 TFM，
+       必须在这里全局禁用——否则 NETSDK1124 报错。
+       注意：这只禁用 trim/AOT，正常 build/publish/运行不受影响。 -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0' Or '$(TargetFramework)' == 'net461'">
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishAot>false</PublishAot>
+    <IsTrimmable>false</IsTrimmable>
+    <EnableAotAnalyzers>false</EnableAotAnalyzers>
   </PropertyGroup>
 
   <!-- 包内附仓库 README（NuGet.org 详情页来源）；样例/测试不打包 -->
