@@ -14,7 +14,7 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
-  # 内核四层在 Linux/macOS 上必须原样可构建、可测试：它们是纯托管 + SkiaSharp 原生库。
+  # 内核四层在 Linux/Windows 上都必须可构建、可测试（SkiaSharp 跨平台渲染内核）。
   portable:
     strategy:
       fail-fast: false
@@ -30,10 +30,18 @@ jobs:
         run: dotnet build OODD.CrossPrint.Portable.slnf -c Release
       - name: Test
         run: |
-          dotnet test tests/CrossPrint.Core.Tests -c Release --no-build
-          dotnet test tests/CrossPrint.Engine.Tests -c Release --no-build
-          dotnet test tests/CrossPrint.Designer.Tests -c Release --no-build
-          dotnet test tests/CrossPrint.Printing.Tests -c Release --no-build
+          dotnet test tests/CrossPrint.Core.Tests -c Release --no-build --logger "console;verbosity=detailed"
+          dotnet test tests/CrossPrint.Engine.Tests -c Release --no-build --logger "console;verbosity=detailed"
+          dotnet test tests/CrossPrint.Designer.Tests -c Release --no-build --logger "console;verbosity=detailed"
+          dotnet test tests/CrossPrint.Printing.Tests -c Release --no-build --logger "console;verbosity=detailed"
+      - if: failure()
+        name: Dump test failure
+        shell: pwsh
+        run: |
+          echo "=== Test binaries present ==="
+          Get-ChildItem tests/*/bin/Release/net8.0/*.Tests.dll | Select-Object Name, Length
+          echo "=== SkiaSharp native assets ==="
+          Get-ChildItem -Recurse -Filter "libSkiaSharp*" | Select-Object FullName
 
   # 宿主适配与样例只在 Windows 上构建（WinForms/WPF 目标不可移植）。
   windows-hosts:
@@ -68,16 +76,32 @@ jobs:
               if (-not ($zip.Entries.FullName -contains "README.md")) { throw "$($p.Name) 未嵌入 README.md" }
             } finally { $zip.Dispose() }
           }
+      # Trim smoke：publish Avalonia sample（partial trim），确认本仓库程序集不产生 IL 警告。
+      # PowerShell 重定向 > 不会像管道那样改变 $LASTEXITCODE——这里用 > 确保 exit code 正确捕获。
       - name: Trim smoke (Avalonia sample, no AOT)
         shell: pwsh
         run: |
           dotnet publish samples/CrossPrint.Samples.Avalonia -c Release -r win-x64 `
             "-p:PublishTrimmed=true" "-p:TrimMode=partial" `
-            -o artifacts/trim-avalonia 2>&1 | Tee-Object -FilePath artifacts/trim.log
-          if ($LASTEXITCODE -ne 0) { throw "trim publish 失败" }
+            -o artifacts/trim-avalonia > artifacts/trim.log 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "trim publish 失败 (exit=$LASTEXITCODE)"
+            Get-Content artifacts/trim.log | Select-Object -Last 80
+            exit 1
+          }
+          Write-Output "--- CrossPrint IL warnings (expect 0) ---"
           $ours = Select-String -Path artifacts/trim.log -Pattern 'warning IL\d+:.*\bCrossPrint\.(Core|Engine|Designer|Printing|Hosts)\.'
-          if ($ours) { $ours | ForEach-Object { Write-Error $_.Line }; throw "本仓库程序集在裁剪下产生了 IL 警告" }
+          if ($ours) {
+            $ours | ForEach-Object { Write-Error $_.Line }
+            Write-Output "--- full trim log ---"
+            Get-Content artifacts/trim.log | Select-Object -Last 100
+            throw "本仓库程序集在裁剪下产生了 IL 警告，见上文"
+          }
+          Write-Output "OK：本仓库程序集在裁剪下无 IL 警告"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: packages
-          path: artifacts/packages/*.nupkg
+          name: packages-and-trim-log
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/trim.log
