@@ -26,6 +26,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="PolySharp" />
+    <PackageReference Include="System.Text.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- 资源 JSON 内嵌进程序集；Localizer 用 Assembly.GetManifestResourceStream 读取 -->
     <EmbeddedResource Include="Strings.zh-CN.json" />
     <EmbeddedResource Include="Strings.en-US.json" />
