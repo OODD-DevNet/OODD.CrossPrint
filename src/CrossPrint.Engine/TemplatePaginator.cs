@@ -70,8 +70,8 @@ public static class TemplatePaginator
         IFontResolver? fontResolver = null,
         IImageResolver? images = null)
     {
-        ArgumentNullException.ThrowIfNull(template);
-        ArgumentNullException.ThrowIfNull(options);
+        if (template is null) throw new ArgumentNullException(nameof(template));
+        if (options is null) throw new ArgumentNullException(nameof(options));
 
         if (!options.AllowTablePagination || template.Paper.PageHeightMm <= 0)
             return [SinglePage(template)];

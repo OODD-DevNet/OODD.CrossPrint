@@ -54,7 +54,7 @@ public sealed class DesignerControl : Control
         get => _renderer;
         set
         {
-            ArgumentNullException.ThrowIfNull(value);
+            if (value is null) throw new ArgumentNullException(nameof(value));
             if (ReferenceEquals(_renderer, value))
                 return;
 
@@ -129,7 +129,7 @@ public sealed class DesignerControl : Control
     /// <param name="template">新模板。</param>
     public void LoadTemplate(PrintTemplate template)
     {
-        ArgumentNullException.ThrowIfNull(template);
+        if (template is null) throw new ArgumentNullException(nameof(template));
 
         _kernel.ViewChanged -= OnKernelChanged;
         _kernel.TemplateChanged -= OnKernelChanged;

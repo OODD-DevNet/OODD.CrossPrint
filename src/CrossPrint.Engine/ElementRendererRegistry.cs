@@ -37,7 +37,7 @@ public sealed class ElementRendererRegistry
     /// <summary>注册渲染器；同一 <see cref="IElementRenderer.TypeKey"/> 后注册者生效。</summary>
     public ElementRendererRegistry Register(IElementRenderer renderer)
     {
-        ArgumentNullException.ThrowIfNull(renderer);
+        if (renderer is null) throw new ArgumentNullException(nameof(renderer));
         if (string.IsNullOrEmpty(renderer.TypeKey))
             throw new ArgumentException("渲染器必须提供非空 TypeKey。", nameof(renderer));
 

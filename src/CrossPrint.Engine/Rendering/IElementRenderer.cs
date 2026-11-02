@@ -41,9 +41,9 @@ public abstract class ElementRenderer<TElement> : IElementRenderer where TElemen
     /// <inheritdoc/>
     public void Render(SKCanvas canvas, PaperElement element, RenderContext context)
     {
-        ArgumentNullException.ThrowIfNull(canvas);
-        ArgumentNullException.ThrowIfNull(element);
-        ArgumentNullException.ThrowIfNull(context);
+        if (canvas is null) throw new ArgumentNullException(nameof(canvas));
+        if (element is null) throw new ArgumentNullException(nameof(element));
+        if (context is null) throw new ArgumentNullException(nameof(context));
 
         if (element is not TElement typed)
             throw new InvalidOperationException($"渲染器 {GetType().Name} 处理 {typeof(TElement).Name}，却收到 {element.GetType().Name}。");

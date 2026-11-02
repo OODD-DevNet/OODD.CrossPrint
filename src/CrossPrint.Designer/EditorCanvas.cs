@@ -49,8 +49,8 @@ public static class EditorCanvas
         IImageResolver? images = null,
         TemplateRenderer? renderer = null)
     {
-        ArgumentNullException.ThrowIfNull(canvas);
-        ArgumentNullException.ThrowIfNull(kernel);
+        if (canvas is null) throw new ArgumentNullException(nameof(canvas));
+        if (kernel is null) throw new ArgumentNullException(nameof(kernel));
 
         kernel.ViewWidthHostPx = widthHostPx;
         kernel.ViewHeightHostPx = heightHostPx;

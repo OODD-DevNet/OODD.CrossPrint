@@ -18,10 +18,10 @@
          不用 QRCoder——实测 1.8.1 传递引入 System.Drawing.Common（Linux 上不可用），
          QRCoder.Core 2.0.0 又强制 SkiaSharp 3.119（与本仓 2.88.9 锁冲突）。见 docs/02 A4b。 -->
     <PackageVersion Include="ZXing.Net" Version="0.16.11" />
-    <!-- JSON（显式锁版本，net8 已内置但源生成器需配套） -->
-    <PackageVersion Include="System.Text.Json" Version="8.0.5" />
+    <!-- JSON：6.0.9 有 netstandard2.0 目标（间接支持 net461）；8.x 最低 net8.0。 -->
+    <PackageVersion Include="System.Text.Json" Version="6.0.9" />
     <!-- 脚本：纯托管 JS 解释器（formatter/styler），默认无 CLR 访问，沙箱安全 -->
-    <PackageVersion Include="Jint" Version="4.17.0" />
+    <PackageVersion Include="Jint" Version="3.1.6" />
     <!-- 宿主 -->
     <PackageVersion Include="Avalonia" Version="11.3.18" />
     <PackageVersion Include="Avalonia.Browser" Version="11.3.18" />
@@ -32,8 +32,12 @@
          Semi.Avalonia 是主题不是控件库——原生 Button/TextBox/ComboBox/DataGrid 自动套用，
          不需要把 Tag 换成 semi:Button。Browser/WASM 保持 FluentTheme（条件编译隔离）。 -->
     <PackageVersion Include="Semi.Avalonia" Version="11.3.14" />
+    <!-- 宿主主题库，核心层不引用 -->
     <!-- WPF 宿主主题：HandyControl（圆角按钮、阴影、Material Design 风格），原生控件自动套用 -->
     <PackageVersion Include="HandyControl" Version="3.5.1" />
+    <!-- net461 多目标框架需要 polyfill C# 9+ 运行时特性（IsExternalInit / 默认接口实现）。
+         PolySharp 是 source-only polyfill——不影响 net8.0，只对 netstandard2.0/net461 生效。 -->
+    <PackageVersion Include="PolySharp" Version="1.16.0" />
     <PackageVersion Include="SkiaSharp.NativeAssets.WebAssembly" Version="2.88.9" />
     <PackageVersion Include="Eto.Forms" Version="2.10.0" />
     <PackageVersion Include="Eto.Platform.Windows" Version="2.10.0" />

@@ -5,14 +5,13 @@ using SkiaSharp;
 namespace CrossPrint.Core;
 
 /// <summary>
-/// SKColor 与 <c>#RRGGBB</c> / <c>#AARRGGBB</c> 十六进制串的双向转换。
+/// SKColor 与 <c>#RRGGBB</c> / <c>#AARRGGBB</c> 十六进制串的双向转换。非 nullable 版本。
 /// </summary>
 public sealed class SkColorJsonConverter : JsonConverter<SKColor>
 {
     /// <inheritdoc/>
     public override SKColor Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        // 可空包装器已先行处理 null，这里只会收到非 null 的字符串令牌。
         if (reader.TokenType == JsonTokenType.Null)
             return default;
 
@@ -23,8 +22,6 @@ public sealed class SkColorJsonConverter : JsonConverter<SKColor>
         }
         catch (FormatException ex)
         {
-            // 序列化层的异常契约是 JsonException；否则 TemplateJson.Read<T> 抓不到，
-            // 非法颜色会裸抛 FormatException，丢失「哪个元素哪个字段」的定位信息。
             throw new JsonException(ex.Message, ex);
         }
     }
@@ -45,7 +42,7 @@ public sealed class SkColorJsonConverter : JsonConverter<SKColor>
 
         var s = text.Trim();
         if (s[0] == '#')
-            s = s[1..];
+            s = s.Substring(1);
 
         uint rgba;
         string alphaHex;
@@ -59,8 +56,8 @@ public sealed class SkColorJsonConverter : JsonConverter<SKColor>
                 break;
             case 8:
                 // 采用 CSS/前端惯例：#AARRGGBB
-                alphaHex = s[..2];
-                rgbHex = s[2..];
+                alphaHex = s.Substring(0, 2);
+                rgbHex = s.Substring(2);
                 break;
             default:
                 if (throwOnError)
@@ -85,4 +82,34 @@ public sealed class SkColorJsonConverter : JsonConverter<SKColor>
         => color.Alpha == 0xFF
             ? $"#{color.Red:X2}{color.Green:X2}{color.Blue:X2}"
             : $"#{color.Alpha:X2}{color.Red:X2}{color.Green:X2}{color.Blue:X2}";
+}
+
+/// <summary>SKColor? 与十六进制串的双向转换。nullable 版本。</summary>
+public sealed class SkColorNullableJsonConverter : JsonConverter<SKColor?>
+{
+    /// <inheritdoc/>
+    public override SKColor? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
+
+        var text = reader.GetString();
+        try
+        {
+            return SkColorJsonConverter.Parse(text, throwOnError: true, defaultValue: default);
+        }
+        catch (FormatException ex)
+        {
+            throw new JsonException(ex.Message, ex);
+        }
+    }
+
+    /// <inheritdoc/>
+    public override void Write(Utf8JsonWriter writer, SKColor? value, JsonSerializerOptions options)
+    {
+        if (!value.HasValue)
+            writer.WriteNullValue();
+        else
+            writer.WriteStringValue(SkColorJsonConverter.ToHex(value.Value));
+    }
 }

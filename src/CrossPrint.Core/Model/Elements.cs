@@ -37,11 +37,11 @@ public sealed class TextOptions
     public SKColor Color { get; set; } = SKColors.Black;
 
     /// <summary>水平对齐。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<HorizontalAlign>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public HorizontalAlign HorizontalAlign { get; set; } = HorizontalAlign.Left;
 
     /// <summary>垂直对齐。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<VerticalAlign>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public VerticalAlign VerticalAlign { get; set; } = VerticalAlign.Top;
 
     /// <summary>是否按元素宽度自动换行。</summary>
@@ -130,7 +130,7 @@ public sealed class LineOptions
     public double StrokeWidthMm { get; set; } = 0.2;
 
     /// <summary>方向。水平线长度取 <see cref="PaperElement.WidthMm"/>，垂直线取 <see cref="PaperElement.HeightMm"/>。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<LineDirection>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public LineDirection Direction { get; set; } = LineDirection.Horizontal;
 
     /// <summary>虚线段长（mm）循环，null 为实线。</summary>
@@ -171,14 +171,14 @@ public sealed class ShapeOptions
     public string? StyleId { get; set; }
 
     /// <summary>描边色，null 表示不描边。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? StrokeColor { get; set; } = SKColors.Black;
 
     /// <summary>描边宽（mm）。</summary>
     public double StrokeWidthMm { get; set; } = 0.2;
 
     /// <summary>填充色，null 表示不填充。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? FillColor { get; set; }
 
     /// <summary>圆角半径（mm），仅矩形生效，渲染时夹取到短边一半。</summary>
@@ -238,7 +238,7 @@ public sealed class EllipseElement : PaperElement
 public sealed class ImageOptions
 {
     /// <summary>数据来源类型。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<ImageSourceType>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public ImageSourceType SourceType { get; set; } = ImageSourceType.EmbeddedBase64;
 
     /// <summary>Base64 图片数据（<see cref="SourceType"/> 为 EmbeddedBase64 时有效）。</summary>
@@ -248,7 +248,7 @@ public sealed class ImageOptions
     public string? ResolverKey { get; set; }
 
     /// <summary>适配方式。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<ImageFitMode>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public ImageFitMode FitMode { get; set; } = ImageFitMode.Contain;
 
     /// <summary>圆角半径（mm），0 为直角。</summary>
@@ -292,7 +292,7 @@ public sealed class QrCodeOptions
     public string Content { get; set; } = "https://example.com";
 
     /// <summary>纠错等级。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<QrErrorCorrection>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public QrErrorCorrection ErrorCorrection { get; set; } = QrErrorCorrection.M;
 
     /// <summary>前景色。</summary>
@@ -300,7 +300,7 @@ public sealed class QrCodeOptions
     public SKColor ForegroundColor { get; set; } = SKColors.Black;
 
     /// <summary>背景色，null 表示透明。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? BackgroundColor { get; set; } = SKColors.White;
 
     /// <summary>静区宽度（mm）。规范建议不小于模块尺寸的 4 倍。</summary>
@@ -323,7 +323,7 @@ public sealed class QrCodeOptions
     public SKColor CaptionColor { get; set; } = SKColors.Black;
 
     /// <summary>标题水平对齐。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<HorizontalAlign>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public HorizontalAlign CaptionAlign { get; set; } = HorizontalAlign.Center;
 
     /// <summary>标题行距倍数。</summary>
@@ -375,7 +375,7 @@ public sealed class BarcodeOptions
     public string Content { get; set; } = "ABC-123";
 
     /// <summary>码制。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<BarcodeSymbology>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public BarcodeSymbology Symbology { get; set; } = BarcodeSymbology.Code128;
 
     /// <summary>条色。</summary>
@@ -383,7 +383,7 @@ public sealed class BarcodeOptions
     public SKColor BarColor { get; set; } = SKColors.Black;
 
     /// <summary>背景色，null 表示透明。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? BackgroundColor { get; set; } = SKColors.White;
 
     /// <summary>是否在条下方绘制可读文本。</summary>
@@ -450,7 +450,7 @@ public sealed class TableColumn
     public string Field { get; set; } = string.Empty;
 
     /// <summary>该列水平对齐。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<HorizontalAlign>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public HorizontalAlign Align { get; set; } = HorizontalAlign.Left;
 
     /// <summary>该列字号（磅），null 表示继承表格字号。</summary>
@@ -460,7 +460,7 @@ public sealed class TableColumn
     public bool Sequence { get; set; }
 
     /// <summary>尾行汇总方式。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<TableSummary>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public TableSummary Summary { get; set; } = TableSummary.None;
 
     /// <summary>汇总文本前缀，如 <c>"合计："</c>。</summary>
@@ -533,7 +533,7 @@ public sealed class TableHeaderCell
     public int RowSpan { get; set; } = 1;
 
     /// <summary>水平对齐。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<HorizontalAlign>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public HorizontalAlign Align { get; set; } = HorizontalAlign.Center;
 
     /// <summary>字号（磅），null 表示继承表头字号。</summary>
@@ -600,7 +600,7 @@ public sealed class TableConditionalStyle
     public string Field { get; set; } = string.Empty;
 
     /// <summary>比较运算符。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<TableConditionOperator>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public TableConditionOperator Operator { get; set; } = TableConditionOperator.GreaterThan;
 
     /// <summary>比较值；数值比较按不变文化解析，子串比较按原文。</summary>
@@ -610,11 +610,11 @@ public sealed class TableConditionalStyle
     public string? Column { get; set; }
 
     /// <summary>命中底色；null 不覆盖。整行规则覆盖斑马纹与旧行底色，限定列规则只画该格。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? BackgroundColor { get; set; }
 
     /// <summary>命中字色；null 不覆盖。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? TextColor { get; set; }
 
     /// <summary>命中加粗；null 不覆盖。</summary>
@@ -666,11 +666,11 @@ public sealed class TableHighlightRule
     public bool IgnoreCase { get; set; }
 
     /// <summary>片段底色；null 不覆盖。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? BackgroundColor { get; set; }
 
     /// <summary>片段字色；null 不覆盖。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? TextColor { get; set; }
 
     /// <summary>片段加粗；null 不覆盖。</summary>
@@ -749,7 +749,7 @@ public sealed class TableOptions
     public double? HeaderFontSizePt { get; set; }
 
     /// <summary>网格线色，null 表示不画线。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? GridColor { get; set; } = SKColors.Black;
 
     /// <summary>网格线宽（mm）。</summary>
@@ -762,14 +762,14 @@ public sealed class TableOptions
     public bool ShowHeader { get; set; } = true;
 
     /// <summary>表头背景色。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? HeaderFillColor { get; set; } = new SKColor(238, 238, 238);
 
     /// <summary>表头是否加粗。</summary>
     public bool HeaderBold { get; set; } = true;
 
     /// <summary>斑马纹偶数行底色，null 表示不启用。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? StripeColor { get; set; }
 
     /// <summary>
@@ -804,7 +804,7 @@ public sealed class TableOptions
     public double LineSpacing { get; set; } = 1.2;
 
     /// <summary>表格文字颜色（表头/表体/汇总的默认字色），null 黑色；条件/片段样式与列样式可再覆盖。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? TextColor { get; set; }
 
     /// <summary>深拷贝。渲染引擎用它在渲染期构建「样式解析后」的副本，不允许改到原模板。</summary>
@@ -927,21 +927,21 @@ public sealed class NamedStyle
     // ---- 颜色 ----
 
     /// <summary>字色/前景色；null 不设置。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? TextColor { get; set; }
 
     /// <summary>底色/填充色；null 不设置。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? BackgroundColor { get; set; }
 
     // ---- 对齐 ----
 
     /// <summary>水平对齐；null 不设置。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<HorizontalAlign>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public HorizontalAlign? HorizontalAlign { get; set; }
 
     /// <summary>垂直对齐；null 不设置。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<VerticalAlign>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public VerticalAlign? VerticalAlign { get; set; }
 
     // ---- 内边距（mm） ----
@@ -961,7 +961,7 @@ public sealed class NamedStyle
     // ---- 边框（线段/形状/元素框共用一族） ----
 
     /// <summary>边框色；null 不设置。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? BorderColor { get; set; }
 
     /// <summary>边框宽（mm）；null 不设置。</summary>

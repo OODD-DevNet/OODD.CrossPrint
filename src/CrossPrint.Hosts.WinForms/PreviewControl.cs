@@ -60,7 +60,7 @@ public class PreviewControl : SkiaCanvasControl
         get => _kernel.Template;
         set
         {
-            ArgumentNullException.ThrowIfNull(value);
+            if (value is null) throw new ArgumentNullException(nameof(value));
             UnwireKernel();
             _kernel = new EditorKernel(value);
             WireKernel();

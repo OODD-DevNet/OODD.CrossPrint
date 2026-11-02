@@ -38,7 +38,7 @@ public sealed class Viewport
     public double Zoom
     {
         get => _zoom;
-        set => _zoom = Math.Clamp(value, MinZoom, MaxZoom);
+        set => _zoom = Math.Max(MinZoom, Math.Min(MaxZoom, value));
     }
 
     /// <summary>平移量，单位是<b>视口 px</b>（96 基准、未缩放），不是设备像素。</summary>
@@ -52,7 +52,7 @@ public sealed class Viewport
     public double Dpi
     {
         get => _dpi;
-        set => _dpi = double.IsFinite(value) && value > 0
+        set => _dpi = !double.IsNaN(value) && !double.IsInfinity(value) && value > 0
             ? value
             : throw new ArgumentOutOfRangeException(nameof(value), value, "DPI 必须是有限正数。");
     }
@@ -110,7 +110,7 @@ public sealed class Viewport
     /// <returns>夹紧后的新缩放值。</returns>
     public double ZoomAt(double factor, double anchorHostX, double anchorHostY, double dpi)
     {
-        var next = Math.Clamp(Zoom * factor, MinZoom, MaxZoom);
+        var next = Math.Max(MinZoom, Math.Min(MaxZoom, Zoom * factor));
         if (next == Zoom)
             return Zoom;
 

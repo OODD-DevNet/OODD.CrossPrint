@@ -54,7 +54,7 @@ public sealed class ElementProperties
     /// <returns>该类型的描述符集合。</returns>
     public static ElementProperties For(PaperElement element)
     {
-        ArgumentNullException.ThrowIfNull(element);
+        if (element is null) throw new ArgumentNullException(nameof(element));
 
         var list = Common();
         List<ElementAction>? actions = null;
@@ -356,7 +356,7 @@ public sealed class ElementProperties
                 (el, v) => Column(el, index, fieldKey).Field = PropertyValues.ToText(fieldKey, v));
 
             var alignKey = head + "align";
-            var alignNames = Enum.GetNames<HorizontalAlign>();
+            var alignNames = Enum.GetNames(typeof(HorizontalAlign));
             yield return new PropertyDescriptor(alignKey, $"{label}·对齐", PropertyKind.Enum,
                 el => Peek(el, index)?.Align,
                 (el, v) => Column(el, index, alignKey).Align = PropertyValues.ToEnum<HorizontalAlign>(alignKey, v, alignNames),
@@ -384,7 +384,7 @@ public sealed class ElementProperties
                 (el, v) => Column(el, index, sequenceKey).Sequence = PropertyValues.ToBool(sequenceKey, v));
 
             var summaryKey = head + "summary";
-            var summaryNames = Enum.GetNames<TableSummary>();
+            var summaryNames = Enum.GetNames(typeof(TableSummary));
             yield return new PropertyDescriptor(summaryKey, $"{label}·尾行汇总", PropertyKind.Enum,
                 el => Peek(el, index)?.Summary,
                 (el, v) => Column(el, index, summaryKey).Summary = PropertyValues.ToEnum<TableSummary>(summaryKey, v, summaryNames),
@@ -453,7 +453,7 @@ public sealed class ElementProperties
                 min: 1, step: 1);
 
             var alignKey = head + "align";
-            var alignNames = Enum.GetNames<HorizontalAlign>();
+            var alignNames = Enum.GetNames(typeof(HorizontalAlign));
             yield return new PropertyDescriptor(alignKey, $"{label}·对齐", PropertyKind.Enum,
                 el => PeekHeader(el, index)?.Align,
                 (el, v) => HeaderCell(el, index, alignKey).Align = PropertyValues.ToEnum<HorizontalAlign>(alignKey, v, alignNames),
@@ -488,7 +488,7 @@ public sealed class ElementProperties
                 (el, v) => Conditional(el, index, fieldKey).Field = PropertyValues.ToText(fieldKey, v));
 
             var operatorKey = head + "operator";
-            var operatorNames = Enum.GetNames<TableConditionOperator>();
+            var operatorNames = Enum.GetNames(typeof(TableConditionOperator));
             yield return new PropertyDescriptor(operatorKey, $"{label}·比较方式", PropertyKind.Enum,
                 el => PeekConditional(el, index)?.Operator,
                 (el, v) => Conditional(el, index, operatorKey).Operator = PropertyValues.ToEnum<TableConditionOperator>(operatorKey, v, operatorNames),
@@ -739,7 +739,7 @@ public sealed class ElementProperties
         (el, v) => ((TableElement)el).Table.Rows = DecodeRows(key, v));
 
     static string EncodeRows(List<List<string>> rows)
-        => string.Join(RowSeparator, rows.Select(row => string.Join(CellSeparator, row)));
+        => string.Join(new string(RowSeparator, 1), rows.Select(row => string.Join(new string(CellSeparator, 1), row)));
 
     static List<List<string>> DecodeRows(string key, object? value)
     {
@@ -816,7 +816,7 @@ public sealed class ElementProperties
         where T : PaperElement
         where E : struct, Enum
     {
-        var names = Enum.GetNames<E>();
+        var names = Enum.GetNames(typeof(E));
         return new PropertyDescriptor(key, displayName, PropertyKind.Enum,
             el => get((T)el),
             (el, v) => set((T)el, PropertyValues.ToEnum<E>(key, v, names)),

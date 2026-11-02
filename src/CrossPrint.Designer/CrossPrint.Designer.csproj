@@ -1,7 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks>net8.0;net461</TargetFrameworks>
     <RootNamespace>CrossPrint.Designer</RootNamespace>
     <AssemblyName>CrossPrint.Designer</AssemblyName>
     <PackageId>CrossPrint.Designer</PackageId>
@@ -14,6 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="PolySharp" />
     <PackageReference Include="SkiaSharp" />
   </ItemGroup>
 

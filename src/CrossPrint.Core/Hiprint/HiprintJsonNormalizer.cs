@@ -495,8 +495,8 @@ internal static class HiprintJsonNormalizer
         }
 
         var raw = s[start..i];
-        if (raw.StartsWith('+'))
-            raw = raw[1..];
+        if (raw.StartsWith("+", StringComparison.Ordinal))
+            raw = raw.Substring(1);
         if (raw.StartsWith(".", StringComparison.Ordinal))
             raw = "0" + raw;
         else if (raw.StartsWith("-.", StringComparison.Ordinal) || raw.StartsWith("+.", StringComparison.Ordinal))

@@ -74,7 +74,7 @@ public class PreviewControl : View
         get => _renderer;
         set
         {
-            ArgumentNullException.ThrowIfNull(value);
+            if (value is null) throw new ArgumentNullException(nameof(value));
             if (ReferenceEquals(_renderer, value))
                 return;
 
@@ -131,7 +131,7 @@ public class PreviewControl : View
         get => _kernel.Template;
         set
         {
-            ArgumentNullException.ThrowIfNull(value);
+            if (value is null) throw new ArgumentNullException(nameof(value));
             if (ReferenceEquals(value, _kernel.Template))
                 return;
 

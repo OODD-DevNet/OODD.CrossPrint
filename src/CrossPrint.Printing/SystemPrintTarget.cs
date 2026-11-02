@@ -122,6 +122,15 @@ internal sealed class UnixLpPrintCommand : ISystemPrintCommand
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
+#if NET461
+        var args = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(printerName))
+        {
+            args.Append("-d \"").Append(printerName).Append("\" ");
+        }
+        args.Append('"').Append(pdfPath).Append('"');
+        psi.Arguments = args.ToString();
+#else
         if (!string.IsNullOrWhiteSpace(printerName))
         {
             psi.ArgumentList.Add("-d");
@@ -129,6 +138,7 @@ internal sealed class UnixLpPrintCommand : ISystemPrintCommand
         }
 
         psi.ArgumentList.Add(pdfPath);
+#endif
 
         using var process = Process.Start(psi);
         if (process is null)
@@ -141,7 +151,11 @@ internal sealed class UnixLpPrintCommand : ISystemPrintCommand
         {
             try
             {
+#if NET461
+                process.Kill();
+#else
                 process.Kill(entireProcessTree: true);
+#endif
             }
             catch (InvalidOperationException)
             {
@@ -219,8 +233,8 @@ public sealed class SystemPrintTarget : IPrintTarget
         PrintSettings settings,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(document);
-        ArgumentNullException.ThrowIfNull(settings);
+        if (document is null) throw new ArgumentNullException(nameof(document));
+        if (settings is null) throw new ArgumentNullException(nameof(settings));
         return PrintAsync(document, FromSettings(settings), cancellationToken);
     }
 
@@ -240,7 +254,7 @@ public sealed class SystemPrintTarget : IPrintTarget
         RenderReport? issues = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(documents);
+        if (documents is null) throw new ArgumentNullException(nameof(documents));
         return Task.Run(() => Run(documents, options ?? new SystemPrintOptions(), issues, cancellationToken));
     }
 
@@ -290,10 +304,17 @@ public sealed class SystemPrintTarget : IPrintTarget
             cancellationToken.ThrowIfCancellationRequested();
 
             var command = _command
+#if NET461
+                ?? (((int)Environment.OSVersion.Platform == (int)PlatformID.Win32NT) ? WindowsShellPrintCommand.Instance
+                    : ((int)Environment.OSVersion.Platform == (int)PlatformID.Unix || (int)Environment.OSVersion.Platform == 128) ? UnixLpPrintCommand.Instance
+                    : throw new PlatformNotSupportedException(
+                        $"系统打印目标支持 Windows（ShellExecute 动词）与 macOS/Linux（lp），当前是 {Environment.OSVersion.Platform}。"));
+#else
                 ?? (OperatingSystem.IsWindows() ? WindowsShellPrintCommand.Instance
                     : OperatingSystem.IsMacOS() || OperatingSystem.IsLinux() ? UnixLpPrintCommand.Instance
                     : throw new PlatformNotSupportedException(
                         $"系统打印目标支持 Windows（ShellExecute 动词）与 macOS/Linux（lp），当前是 {Environment.OSVersion.Platform}。"));
+#endif
 
             var failure = command.Invoke(tempPath, options.PrinterName, options.TimeoutSeconds);
             handedOff = failure is null;

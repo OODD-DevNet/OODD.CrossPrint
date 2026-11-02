@@ -108,8 +108,8 @@ public sealed class EditorRenderer
     /// <remarks>必须与 <c>canvas.Restore()</c> 成对使用。</remarks>
     public static void PushCamera(SKCanvas canvas, EditorKernel kernel)
     {
-        ArgumentNullException.ThrowIfNull(canvas);
-        ArgumentNullException.ThrowIfNull(kernel);
+        if (canvas is null) throw new ArgumentNullException(nameof(canvas));
+        if (kernel is null) throw new ArgumentNullException(nameof(kernel));
 
         var k = kernel.Viewport.Dpi / Viewport.BaseDpi;
         canvas.Save();
@@ -121,8 +121,8 @@ public sealed class EditorRenderer
     /// <param name="canvas">宿主设备 px 空间的画布。</param>
     public void RenderBackdrop(EditorKernel kernel, SKCanvas canvas)
     {
-        ArgumentNullException.ThrowIfNull(kernel);
-        ArgumentNullException.ThrowIfNull(canvas);
+        if (kernel is null) throw new ArgumentNullException(nameof(kernel));
+        if (canvas is null) throw new ArgumentNullException(nameof(canvas));
 
         var page = PageRectHost(kernel);
         var bounds = canvas.LocalClipBounds;
@@ -158,8 +158,8 @@ public sealed class EditorRenderer
     /// <param name="canvas">宿主设备 px 空间的画布。</param>
     public void RenderForeground(EditorKernel kernel, SKCanvas canvas)
     {
-        ArgumentNullException.ThrowIfNull(kernel);
-        ArgumentNullException.ThrowIfNull(canvas);
+        if (kernel is null) throw new ArgumentNullException(nameof(kernel));
+        if (canvas is null) throw new ArgumentNullException(nameof(canvas));
 
         var dpi = kernel.Viewport.Dpi;
 
@@ -204,7 +204,7 @@ public sealed class EditorRenderer
     /// <returns>页框矩形。</returns>
     public static SKRect PageRectHost(EditorKernel kernel)
     {
-        ArgumentNullException.ThrowIfNull(kernel);
+        if (kernel is null) throw new ArgumentNullException(nameof(kernel));
 
         var mm = SKRect.Create(
             0,

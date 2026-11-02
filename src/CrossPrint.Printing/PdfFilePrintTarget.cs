@@ -57,7 +57,7 @@ public sealed class PdfFilePrintTarget : IPrintTarget
         RenderReport? issues,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(document);
+        if (document is null) throw new ArgumentNullException(nameof(document));
         return PrintBatchAsync(new[] { document }, settings, issues, cancellationToken);
     }
 
@@ -87,8 +87,8 @@ public sealed class PdfFilePrintTarget : IPrintTarget
         RenderReport? issues,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(documents);
-        ArgumentNullException.ThrowIfNull(settings);
+        if (documents is null) throw new ArgumentNullException(nameof(documents));
+        if (settings is null) throw new ArgumentNullException(nameof(settings));
 
         // 引擎是同步的（没有异步面），这里把 CPU + 磁盘活丢线程池，只为让签名保持 Task。
         // 不把 cancellationToken 传给 Task.Run：那样"任务尚未开始就被取消"会变成 await 抛异常，
@@ -165,7 +165,9 @@ public sealed class PdfFilePrintTarget : IPrintTarget
                 stream.Flush(true);
             }
 
-            File.Move(tempPath, fullPath, true);
+            if (System.IO.File.Exists(fullPath))
+                System.IO.File.Delete(fullPath);
+            System.IO.File.Move(tempPath, fullPath);
 
             // 改名成功即视为正式文件已就位：清掉句柄，finally 不再删（删了就是把产物删了）
             tempPath = null;

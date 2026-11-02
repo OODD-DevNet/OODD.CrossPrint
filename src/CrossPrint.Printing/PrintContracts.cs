@@ -75,7 +75,8 @@ public sealed record PrintSettings
     /// <exception cref="ArgumentException">outputPath 为 null/空白——"打印到哪里"不是可以事后补的参数。</exception>
     public PrintSettings(string outputPath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        if (string.IsNullOrWhiteSpace(outputPath))
+            throw new ArgumentException("输出路径不能为空或空白。", nameof(outputPath));
         OutputPath = outputPath;
     }
 

@@ -105,7 +105,7 @@ public sealed class DeleteElementsCommand : EditorCommand
 
         foreach (var i in order)
         {
-            var index = Math.Clamp(_indices[i], 0, _template.Elements.Count);
+            var index = Math.Max(0, Math.Min(_template.Elements.Count, _indices[i]));
             _template.Elements.Insert(index, _removed[i]);
             _selection.Add(_removed[i].Id);
         }
@@ -144,7 +144,7 @@ public sealed class PlaceElementCommand : EditorCommand
     {
         // 幂等：重复 Apply（撤销栈将来重放）不得插出两个同 id 元素。
         if (!_template.Elements.Any(e => e.Id == _element.Id))
-            _template.Elements.Insert(Math.Clamp(_index, 0, _template.Elements.Count), _element);
+            _template.Elements.Insert(Math.Max(0, Math.Min(_template.Elements.Count, _index)), _element);
 
         _selection.Select(_element.Id);
     }
@@ -365,7 +365,7 @@ public sealed class TableColumnCommand : EditorCommand
     /// <param name="maxWidthMm">元素能加宽到的上限（mm），由调用方按纸边算；不限制传 <see cref="double.PositiveInfinity"/>。</param>
     public static TableColumnCommand Insert(TableElement element, int columnIndex, TableColumn column, double maxWidthMm)
     {
-        var index = Math.Clamp(columnIndex, 0, element.Table.Columns.Count);
+        var index = Math.Max(0, Math.Min(element.Table.Columns.Count, columnIndex));
         var targetWidthMm = GrownWidthMm(element, column, maxWidthMm);
         var what = index == element.Table.Columns.Count
             ? $"追加表格列（第 {index + 1} 列"
@@ -393,7 +393,7 @@ public sealed class TableColumnCommand : EditorCommand
         if (element.Table.Columns.Count <= 1)
             throw new InvalidOperationException("表格至少要保留一列，不能删除。");
 
-        var index = Math.Clamp(columnIndex, 0, element.Table.Columns.Count - 1);
+        var index = Math.Max(0, Math.Min(element.Table.Columns.Count - 1, columnIndex));
         return new TableColumnCommand(element, $"删除表格列（第 {index + 1} 列）", () =>
         {
             // 幂等：列已不在（数量对不上）就当作已删过，跳过。
@@ -581,7 +581,7 @@ public sealed class TableListItemCommand<T> : EditorCommand where T : class
     /// <param name="listName">列表中文名，用于动作标签（如"条件样式"）。</param>
     public static TableListItemCommand<T> Remove(TableElement element, Func<TableOptions, List<T>> selector, Func<T, T> clone, int itemIndex, string listName)
     {
-        var index = Math.Clamp(itemIndex, 0, selector(element.Table).Count - 1);
+        var index = Math.Max(0, Math.Min(selector(element.Table).Count - 1, itemIndex));
         return new TableListItemCommand<T>(element, selector, clone, $"删除{listName}（第 {index + 1} 条）", () =>
         {
             // 幂等：条目已不在（数量对不上）就当作已删过，跳过。

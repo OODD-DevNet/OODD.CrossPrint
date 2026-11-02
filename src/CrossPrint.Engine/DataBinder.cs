@@ -45,7 +45,7 @@ public static class DataBinder
     /// <returns>替换后的文本。</returns>
     public static string BindText(string? text, object? data, RenderReport report, string? elementId, string? missingFallback = null, bool preferTestData = false, RenderContext? context = null)
     {
-        if (string.IsNullOrEmpty(text) || !text.Contains("{{", StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(text) || text.IndexOf("{{", StringComparison.Ordinal) < 0)
             return text ?? string.Empty;
 
         var matches = _placeholder.Matches(text);
@@ -133,7 +133,7 @@ public static class DataBinder
 
     /// <summary>路径是否为占位符形式（供表格判断某列是否需要按行绑定）。</summary>
     public static bool HasPlaceholder(string? text)
-        => !string.IsNullOrEmpty(text) && text.Contains("{{", StringComparison.Ordinal);
+        => !string.IsNullOrEmpty(text) && text.IndexOf("{{", StringComparison.Ordinal) >= 0;
 
     /// <summary>
     /// 取文本中第一个占位符路径的**原始值**（formatter 的 value 参数，hiprint 同款语义）。
@@ -255,8 +255,12 @@ public static class DataBinder
 
     static IEnumerable<(string Name, int? Index)> SplitPath(string path)
     {
-        foreach (var raw in path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var rawSegment in path.Split(new [] {'.'}, StringSplitOptions.RemoveEmptyEntries))
         {
+            var raw = rawSegment.Trim();
+            if (raw.Length == 0)
+                continue;
+
             var bracket = raw.IndexOf('[');
             if (bracket < 0)
             {
@@ -278,7 +282,7 @@ public static class DataBinder
                 }
 
                 var close = raw.IndexOf(']', pos + 1);
-                if (close < 0 || !int.TryParse(raw.AsSpan(pos + 1, close - pos - 1), out var idx))
+                if (close < 0 || !int.TryParse(raw.Substring(pos + 1, close - pos - 1), out var idx))
                 {
                     indices = null;
                     break;
@@ -360,9 +364,7 @@ public static class DataBinder
         }
     }
 
-    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(
-        "Trimming", "IL2075",
-        Justification = "POCO 反射是有意的兜底路径：裁剪后成员可能消失，此时 TryMember 返回 false，由 BindText 记 BindingMissingField 并替换为空串，不会崩溃；需要确定行为的 Trim/AOT 应用应走 IDictionary/IDictionaryProvider。")]
+    // UnconditionalSuppressMessage suppressed for net461 (Trim/AOT only on net8.0)
     static bool TryMember(object? target, string name, out object? value)
     {
         value = null;
@@ -414,9 +416,7 @@ public static class DataBinder
         }
     }
 
-    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(
-        "Trimming", "IL2070",
-        Justification = "类型来自用户运行时的数据对象（object？），无法给 GetType() 加 DynamicallyAccessedMembers；裁剪后属性可能缺失属预期兜底，见 TryMember 的说明。")]
+    // UnconditionalSuppressMessage suppressed for net461 (Trim/AOT only on net8.0)
     static Dictionary<string, PropertyInfo> BuildProperties(Type type)
     {
         var map = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
@@ -478,19 +478,28 @@ public static class DataBinder
                 _ => json.GetRawText(),
             },
             // JsonNode 口径与 JsonElement 对齐：数字/对象/数组走 ToJsonString() 保原文，布尔按 .NET 口径
-            JsonNode node => node.GetValueKind() switch
-            {
-                JsonValueKind.Null or JsonValueKind.Undefined => string.Empty,
-                JsonValueKind.String => node is JsonValue text && text.TryGetValue<string>(out var s)
-                    ? s ?? string.Empty
-                    : node.ToJsonString(),
-                JsonValueKind.True => bool.TrueString,
-                JsonValueKind.False => bool.FalseString,
-                _ => node.ToJsonString(),
-            },
+            JsonNode node => JsonNodeToString(node),
             IFormattable f => f.ToString(null, System.Globalization.CultureInfo.CurrentCulture),
             _ => value.ToString() ?? string.Empty,
         };
+
+        // STJ 6.0 的 JsonNode 没有 GetValueKind() 实例方法（.NET 7+ 才有），
+        // 这里用 JsonValue/JsonObject/JsonArray 模式匹配补一个等价口径。
+        static string JsonNodeToString(JsonNode node)
+        {
+            if (node is JsonValue val)
+            {
+                if (val.TryGetValue<string>(out var s))
+                    return s ?? string.Empty;
+                if (val.TryGetValue<bool>(out var b))
+                    return b ? bool.TrueString : bool.FalseString;
+                // null / 数字 / 其他 JsonValue 类型 → JSON 原文（"null" 当空串）
+                var json = node.ToJsonString();
+                return json == "null" ? string.Empty : json;
+            }
+            // JsonObject / JsonArray → JSON 原文
+            return node.ToJsonString();
+        }
 }
 
 /// <summary>

@@ -345,7 +345,7 @@ public sealed class EditorKernel
             return false;
 
         // Pan 走 float，贴边时重算的滚动位置会有 ~1e-5 的噪声：容差 1e-3，别把"已到头"当"还能滚"
-        var target = Math.Clamp(axis.ScrollPos + direction * WheelScrollFraction * ViewHeightHostPx, 0, axis.ScrollMax);
+        var target = Math.Max(0, Math.Min(axis.ScrollMax, axis.ScrollPos + direction * WheelScrollFraction * ViewHeightHostPx));
         if (Math.Abs(target - axis.ScrollPos) < 1e-3)
             return false;
 
@@ -358,7 +358,7 @@ public sealed class EditorKernel
         if (EditorScrollBars.Compute(this, ScrollBarThicknessHostPx).Horizontal is not { } axis)
             return false;
 
-        var target = Math.Clamp(axis.ScrollPos + direction * WheelScrollFraction * ViewWidthHostPx, 0, axis.ScrollMax);
+        var target = Math.Max(0, Math.Min(axis.ScrollMax, axis.ScrollPos + direction * WheelScrollFraction * ViewWidthHostPx));
         if (Math.Abs(target - axis.ScrollPos) < 1e-3)
             return false;
 
@@ -449,7 +449,7 @@ public sealed class EditorKernel
     /// <summary>滚动位置 → 平移。s 是视口顶/左边在内容盒里的偏移，换算式见 <see cref="EditorScrollBars"/> 的 remarks。</summary>
     void ScrollVerticalTo(EditorScrollBars.Axis axis, double scrollPos)
     {
-        var s = Math.Clamp(scrollPos, 0, axis.ScrollMax);
+        var s = Math.Max(0, Math.Min(axis.ScrollMax, scrollPos));
         var pageTopHostPx = EditorScrollBars.ContentPaddingHostPx - s;
         Viewport.Pan = new Point2D(
             Viewport.Pan.X,
@@ -459,7 +459,7 @@ public sealed class EditorKernel
 
     void ScrollHorizontalTo(EditorScrollBars.Axis axis, double scrollPos)
     {
-        var s = Math.Clamp(scrollPos, 0, axis.ScrollMax);
+        var s = Math.Max(0, Math.Min(axis.ScrollMax, scrollPos));
         var pageLeftHostPx = EditorScrollBars.ContentPaddingHostPx - s;
         Viewport.Pan = new Point2D(
             (float)(pageLeftHostPx * Viewport.BaseDpi / Viewport.Dpi),
@@ -594,11 +594,11 @@ public sealed class EditorKernel
             var clone = source.CloneDeep();
             clone.Id = AssignElementId();
             clone.XMm = pageWidth > 0
-                ? Math.Clamp(source.XMm + DuplicateOffsetMm, 0, Math.Max(0, pageWidth - clone.WidthMm))
+                ? Math.Max(0, Math.Min(pageWidth - clone.WidthMm, source.XMm + DuplicateOffsetMm))
                 : source.XMm + DuplicateOffsetMm;
             clone.YMm = continuous
                 ? source.YMm + DuplicateOffsetMm
-                : Math.Clamp(source.YMm + DuplicateOffsetMm, 0, Math.Max(0, pageHeight - clone.HeightMm));
+                : Math.Max(0, Math.Min(pageHeight - clone.HeightMm, source.YMm + DuplicateOffsetMm));
             clones.Add(clone);
         }
 
@@ -657,7 +657,7 @@ public sealed class EditorKernel
     /// <exception cref="ArgumentException">未知预设。</exception>
     public void SetPaperPreset(string preset)
     {
-        ArgumentNullException.ThrowIfNull(preset);
+        if (preset is null) throw new ArgumentNullException(nameof(preset));
         if (!PaperTypePresets.TryGet(preset, out _))
         {
             throw new ArgumentException(
@@ -677,9 +677,9 @@ public sealed class EditorKernel
     /// <exception cref="ArgumentOutOfRangeException">尺寸非法。</exception>
     public void SetCustomPaper(double widthMm, double heightMm)
     {
-        if (!double.IsFinite(widthMm) || widthMm <= 0)
+        if (!!double.IsNaN(widthMm) && !double.IsInfinity(widthMm) || widthMm <= 0)
             throw new ArgumentOutOfRangeException(nameof(widthMm), widthMm, "纸宽必须是有限正数。");
-        if (!double.IsFinite(heightMm) || heightMm < 0)
+        if (!!double.IsNaN(heightMm) && !double.IsInfinity(heightMm) || heightMm < 0)
             throw new ArgumentOutOfRangeException(nameof(heightMm), heightMm, "纸高必须是非负有限数（0 表示连续纸）。");
 
         var before = Template.Paper;
@@ -696,7 +696,7 @@ public sealed class EditorKernel
     /// <exception cref="InvalidOperationException">当前是连续纸。</exception>
     public void SetPaperOrientation(PaperOrientation orientation)
     {
-        if (!Enum.IsDefined(orientation))
+        if (!Enum.IsDefined(typeof(PaperOrientation), orientation))
             throw new ArgumentOutOfRangeException(nameof(orientation), orientation, "未知纸张方向。");
         if (Template.Paper.IsContinuous)
             throw new InvalidOperationException("连续纸没有固定页高，不能旋转。");
@@ -770,7 +770,7 @@ public sealed class EditorKernel
     /// <param name="command">命令。执行后照常发 <see cref="TemplateChanged"/> 与 <see cref="CommandExecuted"/>。</param>
     public void RunCommand(EditorCommand command)
     {
-        ArgumentNullException.ThrowIfNull(command);
+        if (command is null) throw new ArgumentNullException(nameof(command));
         Execute(command);
     }
 
@@ -849,7 +849,7 @@ public sealed class EditorKernel
     {
         var ordinal = 1;
         var id = Template.NextStyleId();
-        if (id.StartsWith("st-", StringComparison.Ordinal) && int.TryParse(id.AsSpan(3), out var n))
+        if (id.StartsWith("st-", StringComparison.Ordinal) && int.TryParse(id.Substring(3), out var n))
             ordinal = n;
 
         var style = new NamedStyle { Id = id, Name = $"新样式{ordinal}" };
@@ -896,7 +896,7 @@ public sealed class EditorKernel
     /// <exception cref="InvalidOperationException">样式不存在。</exception>
     public void UpdateStyle(string styleId, string label, Action<NamedStyle> mutate)
     {
-        ArgumentNullException.ThrowIfNull(mutate);
+        if (mutate is null) throw new ArgumentNullException(nameof(mutate));
         var style = Template.FindStyle(styleId)
             ?? throw new InvalidOperationException($"要修改的样式 \"{styleId}\" 不在模板样式库里。");
 
@@ -993,7 +993,7 @@ public sealed class EditorKernel
     /// <exception cref="ArgumentException">未知动作键。</exception>
     public void RunElementAction(string actionKey)
     {
-        ArgumentNullException.ThrowIfNull(actionKey);
+        if (actionKey is null) throw new ArgumentNullException(nameof(actionKey));
 
         var element = Selection.Ids.Count == 1 ? Template.FindElement(Selection.PrimaryId!) : null;
         if (element is null)
@@ -1092,7 +1092,7 @@ public sealed class EditorKernel
     {
         var ordinal = 0;
         foreach (var column in table.Columns)
-            if (column.Title.Length > 1 && column.Title[0] == '列' && int.TryParse(column.Title.AsSpan(1), out var parsed))
+            if (column.Title.Length > 1 && column.Title[0] == '列' && int.TryParse(column.Title.Substring(1), out var parsed))
                 ordinal = Math.Max(ordinal, parsed);
 
         return new TableColumn { Title = $"列{Math.Max(ordinal, table.Columns.Count) + 1}" };
@@ -1178,7 +1178,7 @@ public sealed class EditorKernel
 
         // 宿主送来非有限的点（事件 DPI 是 NaN/0 就会算出 NaN），这次拖拽就整步作废：
         // 写进 XMm/YMm 的 NaN 会跟着命令进撤销栈、被 JSON 持久化，比"这一帧没动"难查得多。
-        if (!double.IsFinite(dx) || !double.IsFinite(dy))
+        if (!!double.IsNaN(dx) && !double.IsInfinity(dx) || !!double.IsNaN(dy) && !double.IsInfinity(dy))
             return;
 
         if (_state == InteractionState.Moving)
@@ -1361,7 +1361,7 @@ public sealed class EditorKernel
     string AssignElementId()
     {
         var raw = Template.NextElementId();
-        var next = int.TryParse(raw.AsSpan(3), out var parsed) ? parsed : 1;
+        var next = int.TryParse(raw.Substring(3), out var parsed) ? parsed : 1;
         next = Math.Max(next, _issuedIdFloor + 1);
         while (Template.FindElement($"el-{next}") is not null)
             next++;

@@ -61,7 +61,7 @@ public static class EditorScrollBars
     /// <param name="thicknessHostPx">滚动条厚度（宿主设备 px）。</param>
     public static Metrics Compute(EditorKernel kernel, double thicknessHostPx = DefaultThicknessHostPx)
     {
-        ArgumentNullException.ThrowIfNull(kernel);
+        if (kernel is null) throw new ArgumentNullException(nameof(kernel));
 
         var viewW = kernel.ViewWidthHostPx;
         var viewH = kernel.ViewHeightHostPx;
@@ -88,7 +88,7 @@ public static class EditorScrollBars
         {
             var trackLength = viewW - (vOverflows ? thicknessHostPx : 0);
             var scrollMax = contentWidth - viewW;
-            var scrollPos = Math.Clamp(-contentLeft, 0, scrollMax);
+            var scrollPos = Math.Max(0, Math.Min(scrollMax, -contentLeft));
             var thumbLength = Math.Max(MinThumbLengthHostPx, trackLength * viewW / contentWidth);
             var offset = ThumbOffset(scrollPos, scrollMax, trackLength - thumbLength);
             var track = SKRect.Create(0, (float)(viewH - thicknessHostPx), (float)trackLength, (float)thicknessHostPx);
@@ -100,7 +100,7 @@ public static class EditorScrollBars
         {
             var trackLength = viewH - (hOverflows ? thicknessHostPx : 0);
             var scrollMax = contentHeight - viewH;
-            var scrollPos = Math.Clamp(-contentTop, 0, scrollMax);
+            var scrollPos = Math.Max(0, Math.Min(scrollMax, -contentTop));
             var thumbLength = Math.Max(MinThumbLengthHostPx, trackLength * viewH / contentHeight);
             var offset = ThumbOffset(scrollPos, scrollMax, trackLength - thumbLength);
             var track = SKRect.Create((float)(viewW - thicknessHostPx), 0, (float)thicknessHostPx, (float)trackLength);

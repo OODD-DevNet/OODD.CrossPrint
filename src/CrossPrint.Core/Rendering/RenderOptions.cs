@@ -67,7 +67,7 @@ public sealed record RenderOptions
 
     /// <summary>入口校验：画布换算要除以这些值，0/NaN/Infinity 一律在构造选项时就拒。</summary>
     static double RequirePositive(double value, string name)
-        => double.IsFinite(value) && value > 0
+        => !double.IsNaN(value) && !double.IsInfinity(value) && value > 0
             ? value
             : throw new ArgumentOutOfRangeException(
                 name,
@@ -326,10 +326,10 @@ public interface IFontResolver
     /// <summary>
     /// 该族名在本解析器上是否真实存在。渲染器用它决定要不要记 <see cref="RenderIssueKind.FontFallback"/> 告警——
     /// <see cref="Resolve"/> 承诺永不失败，所以"是否发生了回退"只能由这里回答。
-    /// 宿主自定义解析器（内嵌字体包等）应覆写；默认实现保守地回答"存在"，即不产生告警。
+    /// 默认解析器保守回答"存在"（不产生告警）；宿主自定义解析器（内嵌字体包等）可覆写。
     /// </summary>
     /// <param name="fontFamily">字体族名。</param>
-    bool FamilyExists(string fontFamily) => true;
+    bool FamilyExists(string fontFamily);
 }
 
 /// <summary>

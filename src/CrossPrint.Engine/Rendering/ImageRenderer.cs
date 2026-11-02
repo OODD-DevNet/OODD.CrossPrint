@@ -313,7 +313,7 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
         if (o.CornerRadiusMm > 0)
         {
             var bounds = Geometry.Bounds(element);
-            var radius = (float)Math.Clamp(o.CornerRadiusMm, 0, Math.Min(bounds.Width, bounds.Height) / 2);
+            var radius = (float)Math.Max(0, Math.Min(Math.Min(bounds.Width, bounds.Height) / 2, o.CornerRadiusMm));
             var saved = canvas.Save();
             using (var path = new SKPath())
             {
@@ -354,7 +354,7 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
                 if (data.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
                 {
                     var comma = data.IndexOf(',');
-                    if (comma < 0 || !data[..comma].Contains("base64", StringComparison.OrdinalIgnoreCase))
+                    if (comma < 0 || data.Substring(0, comma).IndexOf("base64", StringComparison.OrdinalIgnoreCase) < 0)
                     {
                         context.Report.Add(element.Id, RenderIssueKind.ImageDecodeFailed, "data URI 缺少 base64 载荷。");
                         return null;
@@ -432,8 +432,9 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
 
     static string CacheKeyOf(string base64)
     {
-        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(base64));
-        return System.Convert.ToHexString(hash);
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(base64));
+        return BitConverter.ToString(hash).Replace("-", "").ToLower();
     }
 
     /// <summary>缺图时画占位框：浅灰虚线 + 对角叉，让设计者一眼看出这里空了。</summary>

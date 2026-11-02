@@ -1,7 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- 核心层双目标框架：net8.0（主流）+ net461（国内仍有大量企业存量）。
+         SkiaSharp 2.88.9 原生支持 net461；System.Text.Json 6.0.9 通过 netstandard2.0 间接支持 net461。 -->
+    <TargetFrameworks>net8.0;net461</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
     <RootNamespace>CrossPrint.Core</RootNamespace>
     <AssemblyName>CrossPrint.Core</AssemblyName>
     <PackageId>CrossPrint.Core</PackageId>
@@ -9,6 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="PolySharp" />
     <PackageReference Include="SkiaSharp" />
     <PackageReference Include="System.Text.Json" />
   </ItemGroup>

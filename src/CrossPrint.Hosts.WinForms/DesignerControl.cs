@@ -97,7 +97,7 @@ public class DesignerControl : SkiaCanvasControl
     /// <param name="template">新模板。</param>
     public void LoadTemplate(PrintTemplate template)
     {
-        ArgumentNullException.ThrowIfNull(template);
+        if (template is null) throw new ArgumentNullException(nameof(template));
 
         UnwireKernel();
         _kernel = new EditorKernel(template);

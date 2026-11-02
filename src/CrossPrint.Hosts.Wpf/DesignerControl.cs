@@ -57,7 +57,7 @@ public sealed class DesignerControl : SKElement
         get => _renderer;
         set
         {
-            ArgumentNullException.ThrowIfNull(value);
+            if (value is null) throw new ArgumentNullException(nameof(value));
             if (ReferenceEquals(_renderer, value))
                 return;
 
@@ -132,7 +132,7 @@ public sealed class DesignerControl : SKElement
     /// <param name="template">新模板；内核直接编辑这个实例。</param>
     public void LoadTemplate(PrintTemplate template)
     {
-        ArgumentNullException.ThrowIfNull(template);
+        if (template is null) throw new ArgumentNullException(nameof(template));
 
         if (ReferenceEquals(template, Kernel.Template))
             return;

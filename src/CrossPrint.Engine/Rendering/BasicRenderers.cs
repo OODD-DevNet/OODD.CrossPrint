@@ -188,7 +188,7 @@ public sealed class RectangleRenderer : ElementRenderer<RectangleElement>
             return;
 
         // 圆角半径夹到短边一半，否则 Skia 会把整条路径判空（画不出也不报错，属静默失败）
-        var radius = (float)Math.Clamp(o.CornerRadiusMm, 0, Math.Min(rect.Width, rect.Height) / 2);
+        var radius = (float)Math.Max(0, Math.Min(Math.Min(rect.Width, rect.Height) / 2, o.CornerRadiusMm));
 
         if (fill is { } fillColor)
         {

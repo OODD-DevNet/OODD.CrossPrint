@@ -62,6 +62,7 @@ public static class TemplateJson
         };
         options.Converters.Add(new JsonStringEnumConverter());
         options.Converters.Add(new SkColorJsonConverter());
+        options.Converters.Add(new SkColorNullableJsonConverter());
         return options;
     }
 
@@ -73,7 +74,7 @@ public static class TemplateJson
     /// </summary>
     public static string Serialize(PrintTemplate template, bool indented = true)
     {
-        ArgumentNullException.ThrowIfNull(template);
+        if (template is null) throw new ArgumentNullException(nameof(template));
 
         using var ms = new MemoryStream();
         WriteTo(template, ms, indented);
@@ -83,8 +84,8 @@ public static class TemplateJson
     /// <summary>序列化写入流；id 补齐口径同 <see cref="Serialize"/>，同样不动输入模板。</summary>
     public static void WriteTo(PrintTemplate template, Stream stream, bool indented = false)
     {
-        ArgumentNullException.ThrowIfNull(template);
-        ArgumentNullException.ThrowIfNull(stream);
+        if (template is null) throw new ArgumentNullException(nameof(template));
+        if (stream is null) throw new ArgumentNullException(nameof(stream));
 
         using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = indented });
         WriteTemplate(writer, template);
@@ -120,7 +121,7 @@ public static class TemplateJson
                     style = copy;
                 }
 
-                JsonSerializer.Serialize(writer, style, PayloadInfo<NamedStyle>());
+                JsonSerializer.Serialize(writer, style, PayloadOptions);
             }
 
             writer.WriteEndArray();
@@ -158,7 +159,7 @@ public static class TemplateJson
         foreach (var id in ids)
         {
             if (id.StartsWith(prefix, StringComparison.Ordinal)
-                && int.TryParse(id.AsSpan(prefix.Length), out var n)
+                && int.TryParse(id.Substring(prefix.Length), out var n)
                 && n > max)
                 max = n;
         }
@@ -273,7 +274,7 @@ public static class TemplateJson
         // 走 PayloadOptions 解析出的 JsonTypeInfo：既保留十六进制颜色/字符串枚举转换器，
         // 又让裁剪器看得见类型（反射式泛型重载在 Trim/AOT 下会报 IL2026）。
         w.WritePropertyName(name);
-        JsonSerializer.Serialize(w, payload, PayloadInfo<T>());
+        JsonSerializer.Serialize(w, payload, PayloadOptions);
     }
 
     static void WriteOptionalColor(Utf8JsonWriter w, string name, SKColor? color)
@@ -293,21 +294,19 @@ public static class TemplateJson
         w.WriteEndArray();
     }
 
-    static JsonTypeInfo<T> PayloadInfo<T>() => (JsonTypeInfo<T>)PayloadOptions.GetTypeInfo(typeof(T));
-
     // ---------------- 反序列化 ----------------
 
     /// <summary>从 JSON 文本加载模板。加载前先做旧版字段迁移（<c>rowFillRules</c> → <c>conditionalStyles</c>）。</summary>
     public static TemplateLoadResult Load(string json, TemplateJsonLoadOptions? loadOptions = null)
     {
-        ArgumentNullException.ThrowIfNull(json);
+        if (json is null) throw new ArgumentNullException(nameof(json));
         return Load(JsonDocument.Parse(MigrateLegacyRowFillRules(json)), loadOptions);
     }
 
     /// <summary>从 JSON 流加载模板。迁移语义同字符串重载。</summary>
     public static TemplateLoadResult Load(Stream stream, TemplateJsonLoadOptions? loadOptions = null)
     {
-        ArgumentNullException.ThrowIfNull(stream);
+        if (stream is null) throw new ArgumentNullException(nameof(stream));
         using var reader = new StreamReader(stream, Encoding.UTF8);
         return Load(reader.ReadToEnd(), loadOptions);
     }
@@ -323,8 +322,8 @@ public static class TemplateJson
     /// </summary>
     public static string MigrateLegacyRowFillRules(string json)
     {
-        ArgumentNullException.ThrowIfNull(json);
-        if (!json.Contains("rowFillRules", StringComparison.Ordinal))
+        if (json is null) throw new ArgumentNullException(nameof(json));
+        if (json.IndexOf("rowFillRules", StringComparison.Ordinal) < 0)
             return json;
 
         JsonNode? root;
@@ -361,14 +360,14 @@ public static class TemplateJson
                     {
                         var style = new JsonObject();
                         if (rule.TryGetPropertyValue("field", out var field))
-                            style["field"] = field?.DeepClone();
+                            style["field"] = field is null ? null : JsonNode.Parse(field.ToJsonString());
                         style["operator"] = nameof(TableConditionOperator.GreaterThan);
                         if (rule.TryGetPropertyValue("min", out var min)
                             && min is JsonValue minVal
                             && minVal.TryGetValue<double>(out var threshold))
                             style["value"] = threshold.ToString(CultureInfo.InvariantCulture);
                         if (rule.TryGetPropertyValue("color", out var color))
-                            style["backgroundColor"] = color?.DeepClone();
+                            style["backgroundColor"] = color is null ? null : JsonNode.Parse(color.ToJsonString());
                         converted.Add(style);
                         count++;
                     }
@@ -656,7 +655,7 @@ public static class TemplateJson
             throw new TemplateValidationException(id, name, $"边框边集合必须是 \"Top, Right\" 形式的字符串，实际为 {v.ValueKind}。");
 
         if (!Enum.TryParse<BorderSide>(v.GetString(), ignoreCase: true, out var sides))
-            throw new TemplateValidationException(id, name, $"非法边集合 '{v.GetString()}'，可用：{string.Join(" / ", Enum.GetNames<BorderSide>())}。");
+            throw new TemplateValidationException(id, name, $"非法边集合 '{v.GetString()}'，可用：{string.Join(" / ", Enum.GetNames(typeof(BorderSide)))}。");
 
         return sides;
     }
@@ -735,7 +734,7 @@ public static class TemplateJson
     {
         try
         {
-            return JsonSerializer.Deserialize<T>(json, PayloadInfo<T>())!;
+            return JsonSerializer.Deserialize<T>(json, PayloadOptions)!;
         }
         catch (JsonException ex)
         {

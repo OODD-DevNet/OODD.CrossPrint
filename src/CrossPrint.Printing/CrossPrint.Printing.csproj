@@ -1,7 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks>net8.0;net461</TargetFrameworks>
     <RootNamespace>CrossPrint.Printing</RootNamespace>
     <AssemblyName>CrossPrint.Printing</AssemblyName>
     <PackageId>CrossPrint.Printing</PackageId>
@@ -14,6 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="PolySharp" />
     <!-- 系统打印目标的交付通道不可在 CI 上真发作业，测试注入替身需要 internal 接口。 -->
     <InternalsVisibleTo Include="CrossPrint.Printing.Tests" />
   </ItemGroup>

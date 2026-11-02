@@ -40,8 +40,8 @@ public sealed class TemplateRenderer
     /// </summary>
     public static double ResolvePageHeightMm(PrintTemplate template, RenderOptions options)
     {
-        ArgumentNullException.ThrowIfNull(template);
-        ArgumentNullException.ThrowIfNull(options);
+        if (template is null) throw new ArgumentNullException(nameof(template));
+        if (options is null) throw new ArgumentNullException(nameof(options));
 
         var fixedHeight = template.Paper.PageHeightMm;
         if (fixedHeight > 0)
@@ -110,9 +110,9 @@ public sealed class TemplateRenderer
     /// <param name="context">渲染上下文（选项、告警、解析器、数据）。</param>
     public void Render(PrintTemplate template, SKCanvas canvas, RenderContext context)
     {
-        ArgumentNullException.ThrowIfNull(template);
-        ArgumentNullException.ThrowIfNull(canvas);
-        ArgumentNullException.ThrowIfNull(context);
+        if (template is null) throw new ArgumentNullException(nameof(template));
+        if (canvas is null) throw new ArgumentNullException(nameof(canvas));
+        if (context is null) throw new ArgumentNullException(nameof(context));
 
         var pageWidth = template.Paper.PageWidthMm;
         var pageHeight = ResolvePageHeightMm(template, context.Options);
@@ -155,7 +155,7 @@ public sealed class TemplateRenderer
                 {
                     // 公共外观先于内容、边框后于内容：内容不会盖住边框，背景也不会盖住内容。
                     // 不透明度用 SaveLayer 把背景、内容、边框一起合成，避免三者各带一次 alpha 叠出脏边。
-                    var opacity = double.IsFinite(element.Opacity) ? Math.Clamp(element.Opacity, 0.0, 1.0) : 1.0;
+                    var opacity = !double.IsNaN(element.Opacity) && !double.IsInfinity(element.Opacity) ? Math.Max(0.0, Math.Min(1.0, element.Opacity)) : 1.0;
                     var elementSave = canvas.Save();
                     try
                     {
@@ -170,7 +170,7 @@ public sealed class TemplateRenderer
 
                         // 旋转围绕元素中心：hiprint/浏览器 CSS transform 的默认原点也是元素中心，
                         // 顺时针为正（Skia 与 CSS 的 rotate 同向）。背景、内容、边框一起转。
-                        var rotation = double.IsFinite(element.RotationDegrees) ? element.RotationDegrees : 0;
+                        var rotation = !double.IsNaN(element.RotationDegrees) && !double.IsInfinity(element.RotationDegrees) ? element.RotationDegrees : 0;
                         if (rotation != 0)
                             canvas.RotateDegrees((float)rotation,
                                 (float)(element.XMm + element.WidthMm / 2),

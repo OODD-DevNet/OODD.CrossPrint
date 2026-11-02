@@ -68,7 +68,7 @@ public sealed class PreviewControl : Drawable
         get => _renderer;
         set
         {
-            ArgumentNullException.ThrowIfNull(value);
+            if (value is null) throw new ArgumentNullException(nameof(value));
             if (ReferenceEquals(_renderer, value))
                 return;
 
@@ -125,7 +125,7 @@ public sealed class PreviewControl : Drawable
         get => Kernel.Template;
         set
         {
-            ArgumentNullException.ThrowIfNull(value);
+            if (value is null) throw new ArgumentNullException(nameof(value));
             if (ReferenceEquals(value, Kernel.Template))
                 return;
 

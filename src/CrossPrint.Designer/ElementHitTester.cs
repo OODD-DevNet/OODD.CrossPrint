@@ -110,7 +110,7 @@ public static class ElementHitTester
     /// <param name="element">元素。</param>
     /// <returns>旋转角（度），非有限数时返回 0。</returns>
     static double EffectiveRotation(PaperElement element)
-        => double.IsFinite(element.RotationDegrees) ? element.RotationDegrees : 0;
+        => !double.IsNaN(element.RotationDegrees) && !double.IsInfinity(element.RotationDegrees) ? element.RotationDegrees : 0;
 
     /// <summary>
     /// 把矩形绕其中心旋转 <paramref name="angleDeg"/> 度后的轴对齐外接盒（AABB）。

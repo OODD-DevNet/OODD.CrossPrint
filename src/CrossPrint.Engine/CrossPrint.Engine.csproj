@@ -1,7 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks>net8.0;net461</TargetFrameworks>
     <RootNamespace>CrossPrint.Engine</RootNamespace>
     <AssemblyName>CrossPrint.Engine</AssemblyName>
     <PackageId>CrossPrint.Engine</PackageId>
@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="PolySharp" />
     <PackageReference Include="SkiaSharp" />
     <PackageReference Include="ZXing.Net" />
     <PackageReference Include="Jint" />

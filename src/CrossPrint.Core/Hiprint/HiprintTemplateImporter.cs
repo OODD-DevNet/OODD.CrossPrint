@@ -57,7 +57,7 @@ public static class HiprintTemplateImporter
     /// <exception cref="HiprintImportException">文本不是可识别的 hiprint 模板。</exception>
     public static HiprintImportResult Import(string text, HiprintImportOptions? options = null)
     {
-        ArgumentNullException.ThrowIfNull(text);
+        if (text is null) throw new ArgumentNullException(nameof(text));
         var opt = options ?? new HiprintImportOptions();
 
         if (!HiprintJsonNormalizer.TryExtractTemplate(text, out var json, out var error))
@@ -357,7 +357,8 @@ public static class HiprintTemplateImporter
         if (string.IsNullOrWhiteSpace(testData))
             return;
 
-        ctx.Template.DesignData.TryAdd(field, testData);
+        if (!ctx.Template.DesignData.ContainsKey(field))
+            ctx.Template.DesignData[field] = testData;
     }
 
     static PaperElement? UnknownElement(ImportContext ctx, string type, JsonElement options, string path, string id)
@@ -576,10 +577,10 @@ public static class HiprintTemplateImporter
             return;
 
         var value = raw.ToLowerInvariant();
-        text.Underline = value.Contains("underline", StringComparison.Ordinal);
-        text.Strikethrough = value.Contains("line-through", StringComparison.Ordinal);
+        text.Underline = value.IndexOf("underline", StringComparison.Ordinal) >= 0;
+        text.Strikethrough = value.IndexOf("line-through", StringComparison.Ordinal) >= 0;
 
-        if (value.Contains("overline", StringComparison.Ordinal))
+        if (value.IndexOf("overline", StringComparison.Ordinal) >= 0)
             ctx.Issue(HiprintImportSeverity.Warning, "hiprint.overline-unsupported", "textDecoration: overline 无对应样式，已忽略。", id, path);
     }
 
@@ -616,7 +617,7 @@ public static class HiprintTemplateImporter
         if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
         {
             var comma = source.IndexOf(',');
-            if (comma > 0 && source[..comma].Contains("base64", StringComparison.OrdinalIgnoreCase))
+            if (comma > 0 && source[..comma].IndexOf("base64", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 image.SourceType = ImageSourceType.EmbeddedBase64;
                 image.Data = source[(comma + 1)..].Trim();
@@ -687,8 +688,8 @@ public static class HiprintTemplateImporter
         line.DashPatternMm = DashPattern(style, line.StrokeWidthMm);
 
         if (style is not ("" or "solid" or "dashed" or "dotted")
-            && !style.Contains("dash", StringComparison.Ordinal)
-            && !style.Contains("dot", StringComparison.Ordinal))
+            && style.IndexOf("dash", StringComparison.Ordinal) < 0
+            && style.IndexOf("dot", StringComparison.Ordinal) < 0)
         {
             ctx.Issue(HiprintImportSeverity.Warning, "hiprint.line-style", $"线型 '{style}' 无对应描边样式，按实线绘制。", id, path);
         }
@@ -1185,8 +1186,8 @@ public static class HiprintTemplateImporter
                 if (c >= columnCount)
                     break;
 
-                var columnSpan = Math.Clamp(cell.ColSpan, 1, columnCount - c);
-                var rowSpan = Math.Clamp(cell.RowSpan, 1, rowCount - r);
+                var columnSpan = Math.Max(1, Math.Min(columnCount - c, cell.ColSpan));
+                var rowSpan = Math.Max(1, Math.Min(rowCount - r, cell.RowSpan));
                 cell.Row = r;
                 cell.Column = c;
                 cell.ColSpan = columnSpan;
@@ -1371,7 +1372,7 @@ public static class HiprintTemplateImporter
         };
 
         var decimals = (int)Math.Round(cell?.SummaryNumFormat ?? 2);
-        decimals = Math.Clamp(decimals, 0, 6);
+        decimals = Math.Max(0, Math.Min(6, decimals));
         return (kind, label, decimals);
     }
 
@@ -1594,7 +1595,7 @@ public static class HiprintTemplateImporter
                 path);
         }
 
-        if (effective.Contains("double", StringComparison.Ordinal))
+        if (effective.IndexOf("double", StringComparison.Ordinal) >= 0)
             ctx.Issue(HiprintImportSeverity.Warning, "hiprint.border-double", "borderStyle: double 无对应线型，按实线绘制。", id, path);
 
         element.BorderColor = color;
@@ -1614,9 +1615,9 @@ public static class HiprintTemplateImporter
     static double[]? DashPattern(string style, double widthMm)
     {
         var width = Math.Max(0.1, widthMm);
-        if (style.Contains("dash", StringComparison.Ordinal))
+        if (style.IndexOf("dash", StringComparison.Ordinal) >= 0)
             return [width * 3, width * 3];
-        if (style.Contains("dot", StringComparison.Ordinal))
+        if (style.IndexOf("dot", StringComparison.Ordinal) >= 0)
             return [width, width];
         return null;
     }
@@ -1646,12 +1647,12 @@ public static class HiprintTemplateImporter
         if (obj.ValueKind != JsonValueKind.Object || !obj.TryGetProperty(name, out var value))
             return null;
 
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) && double.IsFinite(number))
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) && !double.IsNaN(number) && !double.IsInfinity(number))
             return number;
 
         if (value.ValueKind == JsonValueKind.String
             && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
-            && double.IsFinite(parsed))
+            && !double.IsNaN(parsed) && !double.IsInfinity(parsed))
             return parsed;
 
         return null;
@@ -1827,7 +1828,7 @@ public static class HiprintTemplateImporter
             if (open < 0 || close <= open)
                 return null;
 
-            var parts = value[(open + 1)..close].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            var parts = value[(open + 1)..close].Split(',').Select(p => p.Trim()).Where(p => p.Length > 0).ToArray();
             if (parts.Length < 3)
                 return null;
 
@@ -1871,29 +1872,29 @@ public static class HiprintTemplateImporter
 
     static byte? Component(string part)
     {
-        if (part.EndsWith('%'))
+        if (part.EndsWith("%"))
         {
             return double.TryParse(part[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var percent)
-                ? (byte)Math.Clamp(Math.Round(percent * 2.55), 0, 255)
+                ? (byte)Math.Max(0, Math.Min(255, (int)Math.Round(percent * 2.55)))
                 : null;
         }
 
         return double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
-            ? (byte)Math.Clamp(Math.Round(number), 0, 255)
+            ? (byte)Math.Max(0, Math.Min(255, (int)Math.Round(number)))
             : null;
     }
 
     static byte Alpha(string part)
     {
-        if (part.EndsWith('%'))
+        if (part.EndsWith("%"))
         {
             return double.TryParse(part[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var percent)
-                ? (byte)Math.Clamp(Math.Round(percent * 2.55), 0, 255)
+                ? (byte)Math.Max(0, Math.Min(255, (int)Math.Round(percent * 2.55)))
                 : (byte)255;
         }
 
         return double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
-            ? (byte)Math.Clamp(Math.Round(number * 255), 0, 255)
+            ? (byte)Math.Max(0, Math.Min(255, (int)Math.Round(number * 255)))
             : (byte)255;
     }
 

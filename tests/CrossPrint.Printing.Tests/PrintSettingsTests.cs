@@ -127,6 +127,7 @@ public sealed class PrintSettingsTests : IDisposable
     {
         public SKTypeface Resolve(string fontFamily, bool bold, bool italic, char probeChar = 'A')
             => SKTypeface.FromFamilyName("Arial", bold ? SKFontStyle.Bold : SKFontStyle.Normal) ?? SKTypeface.Default;
+        public bool FamilyExists(string fontFamily) => fontFamily.Equals("Arial", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>固定字节流的图片解析器。</summary>

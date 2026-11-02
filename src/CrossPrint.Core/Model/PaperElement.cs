@@ -30,7 +30,7 @@ public abstract class PaperElement
     public int ZIndex { get; set; }
 
     /// <summary>元素框底色，null 表示透明。先于元素内容绘制，覆盖整个包围盒。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? BackgroundColor { get; set; }
 
     /// <summary>
@@ -41,14 +41,14 @@ public abstract class PaperElement
     public string? StyleId { get; set; }
 
     /// <summary>元素框边框色，null 表示不画边框。</summary>
-    [JsonConverter(typeof(SkColorJsonConverter))]
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? BorderColor { get; set; }
 
     /// <summary>元素框边框宽（mm），仅 <see cref="BorderColor"/> 非空时生效。</summary>
     public double BorderWidthMm { get; set; } = 0.2;
 
     /// <summary>元素框四边中需要描边的边。hiprint 的 borderTop/Left/Right/Bottom 映射到这里。</summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<BorderSide>))]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public BorderSide BorderSides { get; set; } = BorderSide.All;
 
     /// <summary>元素框边框虚线段长（mm）循环，null 为实线。</summary>

@@ -10,7 +10,6 @@ using Jint.Runtime;
 using SkiaSharp;
 // 本仓根命名空间 CrossPrint.Engine 与 Jint 的 Engine 类同名，别名消歧
 using JintEngine = Jint.Engine;
-using ScriptAst = Acornima.Ast.Script;
 
 namespace CrossPrint.Engine.Rendering;
 
@@ -21,35 +20,14 @@ namespace CrossPrint.Engine.Rendering;
 /// <item><description>约束：单次执行 250ms 超时 / 10 万语句上限 / 64 层递归上限，防死循环拖死打印现场。</description></item>
 /// <item><description>降级：解析失败、执行异常、超时、返回 undefined 一律降级为"没有脚本"（原值原样式），
 /// 并记 <see cref="RenderIssueKind.ScriptIssue"/> 警告，渲染永不中断。</description></item>
-/// <item><description>预编译：同一份源码（key = 源码字符串）跨引擎实例、跨线程只解析一次，
-/// 条数有上限、超出按最近最少使用回收（AST 不可变，回收只是下次重解析，没有正确性风险）。</description></item>
 /// </list>
 /// </summary>
 public sealed class ScriptRunner : IScriptRunner
 {
-    /// <summary>
-    /// 预编译 AST 缓存的上限（条数）。一条就是一份脚本源码的 AST，不可变，
-    /// 所以淘汰没有正确性风险，代价只是下一次重解析。
-    /// 取值理由：一份模板的 formatter/styler 是几十条量级，256 条够整份重模板常驻；
-    /// 常驻打印服务加载的是"很多模板"，没有上限就是按租户/报表无限涨，谁也无法释放。
-    /// </summary>
-    internal const int PreparedCacheCapacity = 256;
-
-    static readonly PreparedAstCache _prepared = new(PreparedCacheCapacity);
-
     const int TimeoutMs = 250;
     const int MaxStatements = 100_000;
     const int MaxRecursionDepth = 64;
     const int MaxConvertDepth = 32;
-
-    /// <summary>当前缓存的预编译脚本条数（宿主诊断与单测取证用）。</summary>
-    public static int PreparedCacheCount => _prepared.Count;
-
-    /// <summary>
-    /// 丢弃全部预编译 AST（常驻服务在空闲时主动收回内存；下一次执行会重解析，语义不变）。
-    /// 与 <see cref="ImageCache.Clear"/> 同一口径：只放引用，没有需要 Dispose 的原生件。
-    /// </summary>
-    public static void ClearPreparedCache() => _prepared.Clear();
 
     /// <summary>模板里是否存在任何脚本（决定渲染入口要不要创建执行器；无脚本模板零开销）。</summary>
     public static bool HasScripts(PrintTemplate template)
@@ -87,9 +65,7 @@ public sealed class ScriptRunner : IScriptRunner
 
         try
         {
-            // 每次执行独立引擎实例：全局变量、原型篡改都无法影响下一次调用；
-            // 预编译结果（Prepared&lt;Script&gt; 是不可变结构）跨实例复用，解析开销只在首次。
-            // 缓存有上限：淘汰一份 AST 只是下一次多解析一遍，语义不变（见 PreparedCacheCapacity）。
+            // 每次执行独立引擎实例：全局变量、原型篡改都无法影响下一次调用。
             using var engine = new JintEngine(options =>
             {
                 options.TimeoutInterval(TimeSpan.FromMilliseconds(TimeoutMs));
@@ -97,7 +73,7 @@ public sealed class ScriptRunner : IScriptRunner
                 options.LimitRecursion(MaxRecursionDepth);
             });
 
-            var fn = engine.Evaluate(_prepared.GetOrAdd(source, static s => JintEngine.PrepareScript($"(function(){{return ({s});}})()")));
+            var fn = engine.Evaluate($"(function(){{return ({source});}})()");
             if (fn is not Function function)
             {
                 report.Add(elementId, RenderIssueKind.ScriptIssue,
@@ -121,7 +97,7 @@ public sealed class ScriptRunner : IScriptRunner
     /// <summary>异常消息收敛到一行、限长：告警面板与打印日志都会展示它。</summary>
     static string Summarize(string message)
     {
-        var text = message.ReplaceLineEndings(" ").Trim();
+        var text = message.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Trim();
         return text.Length <= 160 ? text : text[..160] + "…";
     }
 
@@ -208,78 +184,6 @@ public sealed class ScriptRunner : IScriptRunner
             return null;
 
         return value.ToString(); // 对象/数组等罕见返回：转显示字符串
-    }
-}
-
-/// <summary>
-/// 预编译 AST 的定容 LRU：<c>ConcurrentDictionary</c> 那种"只进不出"的写法在这里等于无限增长——
-/// 常驻服务每份模板、每个租户的脚本源码都不同，进程活着就永远释放不掉。
-/// 条目是不可变结构体，没有原生件要放，所以回收只要摘掉引用即可，不需要引用计数。
-/// 与 <see cref="ImageCache"/> 同一口径：一把锁 + 字典 + 双向链表，命中即前移。
-/// </summary>
-internal sealed class PreparedAstCache(int capacity)
-{
-    readonly record struct Entry(string Key, Prepared<ScriptAst> Ast);
-
-    readonly Dictionary<string, LinkedListNode<Entry>> _index = new(StringComparer.Ordinal);
-    readonly LinkedList<Entry> _lru = new();
-    readonly object _gate = new();
-
-    /// <summary>当前条数。</summary>
-    public int Count
-    {
-        get
-        {
-            lock (_gate)
-                return _index.Count;
-        }
-    }
-
-    /// <summary>取已编译的 AST；未命中时用 <paramref name="prepare"/> 解析一次并存入（超出上限先丢最久没用的）。</summary>
-    public Prepared<ScriptAst> GetOrAdd(string key, Func<string, Prepared<ScriptAst>> prepare)
-    {
-        lock (_gate)
-        {
-            if (_index.TryGetValue(key, out var hit))
-            {
-                _lru.Remove(hit);
-                _lru.AddFirst(hit);
-                return hit.Value.Ast;
-            }
-        }
-
-        // 解析在锁外：一份脚本源码可能有几百行，抱着锁会把并发渲染串起来
-        var prepared = prepare(key);
-
-        lock (_gate)
-        {
-            if (_index.TryGetValue(key, out var existing))
-            {
-                _lru.Remove(existing);
-                _lru.AddFirst(existing);
-                return existing.Value.Ast;
-            }
-
-            _index[key] = _lru.AddFirst(new Entry(key, prepared));
-            while (_index.Count > capacity)
-            {
-                var tail = _lru.Last!;
-                _lru.RemoveLast();
-                _index.Remove(tail.Value.Key);
-            }
-
-            return prepared;
-        }
-    }
-
-    /// <summary>丢弃全部条目。</summary>
-    public void Clear()
-    {
-        lock (_gate)
-        {
-            _lru.Clear();
-            _index.Clear();
-        }
     }
 }
 
@@ -408,9 +312,13 @@ internal static class StyleParser
     static ScriptStyle ParseCss(string css)
     {
         var props = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var part in css.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var part in css.Split(new [] {';'}, StringSplitOptions.RemoveEmptyEntries))
         {
-            var colon = part.IndexOf(':');
+            var trimmed = part.Trim();
+            if (trimmed.Length == 0)
+                continue;
+
+            var colon = trimmed.IndexOf(':');
             if (colon <= 0)
                 continue;
 
@@ -462,9 +370,9 @@ internal static class StyleParser
         var decoration = Get("textDecoration");
         if (decoration is not null)
         {
-            if (decoration.Contains("underline", StringComparison.OrdinalIgnoreCase))
+            if (decoration.IndexOf("underline", StringComparison.OrdinalIgnoreCase) >= 0)
                 underline = true;
-            if (decoration.Contains("line-through", StringComparison.OrdinalIgnoreCase))
+            if (decoration.IndexOf("line-through", StringComparison.OrdinalIgnoreCase) >= 0)
                 strikethrough = true;
             if (decoration.Equals("none", StringComparison.OrdinalIgnoreCase))
                 underline = strikethrough = false;
@@ -498,12 +406,18 @@ internal static class StyleParser
     /// <summary>background-color → backgroundColor（CSS 键统一成 JS 形态）。</summary>
     static string ToCamel(string kebab)
     {
-        var parts = kebab.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length == 0)
+        var partsRaw = kebab.Split(new [] {'-'}, StringSplitOptions.RemoveEmptyEntries);
+        var parts = new List<string>(partsRaw.Length);
+        foreach (var p in partsRaw)
+        {
+            var t = p.Trim();
+            if (t.Length > 0) parts.Add(t);
+        }
+        if (parts.Count == 0)
             return string.Empty;
 
         return parts[0] + string.Concat(parts.Skip(1).Select(p =>
-            p.Length == 0 ? p : char.ToUpperInvariant(p[0]) + p[1..]));
+            p.Length == 0 ? p : char.ToUpperInvariant(p[0]) + p.Substring(1)));
     }
 
     static SKColor? ParseColor(string? text)
@@ -517,12 +431,14 @@ internal static class StyleParser
         if (value.StartsWith("rgb", StringComparison.OrdinalIgnoreCase))
         {
             var inner = value[(value.IndexOf('(') + 1)..].TrimEnd(')');
-            var parts = inner.Split(',', StringSplitOptions.TrimEntries);
+            var partsRaw = inner.Split(',');
+            var parts = new string[partsRaw.Length];
+            for (var i = 0; i < partsRaw.Length; i++) parts[i] = partsRaw[i].Trim();
             if (parts.Length is 3 or 4
                 && TryByte(parts[0], out var r) && TryByte(parts[1], out var g) && TryByte(parts[2], out var b))
             {
                 var alpha = parts.Length == 4
-                    ? (double.TryParse(parts[3], System.Globalization.CultureInfo.InvariantCulture, out var a) && a <= 1
+                    ? (double.TryParse(parts[3], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var a) && a <= 1
                         ? (byte)Math.Round(a * 255)
                         : (byte)255)
                     : (byte)255;
@@ -536,7 +452,7 @@ internal static class StyleParser
             return named;
 
         // #RGB / #RRGGBB / #AARRGGBB；#RGB 展开成 #RRGGBB
-        if (value.StartsWith('#'))
+        if (value.StartsWith("#"))
         {
             var hex = value[1..];
             if (hex.Length == 3 && hex.All(Uri.IsHexDigit))
@@ -641,7 +557,7 @@ internal static class StyleParser
         if (!double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var multiple))
             return null;
 
-        return Math.Clamp(multiple, 0.1, 10);
+        return Math.Max(0.1, Math.Min(10, multiple));
     }
 
     static HorizontalAlign? ParseHAlign(string? text) => text?.Trim().ToLowerInvariant() switch
@@ -667,7 +583,9 @@ internal static class StyleParser
         if (string.IsNullOrWhiteSpace(text))
             return null;
 
-        var parts = text.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var partsRaw = text.Split(new [] {' ', '\t'}, StringSplitOptions.RemoveEmptyEntries);
+        var parts = new string[partsRaw.Length];
+        for (var i = 0; i < partsRaw.Length; i++) parts[i] = partsRaw[i].Trim();
         var values = new double?[parts.Length];
         for (var i = 0; i < parts.Length; i++)
         {
@@ -678,10 +596,10 @@ internal static class StyleParser
 
         return values.Length switch
         {
-            1 => [values[0]!.Value, values[0]!.Value, values[0]!.Value, values[0]!.Value],
-            2 => [values[0]!.Value, values[1]!.Value, values[0]!.Value, values[1]!.Value],
-            3 => [values[0]!.Value, values[1]!.Value, values[2]!.Value, values[1]!.Value],
-            4 => [values[0]!.Value, values[1]!.Value, values[2]!.Value, values[3]!.Value],
+            1 => new double[] { values[0]!.Value, values[0]!.Value, values[0]!.Value, values[0]!.Value },
+            2 => new double[] { values[0]!.Value, values[1]!.Value, values[0]!.Value, values[1]!.Value },
+            3 => new double[] { values[0]!.Value, values[1]!.Value, values[2]!.Value, values[1]!.Value },
+            4 => new double[] { values[0]!.Value, values[1]!.Value, values[2]!.Value, values[3]!.Value },
             _ => null,
         };
     }

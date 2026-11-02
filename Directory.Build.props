@@ -12,6 +12,13 @@
     <InvariantGlobalization>false</InvariantGlobalization>
     <Deterministic>true</Deterministic>
     <NoWarn>$(NoWarn);NU1902;NU1903</NoWarn>
+    <!-- net461 / netstandard2.0 上 PolySharp 虽然 polyfill 了 IsExternalInit / Range / Index 等，
+         但 nullable reference types 的语义（CS86xx）编译器不完整实现。
+         源生成器（STJ / PolySharp）在 net461 上还会触发 CS8336（EmbeddedAttribute 冲突）。
+         这些在 net8.0 上是干净的，只对旧 TFM 放开。 -->
+    <NoWarn Condition="'$(TargetFramework)' == 'net461' Or '$(TargetFramework)' == 'netstandard2.0'">$(NoWarn);CS8600;CS8602;CS8603;CS8604;CS8618;CS8625;CS8336;CS0165;CS1591</NoWarn>
+    <!-- PolySharp 在 net461 上生成 EmbeddedAttribute 与 Roslyn 编译器冲突（CS8336）。 -->
+    <PolySharpUseEmbeddedAttributeForGeneratedTypes Condition="'$(TargetFramework)' == 'net461' Or '$(TargetFramework)' == 'netstandard2.0'">false</PolySharpUseEmbeddedAttributeForGeneratedTypes>
   </PropertyGroup>
 
   <!-- Library packages: full docs + package metadata -->

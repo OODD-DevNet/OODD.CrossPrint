@@ -204,10 +204,10 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
         var spans = new List<(TableHeaderCell Source, int Row, int Column, int ColSpan, int RowSpan, TextStyle Style, List<string> Lines, NamedStyle? St)>();
         foreach (var cell in cells)
         {
-            var row = Math.Clamp(cell.Row, 0, rowCount - 1);
-            var column = Math.Clamp(cell.Column, 0, colCount - 1);
-            var colSpan = Math.Clamp(cell.ColSpan, 1, colCount - column);
-            var rowSpan = Math.Clamp(cell.RowSpan, 1, rowCount - row);
+            var row = Math.Max(0, Math.Min(rowCount - 1, cell.Row));
+            var column = Math.Max(0, Math.Min(colCount - 1, cell.Column));
+            var colSpan = Math.Max(1, Math.Min(colCount - column, cell.ColSpan));
+            var rowSpan = Math.Max(1, Math.Min(rowCount - row, cell.RowSpan));
             // 表头格样式：字体族/字号/加粗/倾斜/装饰/字色/底色按 StyleId 级联
             var st = StyleCascade.Find(pool.Context, cell.StyleId);
             var style = pool.Get(
@@ -504,10 +504,10 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
         {
             if (rowCount == 0 || colCount == 0)
                 return;
-            row = Math.Clamp(row, 0, rowCount - 1);
-            column = Math.Clamp(column, 0, colCount - 1);
-            rowSpan = Math.Clamp(rowSpan, 1, rowCount - row);
-            colSpan = Math.Clamp(colSpan, 1, colCount - column);
+            row = Math.Max(0, Math.Min(rowCount - 1, row));
+            column = Math.Max(0, Math.Min(colCount - 1, column));
+            rowSpan = Math.Max(1, Math.Min(rowCount - row, rowSpan));
+            colSpan = Math.Max(1, Math.Min(colCount - column, colSpan));
             if (rowSpan <= 1 && colSpan <= 1)
                 return;
 
@@ -700,7 +700,7 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
         var right = rule.Value ?? string.Empty;
         if (rule.Operator is TableConditionOperator.Contains or TableConditionOperator.NotContains)
         {
-            var contains = left.Contains(right, StringComparison.OrdinalIgnoreCase);
+            var contains = left.IndexOf(right, StringComparison.OrdinalIgnoreCase) >= 0;
             return rule.Operator == TableConditionOperator.Contains ? contains : !contains;
         }
 
@@ -1010,7 +1010,7 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
     static string SummaryText(TableColumn column, List<List<string>> data, int index)
     {
         var label = column.SummaryLabel ?? string.Empty;
-        var decimals = Math.Clamp(column.SummaryDecimals, 0, 6);
+        var decimals = Math.Max(0, Math.Min(6, column.SummaryDecimals));
         switch (column.Summary)
         {
             case TableSummary.None:
@@ -1622,8 +1622,8 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
 
         if (window is { } page && items is not null)
         {
-            var start = Math.Clamp(page.Start, 0, items.Count);
-            var count = Math.Clamp(page.Count, 0, items.Count - start);
+            var start = Math.Max(0, Math.Min(items.Count, page.Start));
+            var count = Math.Max(0, Math.Min(items.Count - start, page.Count));
             if (start > 0 || count < items.Count)
             {
                 var sliced = new List<object?>(count);

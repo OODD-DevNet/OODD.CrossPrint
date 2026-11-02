@@ -30,9 +30,9 @@ public static class PngExporter
         IImageResolver? images = null,
         TemplateRenderer? renderer = null)
     {
-        ArgumentNullException.ThrowIfNull(stream);
+        if (stream is null) throw new ArgumentNullException(nameof(stream));
         var result = ExportBytes(template, options, data, fontResolver, images, renderer);
-        stream.Write(result.Bytes);
+        stream.Write(result.Bytes, 0, result.Bytes.Length);
         return result.Report;
     }
 
@@ -52,7 +52,7 @@ public static class PngExporter
         IImageResolver? images = null,
         TemplateRenderer? renderer = null)
     {
-        ArgumentNullException.ThrowIfNull(template);
+        if (template is null) throw new ArgumentNullException(nameof(template));
         var r = renderer ?? TemplateRenderer.Default;
         var result = r.RenderToBitmap(template, options, data, fontResolver, images);
         try
@@ -106,8 +106,8 @@ public static class PdfExporter
         IImageResolver? images = null,
         TemplateRenderer? renderer = null)
     {
-        ArgumentNullException.ThrowIfNull(template);
-        ArgumentNullException.ThrowIfNull(stream);
+        if (template is null) throw new ArgumentNullException(nameof(template));
+        if (stream is null) throw new ArgumentNullException(nameof(stream));
 
         var opt = (options ?? new RenderOptions()).WithDpi(PdfUnitsPerInch);
         var r = renderer ?? TemplateRenderer.Default;
@@ -190,8 +190,8 @@ public static class BatchPdfExporter
         IImageResolver? images = null,
         TemplateRenderer? renderer = null)
     {
-        ArgumentNullException.ThrowIfNull(templates);
-        ArgumentNullException.ThrowIfNull(stream);
+        if (templates is null) throw new ArgumentNullException(nameof(templates));
+        if (stream is null) throw new ArgumentNullException(nameof(stream));
 
         // 返回契约写的是"总页数 ≥ 1"：空列表会让 Skia 收一份 0 页文档，阅读器/打印机多半直接拒收，
         // 而调用方只会看到"印了 0 页"再来猜原因。在写流之前就拒，流里不会留半截文件。
@@ -208,7 +208,7 @@ public static class BatchPdfExporter
             for (var i = 0; i < templates.Count; i++)
             {
                 var template = templates[i];
-                ArgumentNullException.ThrowIfNull(template);
+                if (template is null) throw new ArgumentNullException(nameof(template));
 
                 var data = dataSelector?.Invoke(i);
                 var pages = TemplatePaginator.PlanLayout(template, opt, data, fontResolver, images);

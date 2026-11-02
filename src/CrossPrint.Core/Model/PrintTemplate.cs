@@ -48,7 +48,7 @@ public sealed class PrintTemplate
         foreach (var e in Elements)
         {
             if (e.Id.StartsWith("el-", StringComparison.Ordinal)
-                && int.TryParse(e.Id.AsSpan(3), out var n) && n > max)
+                && int.TryParse(e.Id.Substring(3), out var n) && n > max)
                 max = n;
         }
 
@@ -66,7 +66,7 @@ public sealed class PrintTemplate
         foreach (var s in Styles)
         {
             if (s.Id.StartsWith("st-", StringComparison.Ordinal)
-                && int.TryParse(s.Id.AsSpan(3), out var n) && n > max)
+                && int.TryParse(s.Id.Substring(3), out var n) && n > max)
                 max = n;
         }
 
@@ -134,18 +134,18 @@ public sealed class PrintTemplate
     static void SetDesignValue(Dictionary<string, object?> root, string path, string value)
     {
         var current = root;
-        var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var segments = path.Split('.').Where(s => !string.IsNullOrEmpty(s)).Select(s => s.Trim()).ToArray();
         for (var i = 0; i < segments.Length; i++)
         {
             var segment = segments[i];
             var bracket = segment.IndexOf('[');
-            var name = (bracket < 0 ? segment : segment[..bracket]).Trim();
+            var name = (bracket < 0 ? segment : segment.Substring(0, bracket)).Trim();
             if (name.Length == 0)
                 return;
 
             int? index = null;
-            if (bracket >= 0 && segment.EndsWith(']')
-                && int.TryParse(segment.AsSpan(bracket + 1, segment.Length - bracket - 2), out var parsed) && parsed >= 0)
+            if (bracket >= 0 && segment.EndsWith("]")
+                && int.TryParse(segment.Substring(bracket + 1, segment.Length - bracket - 2), out var parsed) && parsed >= 0)
                 index = parsed;
 
             if (index > MaxDesignListIndex)
