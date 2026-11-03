@@ -1,0 +1,37 @@
+# GitHub Copilot Coding Agent 的环境准备步骤。
+# 该文件在 agent 每次接管 Issue / 生成 PR 前执行，用于安装工具链、恢复依赖并预热构建，
+# 使后续的 dotnet build / dotnet test 可在 agent 的 Linux 环境中直接运行。
+#
+# 说明：
+# - agent 运行环境为 Linux，Windows 专属宿主（WPF / WinForms / WinUI / MAUI）在此环境无法编译，
+#   故 "Warm build" 步骤对编译失败的项目打印 skipped 而非中断。
+# - 仅含 run 步骤（不支持 uses）；shell 默认 bash；GITHUB_PATH 机制可用于把工具加入 PATH。
+version: 1.0
+
+steps:
+  - name: Install .NET 8 SDK
+    shell: bash
+    timeout_minutes: 10
+    run: |
+      if ! command -v dotnet >/dev/null 2>&1; then
+        curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+        chmod +x dotnet-install.sh
+        ./dotnet-install.sh --channel 8.0 --install-dir "$HOME/.dotnet"
+        echo "$HOME/.dotnet" >> "$GITHUB_PATH"
+      fi
+      dotnet --version
+
+  - name: Restore solution
+    shell: bash
+    timeout_minutes: 15
+    run: dotnet restore OODD.CrossPrint.sln
+
+  - name: Warm build (cross-platform libraries)
+    shell: bash
+    timeout_minutes: 30
+    run: |
+      set +e
+      for f in src/*/*.csproj; do
+        echo "== building $f =="
+        dotnet build "$f" -c Release --no-restore || echo "  (skipped: not buildable in this Linux environment)"
+      done
