@@ -128,7 +128,7 @@ await new SystemPrintTarget()
 
 ---
 
-## Designer guide — the dumbed-down version
+## Designer guide
 
 All seven hosts look almost identical:
 
