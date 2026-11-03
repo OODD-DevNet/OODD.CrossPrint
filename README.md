@@ -54,21 +54,21 @@ dotnet run --project samples/CrossPrint.Samples.Maui
 
 | 你在做什么 | 装这几个包就够了 |
 |---|---|
-| 任何宿主都需要的内核 | `CrossPrint.Core` · `CrossPrint.Engine` · `CrossPrint.Designer` · `CrossPrint.Printing` |
-| Avalonia | `CrossPrint.Hosts.Avalonia` |
-| WPF | `CrossPrint.Hosts.Wpf` |
-| WinForms | `CrossPrint.Hosts.WinForms` |
-| Eto.Forms | `CrossPrint.Hosts.Eto` |
-| WinUI 3 | `CrossPrint.Hosts.WinUi` |
-| Uno | `CrossPrint.Hosts.Uno` |
-| .NET MAUI | `CrossPrint.Hosts.Maui` |
+| 任何宿主都需要的内核 | `OODD.CrossPrint.Core` · `OODD.CrossPrint.Engine` · `OODD.CrossPrint.Designer` · `OODD.CrossPrint.Printing` |
+| Avalonia | `OODD.CrossPrint.Hosts.Avalonia` |
+| WPF | `OODD.CrossPrint.Hosts.Wpf` |
+| WinForms | `OODD.CrossPrint.Hosts.WinForms` |
+| Eto.Forms | `OODD.CrossPrint.Hosts.Eto` |
+| WinUI 3 | `OODD.CrossPrint.Hosts.WinUi` |
+| Uno | `OODD.CrossPrint.Hosts.Uno` |
+| .NET MAUI | `OODD.CrossPrint.Hosts.Maui` |
 
 举个实际例子（Avalonia 宿主）：
 
 ```powershell
-dotnet add package CrossPrint.Core
-dotnet add package CrossPrint.Engine
-dotnet add package CrossPrint.Hosts.Avalonia
+dotnet add package OODD.CrossPrint.Core
+dotnet add package OODD.CrossPrint.Engine
+dotnet add package OODD.CrossPrint.Hosts.Avalonia
 ```
 
 然后代码里这样用：

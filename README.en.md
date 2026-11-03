@@ -54,21 +54,21 @@ Figure out which UI framework you're using, grab the matching host package. Cros
 
 | What you're building | Install these |
 |---|---|
-| Core (all hosts need these) | `CrossPrint.Core` · `CrossPrint.Engine` · `CrossPrint.Designer` · `CrossPrint.Printing` |
-| Avalonia | `CrossPrint.Hosts.Avalonia` |
-| WPF | `CrossPrint.Hosts.Wpf` |
-| WinForms | `CrossPrint.Hosts.WinForms` |
-| Eto.Forms | `CrossPrint.Hosts.Eto` |
-| WinUI 3 | `CrossPrint.Hosts.WinUi` |
-| Uno | `CrossPrint.Hosts.Uno` |
-| .NET MAUI | `CrossPrint.Hosts.Maui` |
+| Core (all hosts need these) | `OODD.CrossPrint.Core` · `OODD.CrossPrint.Engine` · `OODD.CrossPrint.Designer` · `OODD.CrossPrint.Printing` |
+| Avalonia | `OODD.CrossPrint.Hosts.Avalonia` |
+| WPF | `OODD.CrossPrint.Hosts.Wpf` |
+| WinForms | `OODD.CrossPrint.Hosts.WinForms` |
+| Eto.Forms | `OODD.CrossPrint.Hosts.Eto` |
+| WinUI 3 | `OODD.CrossPrint.Hosts.WinUi` |
+| Uno | `OODD.CrossPrint.Hosts.Uno` |
+| .NET MAUI | `OODD.CrossPrint.Hosts.Maui` |
 
 Concrete example (Avalonia host):
 
 ```powershell
-dotnet add package CrossPrint.Core
-dotnet add package CrossPrint.Engine
-dotnet add package CrossPrint.Hosts.Avalonia
+dotnet add package OODD.CrossPrint.Core
+dotnet add package OODD.CrossPrint.Engine
+dotnet add package OODD.CrossPrint.Hosts.Avalonia
 ```
 
 ```csharp
