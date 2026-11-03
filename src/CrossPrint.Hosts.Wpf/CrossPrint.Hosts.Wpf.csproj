@@ -9,7 +9,7 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>CrossPrint.Hosts.Wpf</RootNamespace>
     <AssemblyName>CrossPrint.Hosts.Wpf</AssemblyName>
-    <PackageId>CrossPrint.Hosts.Wpf</PackageId>
+    <PackageId>OODD.CrossPrint.Hosts.Wpf</PackageId>
     <Description>CrossPrint WPF 宿主适配层：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
   </PropertyGroup>
 

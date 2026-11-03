@@ -181,19 +181,37 @@ jobs:
             -DestinationPath artifacts/CrossPrint-NuGet-packages.zip -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: nuget-packages
+          name: nuget-packages-zip
           path: artifacts/CrossPrint-NuGet-packages.zip
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nuget-packages-raw
+          path: artifacts/packages/*.nupkg
 
+  # 推送 NuGet（OIDC 受信任发布）。与 create-release 解耦：即便 NuGet 推送因 nuget.org 信任策略
+  # 未配置而失败，GitHub Release 仍会正常生成。需要在 nuget.org 为 vars.NUGET_USER 账号配置
+  # Trusted Publishing，授权本仓库发布 CrossPrint.* 包（详见发布说明）。
+  publish-nuget:
+    needs: [nuget-packages]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget-packages-raw
+          path: artifacts/raw
       # 优先 OIDC 受信任发布：仓库变量 vars.NUGET_USER（nuget.org 用户名）+ nuget.org 上的
-      # Trusted Publishing 策略，由 NuGet/login@v1 用 OIDC 临时换取 API key；未配置 NUGET_USER
-      # 时回退 secret NUGET_API_KEY（兼容旧式密钥）。
+      # Trusted Publishing 策略。未配置 NUGET_USER 时回退 secret NUGET_API_KEY（兼容旧式密钥）。
       - name: NuGet login (OIDC -> temp API key)
         if: vars.NUGET_USER != '' && env.NUGET_API_KEY == ''
         id: nuget_login
         uses: NuGet/login@v1
         with:
           user: ${{ vars.NUGET_USER }}
-
       - name: Push to nuget.org
         if: vars.NUGET_USER != '' || env.NUGET_API_KEY != ''
         shell: pwsh
@@ -203,11 +221,10 @@ jobs:
           if ([string]::IsNullOrEmpty($env:NUGET_PUSH_KEY)) {
             throw "No NuGet credential: set repository variable NUGET_USER or secret NUGET_API_KEY."
           }
-          Get-ChildItem artifacts/packages/*.nupkg | ForEach-Object {
+          Get-ChildItem artifacts/raw/*.nupkg | ForEach-Object {
             dotnet nuget push $_.FullName --api-key $env:NUGET_PUSH_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate
             if ($LASTEXITCODE -ne 0) { throw "Failed to push $($_.Name)." }
           }
-
       - name: NuGet.org push not configured
         if: vars.NUGET_USER == '' && env.NUGET_API_KEY == ''
         run: echo "::warning title=NuGet.org skipped::Set repository variable NUGET_USER (trusted publishing) or secret NUGET_API_KEY to enable publishing."

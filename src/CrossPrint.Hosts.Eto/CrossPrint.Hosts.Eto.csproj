@@ -10,7 +10,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>CrossPrint.Hosts.Eto</RootNamespace>
     <AssemblyName>CrossPrint.Hosts.Eto</AssemblyName>
-    <PackageId>CrossPrint.Hosts.Eto</PackageId>
+    <PackageId>OODD.CrossPrint.Hosts.Eto</PackageId>
     <Description>CrossPrint Eto.Forms 宿主适配层：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
   </PropertyGroup>
 

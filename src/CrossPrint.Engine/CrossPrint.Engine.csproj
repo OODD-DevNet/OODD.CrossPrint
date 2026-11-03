@@ -4,7 +4,7 @@
     <TargetFrameworks>net8.0;net461</TargetFrameworks>
     <RootNamespace>CrossPrint.Engine</RootNamespace>
     <AssemblyName>CrossPrint.Engine</AssemblyName>
-    <PackageId>CrossPrint.Engine</PackageId>
+    <PackageId>OODD.CrossPrint.Engine</PackageId>
     <Description>CrossPrint 渲染引擎：SkiaSharp 元素渲染、PDF/PNG 导出、数据绑定。无 UI 框架依赖。</Description>
   </PropertyGroup>
 

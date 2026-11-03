@@ -9,6 +9,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>CrossPrint.Hosts.Avalonia</RootNamespace>
     <AssemblyName>CrossPrint.Hosts.Avalonia</AssemblyName>
+    <PackageId>OODD.CrossPrint.Hosts.Avalonia</PackageId>
   </PropertyGroup>
 
   <ItemGroup>

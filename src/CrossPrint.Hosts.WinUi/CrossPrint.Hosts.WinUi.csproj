@@ -12,7 +12,7 @@
     <UseWinUI>true</UseWinUI>
     <RootNamespace>CrossPrint.Hosts.WinUi</RootNamespace>
     <AssemblyName>CrossPrint.Hosts.WinUi</AssemblyName>
-    <PackageId>CrossPrint.Hosts.WinUi</PackageId>
+    <PackageId>OODD.CrossPrint.Hosts.WinUi</PackageId>
     <Description>CrossPrint WinUI 3 宿主适配层：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
 
     <!--

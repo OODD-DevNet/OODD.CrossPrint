@@ -4,7 +4,7 @@
     <TargetFrameworks>net8.0;net461</TargetFrameworks>
     <RootNamespace>CrossPrint.Printing</RootNamespace>
     <AssemblyName>CrossPrint.Printing</AssemblyName>
-    <PackageId>CrossPrint.Printing</PackageId>
+    <PackageId>OODD.CrossPrint.Printing</PackageId>
     <Description>CrossPrint 打印目标抽象层：把渲染引擎的产物送出去的统一出口。v0.1 提供 PdfFilePrintTarget（PDF 落盘，FR-PRT-01）与 SystemPrintTarget（ShellExecute / lp 调起系统打印管线，FR-PRT-03）。</Description>
   </PropertyGroup>
 

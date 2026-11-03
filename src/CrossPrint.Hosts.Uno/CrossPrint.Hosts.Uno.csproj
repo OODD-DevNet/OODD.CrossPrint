@@ -21,7 +21,7 @@
     <TargetFramework>net8.0-desktop</TargetFramework>
     <RootNamespace>CrossPrint.Hosts.Uno</RootNamespace>
     <AssemblyName>CrossPrint.Hosts.Uno</AssemblyName>
-    <PackageId>CrossPrint.Hosts.Uno</PackageId>
+    <PackageId>OODD.CrossPrint.Hosts.Uno</PackageId>
     <Description>CrossPrint Uno Platform 宿主适配层：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
     <!-- Uno.Sdk 默认 IsPackable=false（它把工程当应用看），适配层要和其它宿主一样出包。 -->
     <IsPackable>true</IsPackable>

@@ -7,7 +7,7 @@
     <LangVersion>latest</LangVersion>
     <RootNamespace>CrossPrint.Core</RootNamespace>
     <AssemblyName>CrossPrint.Core</AssemblyName>
-    <PackageId>CrossPrint.Core</PackageId>
+    <PackageId>OODD.CrossPrint.Core</PackageId>
     <Description>CrossPrint 模板模型、单位换算与 JSON 序列化（无 UI 依赖）。</Description>
   </PropertyGroup>
 

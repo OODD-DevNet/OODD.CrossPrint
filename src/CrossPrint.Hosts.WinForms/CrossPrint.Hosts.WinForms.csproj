@@ -9,7 +9,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>CrossPrint.Hosts.WinForms</RootNamespace>
     <AssemblyName>CrossPrint.Hosts.WinForms</AssemblyName>
-    <PackageId>CrossPrint.Hosts.WinForms</PackageId>
+    <PackageId>OODD.CrossPrint.Hosts.WinForms</PackageId>
     <Description>CrossPrint WinForms 宿主适配层：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
   </PropertyGroup>
 

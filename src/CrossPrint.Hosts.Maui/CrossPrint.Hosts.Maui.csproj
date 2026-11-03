@@ -23,7 +23,7 @@
     <UseMaui>true</UseMaui>
     <RootNamespace>CrossPrint.Hosts.Maui</RootNamespace>
     <AssemblyName>CrossPrint.Hosts.Maui</AssemblyName>
-    <PackageId>CrossPrint.Hosts.Maui</PackageId>
+    <PackageId>OODD.CrossPrint.Hosts.Maui</PackageId>
     <Description>CrossPrint .NET MAUI 宿主适配层（Windows）：DesignerControl（设计画布）与 PreviewControl（打印预览），共用同一渲染路径。</Description>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
 
