@@ -20,10 +20,13 @@ concurrency:
 permissions:
   contents: write
   actions: read
+  id-token: write   # NuGet OIDC 受信任发布需要（NuGet/login@v1 用 OIDC 换取临时 API key）
 
 env:
   DOTNET_NOLOGO: "1"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  # NuGet 推送：优先 OIDC 受信任发布（仓库变量 vars.NUGET_USER），缺省时回退 secret NUGET_API_KEY。
+  NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
   # 变量名必须避开 MSBuild 属性 Version（属性名大小写不敏感，环境变量会自动注入为属性）。
   # 若命名为 VERSION，MSBuild 会把 "v1.0.0" 当成 Version，NuGet 报
   # "'v1.0.0' is not a valid version string"，导致 pack / 所有 publish 直接失败。
@@ -68,7 +71,7 @@ jobs:
             os_label: Linux
             arch_label: x64
           - rid: osx-x64
-            os: macos-13
+            os: macos-latest
             os_label: macOS
             arch_label: Intel
           - rid: osx-arm64
@@ -180,6 +183,34 @@ jobs:
         with:
           name: nuget-packages
           path: artifacts/CrossPrint-NuGet-packages.zip
+
+      # 优先 OIDC 受信任发布：仓库变量 vars.NUGET_USER（nuget.org 用户名）+ nuget.org 上的
+      # Trusted Publishing 策略，由 NuGet/login@v1 用 OIDC 临时换取 API key；未配置 NUGET_USER
+      # 时回退 secret NUGET_API_KEY（兼容旧式密钥）。
+      - name: NuGet login (OIDC -> temp API key)
+        if: vars.NUGET_USER != '' && env.NUGET_API_KEY == ''
+        id: nuget_login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Push to nuget.org
+        if: vars.NUGET_USER != '' || env.NUGET_API_KEY != ''
+        shell: pwsh
+        env:
+          NUGET_PUSH_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY || env.NUGET_API_KEY }}
+        run: |
+          if ([string]::IsNullOrEmpty($env:NUGET_PUSH_KEY)) {
+            throw "No NuGet credential: set repository variable NUGET_USER or secret NUGET_API_KEY."
+          }
+          Get-ChildItem artifacts/packages/*.nupkg | ForEach-Object {
+            dotnet nuget push $_.FullName --api-key $env:NUGET_PUSH_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate
+            if ($LASTEXITCODE -ne 0) { throw "Failed to push $($_.Name)." }
+          }
+
+      - name: NuGet.org push not configured
+        if: vars.NUGET_USER == '' && env.NUGET_API_KEY == ''
+        run: echo "::warning title=NuGet.org skipped::Set repository variable NUGET_USER (trusted publishing) or secret NUGET_API_KEY to enable publishing."
 
   # 汇总所有 artifact 并创建 GitHub Release
   create-release:
