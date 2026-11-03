@@ -14,12 +14,20 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# 创建 GitHub Release 需要 contents:write；下载同一次运行的 artifact 需要 actions:read。
+# 本仓库默认 GITHUB_TOKEN 为只读（pages-demo.yml 也显式声明了权限），必须在此显式提升，
+# 否则 softprops/action-gh-release 会 403 失败（这正是此前 release 工作流跑不通的根因）。
+permissions:
+  contents: write
+  actions: read
+
 env:
   DOTNET_NOLOGO: "1"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
-  VERSION: ${{ github.ref_name }}
+  # 手动 dispatch 时若填了 version_tag 就用它；push 标签时 github.ref_name 即标签名（如 v1.0.0）。
+  VERSION: ${{ inputs.version_tag != '' && inputs.version_tag || github.ref_name }}
   RELEASE_BODY: |
-    ## OODD CrossPrint ${{ github.ref_name }}
+    ## OODD CrossPrint ${{ env.VERSION }}
 
     跨平台 .NET 打印模板组件。一份模板、一个 SkiaSharp 渲染内核，嵌入 Avalonia / WPF / WinForms / Eto.Forms / WinUI / Uno / .NET MAUI。
 
@@ -140,19 +148,21 @@ jobs:
       - name: Pack all library projects
         shell: pwsh
         run: |
+          # 与 ci.yml 的 10 个包保持一致（Core/Engine/Designer/Printing + 6 个 Hosts）。
+          # 注意：不含 Hosts.Maui —— MAUI 包需要 maui workload，runner 上未安装会 pack 失败；
+          # 也不含 I18n（与 ci.yml 的 10 包清单对齐）。如需发布这两个包，先在 runner 上
+          # `dotnet workload install maui` 并相应调整此处清单。
           $libs = @(
             "src/CrossPrint.Core",
             "src/CrossPrint.Engine",
             "src/CrossPrint.Designer",
             "src/CrossPrint.Printing",
-            "src/CrossPrint.I18n",
             "src/CrossPrint.Hosts.Avalonia",
             "src/CrossPrint.Hosts.Wpf",
             "src/CrossPrint.Hosts.WinForms",
             "src/CrossPrint.Hosts.Eto",
             "src/CrossPrint.Hosts.WinUi",
-            "src/CrossPrint.Hosts.Uno",
-            "src/CrossPrint.Hosts.Maui"
+            "src/CrossPrint.Hosts.Uno"
           )
           foreach ($lib in $libs) {
             dotnet pack $lib -c Release -o artifacts/packages
@@ -182,8 +192,8 @@ jobs:
         run: ls -lh artifacts/raw/
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: OODD CrossPrint ${{ github.ref_name }}
+          tag_name: ${{ env.VERSION }}
+          name: OODD CrossPrint ${{ env.VERSION }}
           body: ${{ env.RELEASE_BODY }}
           files: artifacts/raw/*.zip
           generate_release_notes: true
