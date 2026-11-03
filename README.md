@@ -575,19 +575,33 @@ foreach (var issue in result.Issues)             // 遍历所有降级/忽略告
 
 ## 最低框架要求
 
-| 组件 | 最低 .NET | 备注 |
+| 组件 | 目标框架 | 备注 |
 |---|---|---|
-| **核心层**（CrossPrint.Core / Engine / Designer / Printing） | **.NET 8.0** | SkiaSharp 2.88.9 + Jint 4.x + System.Text.Json 8.0 全都要求 net8.0 |
-| CrossPrint.I18n | net8.0 / **netstandard2.0** / **net461** | 三目标框架，netstandard2.0 宿主（WPF/WinForms net461）也能引用 |
+| CrossPrint.Core / Engine / Designer / Printing | **net8.0; net461** | 双目标；net461 侧依赖 Jint 3.1.6 与 System.Text.Json 6.0.9 的 netstandard2.0 目标 |
+| CrossPrint.I18n | net8.0 / netstandard2.0 / net461 | 三目标，net461 宿主也能引用 |
 | CrossPrint.Hosts.Avalonia | net8.0 | Avalonia 11.x 要求 |
-| CrossPrint.Hosts.Wpf | **net8.0-windows** | WPF 走 .NET 8.0，不走 net461 |
-| CrossPrint.Hosts.WinForms | **net8.0-windows** | WinForms 走 .NET 8.0，不走 net461 |
-| CrossPrint.Hosts.Eto | net8.0-windows | |
+| CrossPrint.Hosts.Wpf | net8.0-windows | |
+| CrossPrint.Hosts.WinForms | net8.0-windows | |
+| CrossPrint.Hosts.Eto | net8.0 | |
 | CrossPrint.Hosts.WinUi | net8.0-windows10.0.19041.0 | |
 | CrossPrint.Hosts.Uno | net8.0-desktop | |
-| CrossPrint.Hosts.Maui | net8.0 | |
+| CrossPrint.Hosts.Maui | net8.0-windows10.0.19041.0 | 仅 Windows 目标 |
 
-**关于 .NET Framework 4.x 支持**：Jint 4.x（模板内 JS 脚本）和 System.Text.Json 8.0（模板 JSON 读写）的最低 TFM 是 net8.0。虽然 SkiaSharp 2.88.9 单独可以跑 net461，但整个依赖链不允许。**CrossPrint.I18n 项目**是唯一提供 net461/netstandard2.0 目标的——那是给 WPF/WinForms net461 宿主引用它用的。核心渲染引擎、脚本执行、JSON 序列化都需要 net8.0。**最低 .NET 8.0**。
+核心层与 I18n 提供 `net461` 目标，方便老 WPF/WinForms 项目直接引用；七个宿主适配层统一走 .NET 8。
+`net461` 侧编译时，`System.Memory` 等 4.6.x 传递包会给出"未针对 net461 测试"的 TFM 警告（不阻断构建）；
+其运行时行为以 .NET 8 为准，CI 与完整测试套件只覆盖 `net8.0`。
+
+### 界面语言
+
+所有样例共用 `CrossPrint.I18n` 的内嵌中英文资源（`Strings.zh-CN.json` / `Strings.en-US.json`）。
+启动时按 **环境变量 `CROSSPRINT_LANG` → 程序目录 `ui-culture.txt` → 操作系统语言** 的顺序确定界面语言；
+在菜单的**语言 / Language**里可以切换"跟随系统 / 中文 / English"，选择会写入 `ui-culture.txt`
+并自动重启程序生效（界面文字在窗口构造时固定，重启比给每条标签做可重入绑定更可靠）。
+
+```powershell
+# 临时指定，不落盘
+$env:CROSSPRINT_LANG = "en-US"
+```
 
 ---
 
@@ -614,7 +628,8 @@ dotnet publish samples/CrossPrint.Samples.Avalonia.Browser -c Release
 - **没有水印**——hiprint 的 `watermarkOptions` 画不出来。想加水印用背景图（ImageElement 放最底层，半透明）。
 - **没有页码**——`paperNumberFormat` 这些属性 CrossPrint 不认识。等有人真正需要了再加。
 - **WASM 版**没有文件对话框（浏览器安全沙箱），hiprint 导入走底部的模板 JSON 面板粘贴。
-- **.NET Framework 4.x 不支持**——SkiaSharp 2.88.9 虽然能跑 net461，但 Jint 4.x 和 System.Text.Json 8.0 最低要求 net8.0。想支持老 .NET 需要全面降级依赖，工作量巨大且引入包版本分裂。最低 .NET 8.0。
+- **复杂脚本（阿拉伯文 / 天城文 / 藏文）在 Linux 上可能要自己点名原生库**——引擎用 HarfBuzz 做连字与词形式（词首/词中/词尾）替换，`HarfBuzzSharp` 的托管包只把 Win32/macOS 原生库写成自己的依赖。Avalonia 宿主不用管（`Avalonia.Skia` 会间接带上）；**纯库消费方**（控制台、WPF/WinForms/Eto/WinUI/Uno/MAUI）在 Linux 上给宿主应用加一行 `<PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" />`。**缺它不报错**，但阿拉伯文会退回"每个字母都是独立形式"，看着像坏了又没抛异常。取证与四条口径见 [`docs/rendering-spec.md`](docs/rendering-spec.md) §3.3。
+- **.NET Framework 4.x 只在核心层**——Core / Engine / Designer / Printing / I18n 提供 `net461` 目标（Jint 3.1.6 与 System.Text.Json 6.0.9 都有 netstandard2.0 目标），但七个宿主适配层统一要求 .NET 8（Avalonia 11 / WinUI 3 / MAUI 8 本身就不支持 net461）。`net461` 目标只保证编译兼容，测试与 CI 覆盖的是 `net8.0`。
 
 ---
 

@@ -21,6 +21,8 @@
     <ProjectReference Include="..\..\src\CrossPrint.Designer\CrossPrint.Designer.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Core\CrossPrint.Core.csproj" />
+    <!-- 属性文案的英文覆盖度门：PropertyText 在 I18n，描述符在 Designer，只有测试同时看见两边。 -->
+    <ProjectReference Include="..\..\src\CrossPrint.I18n\CrossPrint.I18n.csproj" />
   </ItemGroup>
 
 </Project>

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using CrossPrint.Core;
 using CrossPrint.Designer;
+using CrossPrint.I18n;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -137,13 +138,13 @@ internal sealed class PropertyPanel : UserControl
             if (properties is null)
             {
                 _header.Text = _kernel.Selection.IsEmpty
-                    ? "属性"
-                    : $"属性（已选中 {_kernel.Selection.Ids.Count} 个）";
+                    ? Localizer.T("PropertyGrid.Section")
+                    : Localizer.T("Property.Header.Multi", _kernel.Selection.Ids.Count);
                 _stack.Children.Add(new TextBlock
                 {
                     Text = _kernel.Selection.IsEmpty
-                        ? "点击画布元素编辑属性；右键画布打开菜单；纸张大小在纸张栏设置。"
-                        : "已选中多个元素：点击单个元素编辑属性；右键画布打开菜单；纸张大小在纸张栏设置。",
+                        ? Localizer.T("Property.Hint.Empty")
+                        : Localizer.T("Property.Hint.Multi"),
                     Foreground = new SolidColorBrush(Microsoft.UI.Colors.Gray),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(10, 4, 10, 10),
@@ -163,7 +164,7 @@ internal sealed class PropertyPanel : UserControl
                     group = descriptor.Group;
                     _stack.Children.Add(new TextBlock
                     {
-                        Text = group,
+                        Text = PropertyText.Group(group),
                         FontSize = 12,
                         FontWeight = Microsoft.UI.Text.FontWeights.Bold,
                         Foreground = new SolidColorBrush(Microsoft.UI.Colors.SteelBlue),
@@ -200,7 +201,7 @@ internal sealed class PropertyPanel : UserControl
         {
             var button = new Button
             {
-                Content = action.DisplayName,
+                Content = PropertyText.Action(action.DisplayName),
                 Padding = new Thickness(8, 2, 8, 2),
                 Margin = new Thickness(0, 0, 6, 4),
             };
@@ -224,7 +225,7 @@ internal sealed class PropertyPanel : UserControl
         }
         catch (Exception ex)
         {
-            ShowError(ex);
+            ShowError(Localizer.T("Property.Error.Action", PropertyText.Action(action.DisplayName), ex.Message));
         }
 
         Rebuild();
@@ -482,7 +483,7 @@ internal sealed class PropertyPanel : UserControl
         }
         catch (Exception ex)
         {
-            ShowError(ex);
+            ShowError(ex.Message);
             return;
         }
 
@@ -499,13 +500,13 @@ internal sealed class PropertyPanel : UserControl
         }
         catch (Exception ex)
         {
-            ShowError(ex);
+            ShowError(ex.Message);
         }
     }
 
-    void ShowError(Exception ex)
+    void ShowError(string message)
     {
-        _error.Text = ex.Message;
+        _error.Text = message;
         _error.Visibility = Visibility.Visible;
     }
 
@@ -517,7 +518,7 @@ internal sealed class PropertyPanel : UserControl
     {
         var label = new TextBlock
         {
-            Text = descriptor.DisplayName,
+            Text = PropertyText.Label(descriptor.DisplayName),
             FontSize = 12,
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.DimGray),
             TextWrapping = TextWrapping.Wrap,
@@ -539,7 +540,7 @@ internal sealed class PropertyPanel : UserControl
         return row;
     }
 
-    static string TypeName(string typeKey) => typeKey switch
+    static string TypeName(string typeKey) => PropertyText.ElementType(typeKey, typeKey switch
     {
         ElementTypeKeys.Text => "文字",
         ElementTypeKeys.Line => "线段",
@@ -550,7 +551,7 @@ internal sealed class PropertyPanel : UserControl
         ElementTypeKeys.Barcode => "一维码",
         ElementTypeKeys.Table => "表格",
         _ => typeKey,
-    };
+    });
 
     static string FormatText(object? value) => value switch
     {
@@ -586,7 +587,9 @@ internal sealed class PropertyPanel : UserControl
             return null;
 
         if (!double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-            throw new FormatException($"“{text}”不是合法数字（请用小数点，如 12.5）。");
+            throw new FormatException(Localizer.T(
+                descriptor.Kind == PropertyKind.Integer ? "Property.Error.Integer" : "Property.Error.Number",
+                text));
 
         // Min/Max 只是编辑器提示，内核不夹紧；面板按提示夹一次再写回。
         if (descriptor.Min is { } min && value < min)
@@ -606,7 +609,7 @@ internal sealed class PropertyPanel : UserControl
             return null;
 
         if (!SKColor.TryParse(trimmed, out var color))
-            throw new FormatException("颜色格式应为 #RRGGBB 或 #AARRGGBB。");
+            throw new FormatException(Localizer.T("Property.Error.Color"));
 
         return color;
     }
@@ -621,7 +624,7 @@ internal sealed class PropertyPanel : UserControl
         for (var i = 0; i < parts.Length; i++)
         {
             if (!double.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
-                throw new FormatException($"“{parts[i]}”不是合法段长（用逗号分隔，如 1.5,1）。");
+                throw new FormatException(Localizer.T("Property.Error.Dash", parts[i]));
         }
 
         return values;

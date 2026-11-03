@@ -351,9 +351,56 @@ public sealed class MainForm : Form
         var aboutItem = new ToolStripMenuItem(Localizer.T("Menu.Help.About"));
         aboutItem.Click += (_, _) => ShowAboutDialog();
         helpMenu.DropDownItems.Add(aboutItem);
+        helpMenu.DropDownItems.Add(new ToolStripSeparator());
+        helpMenu.DropDownItems.Add(BuildLanguageMenu());
         menu.Items.Add(helpMenu);
 
         return menu;
+    }
+
+    /// <summary>语言子菜单：跟随系统 / 中文 / English。选择后保存偏好并重启进程（界面文字在构造时已固定）。</summary>
+    ToolStripMenuItem BuildLanguageMenu()
+    {
+        var preferred = LocalizationSwitch.PreferredCulture();
+        var languageMenu = new ToolStripMenuItem(Localizer.T("Menu.Language"));
+
+        void AddChoice(string? culture, string label)
+        {
+            var item = new ToolStripMenuItem(label)
+            {
+                Checked = preferred is null
+                    ? culture is null
+                    : string.Equals(preferred, culture, StringComparison.OrdinalIgnoreCase),
+            };
+            item.Click += (_, _) => ChangeLanguage(culture);
+            languageMenu.DropDownItems.Add(item);
+        }
+
+        AddChoice(null, Localizer.T("Language.System"));
+        AddChoice("zh-CN", Localizer.T("Language.Chinese"));
+        AddChoice("en-US", Localizer.T("Language.English"));
+        return languageMenu;
+    }
+
+    void ChangeLanguage(string? culture)
+    {
+        switch (LocalizationSwitch.Change(culture))
+        {
+            case LanguageChangeOutcome.Restarted:
+                Close();
+                break;
+            case LanguageChangeOutcome.SaveFailed:
+                SetStatus(Localizer.T("Language.SaveFailed"));
+                break;
+            default:
+                MessageBox.Show(
+                    this,
+                    Localizer.T("Language.SavedRestartFailed", LocalizationSwitch.DisplayName(culture)),
+                    Localizer.T("Menu.Language"),
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                break;
+        }
     }
 
     ToolStrip BuildToolbar()
@@ -804,7 +851,7 @@ public sealed class MainForm : Form
             if (_jsonDirty)
             {
                 _jsonDirty = false;
-                SetJsonState(Localizer.T("JsonPanel.Sync", _designer.Kernel.Template.Elements.Count), error: false);
+                SetJsonState(Localizer.T("JsonPanel.Synced", _designer.Kernel.Template.Elements.Count), error: false);
             }
             return;
         }
@@ -832,7 +879,7 @@ public sealed class MainForm : Form
         _templateJson.SelectionLength = 0;
         if (_templateJson.IsHandleCreated)
             _templateJson.ScrollToCaret();
-        SetJsonState(note ?? Localizer.T("JsonPanel.Sync", _designer.Kernel.Template.Elements.Count), error: false);
+        SetJsonState(note ?? Localizer.T("JsonPanel.Synced", _designer.Kernel.Template.Elements.Count), error: false);
     }
 
     static string NormalizeJsonText(string? text) =>
@@ -1107,6 +1154,28 @@ public sealed class MainForm : Form
         body.Controls.Add(description);
         body.Controls.Add(versionLabel);
         body.Controls.Add(productName);
+
+        var logoBytes = LogoLoader.GetLogoBytes();
+        if (logoBytes is not null)
+        {
+            var logoPanel = new Panel { Dock = DockStyle.Top, Height = 100, Margin = new Padding(0, 2, 0, 4) };
+            var picture = new PictureBox
+            {
+                Dock = DockStyle.Fill,
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = Color.Transparent,
+            };
+
+            // GDI+ 的 Image.FromStream 要求流在图像生命周期内保持打开，这里立刻复制成自有位图。
+            using (var ms = new MemoryStream(logoBytes))
+            using (var decoded = Image.FromStream(ms))
+            {
+                picture.Image = new Bitmap(decoded);
+            }
+
+            logoPanel.Controls.Add(picture);
+            body.Controls.Add(logoPanel);
+        }
 
         // 底部关闭按钮带
         var buttonBar = new Panel

@@ -12,6 +12,14 @@ internal sealed class TextStyle : IDisposable
 {
     readonly RenderContext _ctx;
 
+    /// <summary>样式实例会被表格样式池按脚本桶复用，复杂度只能逐串判定：
+    /// 同一个桶里阿拉伯格与泰米尔格共用一个实例，按构造探针定方向会把阿拉伯文当 LTR 画。</summary>
+    static bool IsComplex(string text) => Classify(text) != ScriptClassifier.Complexity.Simple;
+
+    static bool IsRtl(string text) => Classify(text) == ScriptClassifier.Complexity.ComplexRtl;
+
+    static ScriptClassifier.Complexity Classify(string text) => ScriptClassifier.Classify(text.AsSpan());
+
     /// <summary>创建样式。字体族缺失时按 <paramref name="probeText"/> 首字符回退并记告警。</summary>
     /// <param name="ctx">渲染上下文。</param>
     /// <param name="fontFamily">字体族名。</param>
@@ -78,9 +86,25 @@ internal sealed class TextStyle : IDisposable
     /// </summary>
     public double BaselineOffset(double lineHeight) => (lineHeight - AscentMm - DescentMm) / 2 + AscentMm;
 
-    /// <summary>文本宽度（mm）。含字间距：<c>MeasureText</c> 只给字形步进，末字之后不加间距。</summary>
+    /// <summary>
+    /// 文本宽度（mm）。含字间距：字间距只加在相邻单元之间，末字之后不加。
+    /// 复杂脚本走 HarfBuzz OpenType shaping（连字 + 词形式替换 + 方向反转），简单脚本走 Skia 快路径；
+    /// shaped 路径的间距按**字形数**计——连字会把两个字符合成一个步进单元，按字符数算会凭空加宽。
+    /// </summary>
     public double Measure(string text)
-        => text.Length == 0 ? 0 : Paint.MeasureText(text) + LetterSpacingMm * (text.Length - 1);
+    {
+        if (text.Length == 0) return 0;
+
+        if (IsComplex(text))
+        {
+            var shaped = HarfBuzzShaper.Shape(text, Typeface, SizeMm, IsRtl(text));
+            if (shaped is not null)
+                return shaped.TotalAdvanceMm + LetterSpacingMm * Math.Max(0, shaped.Glyphs.Count - 1);
+            // HarfBuzz 失败（字体无原始数据）时降级 Skia，避免崩掉
+        }
+
+        return Paint.MeasureText(text) + LetterSpacingMm * (text.Length - 1);
+    }
 
     /// <summary>单个字符的步进宽度（mm）。</summary>
     public double MeasureChar(char ch) => Paint.MeasureText(ch.ToString());
@@ -108,9 +132,9 @@ internal sealed class TextStyle : IDisposable
 
     /// <summary>
     /// 按最大宽度折行。先按硬换行切段，再对每段贪心填充：
-    /// 优先在空格后断行（西文），无空格可断时逐字断开（CJK）。
-    /// 逐字累加宽度与整串 <c>MeasureText</c> 的差值在本机实测为 0（探针 §7，中英混排 158.608mm 两边相等），
-    /// 因此用 O(n) 增量测宽；最终每行的对齐位移仍用整串 MeasureText 计算。
+    /// 简单脚本（西文 + CJK）优先在空格后断行，无空格可断时逐字断开。
+    /// 复杂脚本（阿拉伯文/天城文等）**不做逐字硬断**——元音附着、合字、连字都必须交给 HarfBuzz 整串 shape，
+    /// 硬断字会让连接符掉、元音错位、连字拆散。只在空格处断；单个超长词整段放一个行让它被裁切。
     /// </summary>
     public List<string> Wrap(string text, double maxWidthMm, bool wrap)
     {
@@ -143,6 +167,13 @@ internal sealed class TextStyle : IDisposable
             return;
         }
 
+        if (IsComplex(paragraph))
+        {
+            AppendWrappedComplex(lines, paragraph, maxWidthMm);
+            return;
+        }
+
+        // === Skia 快路径：空格处优先断，无空格逐字硬断 ===
         var start = 0;
         var width = 0d;
         var lastBreak = -1; // 可断点的下一个起点（空格之后）
@@ -188,6 +219,37 @@ internal sealed class TextStyle : IDisposable
     }
 
     /// <summary>
+    /// 复杂脚本专用折行：只在空格处断，完整的阿拉伯词/天城文词整段交给 HarfBuzz shape。
+    /// 单个词超宽时整段溢出交给元素框裁切——把元音附着拆散会比整词溢出更难读。
+    /// </summary>
+    void AppendWrappedComplex(List<string> lines, string paragraph, double maxWidthMm)
+    {
+        var words = paragraph.Split(' ');
+        // words[i] 是词，words[i].Length == 0 表示连续空格
+
+        var current = string.Empty;
+        foreach (var word in words)
+        {
+            // 试试把当前词（带空格）加到现有行
+            var candidate = current.Length == 0 ? word : current + " " + word;
+            if (Measure(candidate) <= maxWidthMm || current.Length == 0)
+            {
+                current = candidate;
+            }
+            else
+            {
+                lines.Add(current.TrimEnd());
+                current = word;
+            }
+        }
+
+        if (current.Length > 0)
+            lines.Add(current.TrimEnd());
+        else if (lines.Count == 0)
+            lines.Add(string.Empty);
+    }
+
+    /// <summary>
     /// 画一行文本。位图目标与 PDF 的矢量文本走 <see cref="SKCanvas.DrawText(string, float, float, SKPaint)"/>；
     /// <see cref="RenderOptions.PdfTextAsOutlines"/> 打开时改为字形轮廓，同一条基线与 x，故栅格结果一致。
     /// </summary>
@@ -195,8 +257,9 @@ internal sealed class TextStyle : IDisposable
         => DrawLine(canvas, line, x, baselineY, color, extraSpacingMm: 0);
 
     /// <summary>
-    /// 画一行文本，可附加逐字额外间距（两端对齐用）。字间距为 0 且无附加间距时走整串
-    /// <see cref="SKCanvas.DrawText(string, float, float, SKPaint)"/> 快路径；否则逐字推进。
+    /// 画一行文本，可附加逐字额外间距（两端对齐用）。
+    /// 复杂脚本走 HarfBuzz OpenType shaping → SKTextBlob 直接用 glyph ID 绘制（避免 Skia 重 shape 掉连字）；
+    /// 简单脚本（字间距/附加间距都为 0 时）走整串 <see cref="SKCanvas.DrawText(string, float, float, SKPaint)"/> 快路径。
     /// </summary>
     public void DrawLine(SKCanvas canvas, string line, double x, double baselineY, SKColor color, double extraSpacingMm)
     {
@@ -204,6 +267,13 @@ internal sealed class TextStyle : IDisposable
             return;
 
         Paint.Color = color;
+
+        if (IsComplex(line))
+        {
+            DrawShaped(canvas, line, x, baselineY, extraSpacingMm);
+            return;
+        }
+
         var spacing = LetterSpacingMm + extraSpacingMm;
 
         if (spacing == 0)
@@ -219,6 +289,91 @@ internal sealed class TextStyle : IDisposable
             DrawSingle(canvas, text, cursor, baselineY);
             cursor += MeasureChar(line[i]) + spacing;
         }
+    }
+
+    /// <summary>
+    /// HarfBuzz shape 路径：拿到 glyph 序列后用 SKTextBlobBuilder + AddPositionedRun 直接用 glyph IDs 构建 blob，
+    /// 避免 SkiaSharp 二次 shaping 掉连字。
+    /// </summary>
+    void DrawShaped(SKCanvas canvas, string line, double x, double baselineY, double extraSpacingMm)
+    {
+        var shaped = HarfBuzzShaper.Shape(line, Typeface, SizeMm, IsRtl(line));
+        if (shaped is null || shaped.Glyphs.Count == 0)
+        {
+            // HarfBuzz 失败降级 Skia 快路径
+            DrawSingle(canvas, line, x, baselineY);
+            return;
+        }
+
+        var glyphs = shaped.Glyphs;
+        var spacing = LetterSpacingMm + extraSpacingMm;
+
+        if (_ctx.Options.PdfTextAsOutlines)
+        {
+            DrawShapedOutlines(canvas, glyphs, x, baselineY, spacing);
+            return;
+        }
+
+        var n = glyphs.Count;
+        var glyphIds = new ushort[n];
+        var positions = new SKPoint[n];
+        double cursor = x;
+
+        // HarfBuzz 对 RTL 已经做过 hb_buffer_reverse：返回的序列本身就是视觉从左到右
+        // （实测 "السلام" 的 cluster 依次是 5,4,3,2,1,0），步进也都是正值。
+        // 这里再反转一次会把逻辑首位摆到最左，整行镜像。
+        for (int idx = 0; idx < n; idx++)
+        {
+            var g = glyphs[idx];
+            glyphIds[idx] = g.GlyphId;
+            positions[idx] = new SKPoint(
+                (float)(cursor + g.OffsetXMm),
+                (float)(baselineY - g.OffsetYMm));
+
+            // 推进：advance 是 HarfBuzz 给的字体度量，加字间距（两端对齐补的间距）
+            cursor += g.AdvanceMm + spacing;
+        }
+
+        using var font = new SKFont(Typeface, (float)SizeMm);
+        using var builder = new SKTextBlobBuilder();
+        builder.AddPositionedRun(glyphIds.AsSpan(), font, positions.AsSpan());
+        using var blob = builder.Build();
+
+        // AddPositionedRun 落的是绝对坐标，而 DrawText 的 (x, y) 是对整个 blob 的**额外平移**：
+        // 传 x/baselineY 会把整行推到两倍偏移上。实测传 (x, y) 时 20mm/40mm 基线的墨迹落在 40mm/73mm。
+        canvas.DrawText(blob, 0, 0, Paint);
+    }
+
+    /// <summary>
+    /// 轮廓模式下的 shaped 绘制：逐 glyph 取 <see cref="SKFont.GetGlyphPath"/>，
+    /// 平移到与 blob 模式同一个点位，保证 <c>PdfTextAsOutlines</c> 开关前后栅格结果一致。
+    /// SkiaSharp 2.88 没有"从 glyph ID 串直接拿整条路径"的入口，只有逐字形这一条。
+    /// </summary>
+    void DrawShapedOutlines(SKCanvas canvas, IReadOnlyList<HarfBuzzShaper.ShapedGlyph> glyphs, double x, double baselineY, double spacing)
+    {
+        using var font = new SKFont(Typeface, (float)SizeMm);
+        var style = Paint.Style;
+        Paint.Style = SKPaintStyle.Fill;
+
+        var n = glyphs.Count;
+        double cursor = x;
+
+        for (var idx = 0; idx < n; idx++)
+        {
+            var g = glyphs[idx];
+            using var path = font.GetGlyphPath(g.GlyphId);
+            if (path is not null && !path.IsEmpty)
+            {
+                var state = canvas.Save();
+                canvas.Translate((float)(cursor + g.OffsetXMm), (float)(baselineY - g.OffsetYMm));
+                canvas.DrawPath(path, Paint);
+                canvas.RestoreToCount(state);
+            }
+
+            cursor += g.AdvanceMm + spacing;
+        }
+
+        Paint.Style = style;
     }
 
     void DrawSingle(SKCanvas canvas, string text, double x, double baselineY)
@@ -239,14 +394,25 @@ internal sealed class TextStyle : IDisposable
     /// <summary>
     /// 计算某一行的起笔 x：手动做水平对齐而不是用 <see cref="SKTextAlign"/>，
     /// 这样轮廓模式与文本模式共用同一套坐标，两种导出不会出现字形位移差。
+    ///
+    /// RTL 脚本（阿拉伯文/希伯来文）下语义反转：Left = 贴右边缘，Right = 贴左边缘。
+    /// Center / Justify 不受方向影响。样式实例会被样式池按脚本桶复用，方向只能逐串判。
     /// </summary>
     public double AlignedX(double boxLeft, double boxWidth, string line, HorizontalAlign align)
-        => align switch
+    {
+        // RTL 反转左右对齐语义
+        var rtl = IsRtl(line);
+        var effectiveAlign = align;
+        if (rtl && align == HorizontalAlign.Left) effectiveAlign = HorizontalAlign.Right;
+        else if (rtl && align == HorizontalAlign.Right) effectiveAlign = HorizontalAlign.Left;
+
+        return effectiveAlign switch
         {
             HorizontalAlign.Center => boxLeft + (boxWidth - Measure(line)) / 2,
             HorizontalAlign.Right => boxLeft + boxWidth - Measure(line),
             _ => boxLeft,
         };
+    }
 
     /// <summary>告警归属的元素 id。</summary>
     public string? ElementId { get; }

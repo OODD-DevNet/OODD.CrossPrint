@@ -17,6 +17,11 @@
          源生成器（STJ / PolySharp）在 net461 上还会触发 CS8336（EmbeddedAttribute 冲突）。
          这些在 net8.0 上是干净的，只对旧 TFM 放开。 -->
     <NoWarn Condition="'$(TargetFramework)' == 'net461' Or '$(TargetFramework)' == 'netstandard2.0'">$(NoWarn);CS8600;CS8602;CS8603;CS8604;CS8618;CS8625;CS8336;CS0165;CS1591</NoWarn>
+    <!-- SYSLIB1034：非泛型 JsonStringEnumConverter 在 trimming / AOT 分析下不受支持。
+         本仓 System.Text.Json 统一钉在 6.0.9（net461 只能用 6.0.9，其没有泛型 JsonStringEnumConverter<T>），
+         net8.0 即便想换泛型也得升 STJ 8，与 net461 无法同版本消解。
+         AOT / 裁剪发布不是本库的承诺场景（README 已注明），故对 net8.0 抑制该警告。 -->
+    <NoWarn Condition="'$(TargetFramework)' == 'net8.0'">$(NoWarn);SYSLIB1034</NoWarn>
     <!-- PolySharp 在 net461 上生成 EmbeddedAttribute 与 Roslyn 编译器冲突（CS8336）。 -->
     <PolySharpUseEmbeddedAttributeForGeneratedTypes Condition="'$(TargetFramework)' == 'net461' Or '$(TargetFramework)' == 'netstandard2.0'">false</PolySharpUseEmbeddedAttributeForGeneratedTypes>
   </PropertyGroup>
@@ -42,6 +47,11 @@
     <PublishAot>false</PublishAot>
     <IsTrimmable>false</IsTrimmable>
     <EnableAotAnalyzers>false</EnableAotAnalyzers>
+    <!-- net461 / netstandard2.0 会拉到 System.Memory / Buffers / Vectors / Unsafe 4.6.x 这类
+         只声明"未在 net461 测试过"、没有 net461 资产的传递依赖包，每个都报一条
+         "doesn't support net461" 警告。这类警告不阻断（运行时降级走兼容 shim），
+         按交接文档建议统一抑制，让构建输出干净。 -->
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
 
   <!-- 包内附仓库 README（NuGet.org 详情页来源）；样例/测试不打包 -->

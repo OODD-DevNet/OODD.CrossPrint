@@ -31,9 +31,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 资源 JSON 内嵌进程序集；Localizer 用 Assembly.GetManifestResourceStream 读取 -->
-    <EmbeddedResource Include="Strings.zh-CN.json" />
-    <EmbeddedResource Include="Strings.en-US.json" />
+    <!-- 资源 JSON 内嵌进程序集；Localizer 用 Assembly.GetManifestResourceStream 读取。
+         WithCulture="false" 必须写：文件名里的 zh-CN / en-US 会被 MSBuild 的 AssignCulture
+         当成"卫星资源 culture"，把 JSON 塞进 zh-CN/*.resources.dll 并把名字剥成 Strings.json，
+         主程序集里就什么都没有——Localizer 只读主程序集，界面会整片退化成 key。 -->
+    <EmbeddedResource Include="Strings.zh-CN.json" WithCulture="false" />
+    <EmbeddedResource Include="Strings.en-US.json" WithCulture="false" />
     <!-- 产品 logo：About Dialog + 各宿主窗口图标共用这一份 -->
     <EmbeddedResource Include="Assets\oodd-crossprint-logo.png" />
   </ItemGroup>

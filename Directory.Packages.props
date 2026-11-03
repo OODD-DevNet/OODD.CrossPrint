@@ -28,6 +28,8 @@
     <PackageVersion Include="Avalonia.Desktop" Version="11.3.18" />
     <PackageVersion Include="Avalonia.Skia" Version="11.3.18" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="11.3.18" />
+    <!-- 无头渲染测试：真正跑 Skia 合成器后抓帧，用来量窗口里有没有漏画的透明像素。 -->
+    <PackageVersion Include="Avalonia.Headless" Version="11.3.18" />
     <!-- Desktop 宿主主题：Semi Design 风格（圆角按钮、阴影输入框、Ant Design 蓝主色调）。
          Semi.Avalonia 是主题不是控件库——原生 Button/TextBox/ComboBox/DataGrid 自动套用，
          不需要把 Tag 换成 semi:Button。Browser/WASM 保持 FluentTheme（条件编译隔离）。 -->
@@ -38,6 +40,13 @@
     <!-- net461 多目标框架需要 polyfill C# 9+ 运行时特性（IsExternalInit / 默认接口实现）。
          PolySharp 是 source-only polyfill——不影响 net8.0，只对 netstandard2.0/net461 生效。 -->
     <PackageVersion Include="PolySharp" Version="1.16.0" />
+    <!-- HarfBuzz：复杂脚本 OpenType shaping（阿拉伯文连字/天城文重排/藏文元音附着）。
+         有 netstandard2.0 目标 → 间接支持 net461。只在 ScriptClassifier 检测到复杂脚本时才走这条路径，
+         西文/CJK 全程走 Skia 快路径，零额外开销。 -->
+    <PackageVersion Include="HarfBuzzSharp" Version="14.2.1.301" />
+    <PackageVersion Include="HarfBuzzSharp.NativeAssets.Win32" Version="14.2.1.301" />
+    <PackageVersion Include="HarfBuzzSharp.NativeAssets.Linux" Version="14.2.1.301" />
+    <PackageVersion Include="HarfBuzzSharp.NativeAssets.macOS" Version="14.2.1.301" />
     <PackageVersion Include="SkiaSharp.NativeAssets.WebAssembly" Version="2.88.9" />
     <PackageVersion Include="Eto.Forms" Version="2.10.0" />
     <PackageVersion Include="Eto.Platform.Windows" Version="2.10.0" />

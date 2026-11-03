@@ -1,6 +1,7 @@
 using System.Globalization;
 using CrossPrint.Core;
 using CrossPrint.Designer;
+using CrossPrint.I18n;
 using Eto.Drawing;
 using Eto.Forms;
 using SkiaSharp;
@@ -25,7 +26,8 @@ internal sealed class PropertyPanel : Panel
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     EditorKernel _kernel;
-    readonly TableLayout _table = new() { Spacing = new Size(8, 6) };
+    readonly Scrollable _scroll = new() { Border = BorderType.None, ExpandContentWidth = true };
+    readonly List<TableRow> _tableRows = new();
     readonly Label _header = new();
     readonly Label _error = new() { TextColor = Colors.Firebrick, Wrap = WrapMode.Word };
     readonly List<PropertyRow> _rows = new();
@@ -38,20 +40,13 @@ internal sealed class PropertyPanel : Panel
         _kernel = kernel;
         Padding = new Padding(8, 6, 8, 8);
 
-        _header.Text = "属性";
+        _header.Text = Localizer.T("PropertyGrid.Section");
         _error.Visible = false;
-
-        var scroll = new Scrollable
-        {
-            Content = _table,
-            Border = BorderType.None,
-            ExpandContentWidth = true,
-        };
 
         var layout = new TableLayout { Spacing = new Size(0, 4) };
         layout.Rows.Add(new TableRow(new TableCell(_header) { ScaleWidth = true }));
         layout.Rows.Add(new TableRow(new TableCell(_error) { ScaleWidth = true }));
-        layout.Rows.Add(new TableRow(new TableCell(scroll) { ScaleWidth = true }) { ScaleHeight = true });
+        layout.Rows.Add(new TableRow(new TableCell(_scroll) { ScaleWidth = true }) { ScaleHeight = true });
         Content = layout;
 
         _kernel.ViewChanged += OnViewChanged;
@@ -106,66 +101,88 @@ internal sealed class PropertyPanel : Panel
         try
         {
             _rows.Clear();
-            foreach (var row in _table.Rows)
-            {
-                foreach (var cell in row.Cells)
-                    cell.Control?.Dispose();
-            }
-
-            _table.Rows.Clear();
+            _tableRows.Clear();
             _selectionKey = SelectionKey();
-
-            if (_kernel.Selection.IsEmpty)
-            {
-                _header.Text = "属性";
-                AddHint("点击画布元素编辑属性；右键画布打开菜单；纸张大小在纸张栏设置。");
-                return;
-            }
-
-            var selected = _kernel.SelectedElements;
-            if (selected.Count != 1)
-            {
-                _header.Text = $"属性（已选中 {selected.Count} 个）";
-                AddHint("多个选中时不可编辑，请只选一个元素。");
-                return;
-            }
-
-            var element = selected[0];
-            var properties = ElementProperties.For(element);
-            _header.Text = $"{TypeName(element.TypeKey)} · {element.Id}";
-
-            if (properties.Actions.Count > 0)
-                AddActionBar(properties);
-
-            string? group = null;
-            foreach (var descriptor in properties.Descriptors)
-            {
-                if (!string.Equals(descriptor.Group, group, StringComparison.Ordinal))
-                {
-                    group = descriptor.Group;
-                    AddGroupHeader(group);
-                }
-
-                AddRow(element, descriptor);
-            }
+            BuildRows();
         }
         finally
         {
             _building = false;
+            SwapTable();
         }
+    }
+
+    void BuildRows()
+    {
+        if (_kernel.Selection.IsEmpty)
+        {
+            _header.Text = Localizer.T("PropertyGrid.Section");
+            AddHint(Localizer.T("Property.Hint.Empty"));
+            return;
+        }
+
+        var selected = _kernel.SelectedElements;
+        if (selected.Count != 1)
+        {
+            _header.Text = Localizer.T("Property.Header.Multi", selected.Count);
+            AddHint(Localizer.T("Property.Hint.Multi"));
+            return;
+        }
+
+        var element = selected[0];
+        var properties = ElementProperties.For(element);
+        _header.Text = $"{TypeName(element.TypeKey)} · {element.Id}";
+
+        if (properties.Actions.Count > 0)
+            AddActionBar(properties);
+
+        string? group = null;
+        foreach (var descriptor in properties.Descriptors)
+        {
+            if (!string.Equals(descriptor.Group, group, StringComparison.Ordinal))
+            {
+                group = descriptor.Group;
+                AddGroupHeader(group);
+            }
+
+            AddRow(element, descriptor);
+        }
+    }
+
+    /// <summary>
+    /// 整表替换。Eto 的 <c>TableLayoutHandler</c> 在创建时按当时的行数分配 <c>views[cols, rows]</c>，
+    /// 之后再 <c>Rows.Add</c> 的控制永远不会被挂上原生控件——属性面板的行数是逐次变化的，
+    /// 所以每次重建都必须把完整的行集合交给一个新的 <see cref="TableLayout"/> 构造函数。
+    /// </summary>
+    void SwapTable()
+    {
+        var previous = _scroll.Content as TableLayout;
+        _scroll.Content = new TableLayout(_tableRows.ToArray()) { Spacing = new Size(8, 6) };
+
+        if (previous is null)
+            return;
+
+        foreach (var row in previous.Rows)
+        {
+            foreach (var cell in row.Cells)
+                cell.Control?.Dispose();
+        }
+
+        previous.Rows.Clear();
+        previous.Dispose();
     }
 
     void AddGroupHeader(string text)
     {
         var label = new Label
         {
-            Text = text,
+            Text = PropertyText.Group(text),
             TextColor = Colors.SteelBlue,
             Font = new Font(SystemFont.Bold),
             Wrap = WrapMode.Word,
         };
 
-        _table.Rows.Add(new TableRow(new TableCell(label) { ScaleWidth = true }));
+        _tableRows.Add(new TableRow(new TableCell(label) { ScaleWidth = true }));
     }
 
     /// <summary>
@@ -185,7 +202,7 @@ internal sealed class PropertyPanel : Panel
             var second = i + 1 < properties.Actions.Count
                 ? (Control)CreateActionButton(properties.Actions[i + 1])
                 : new Panel();
-            _table.Rows.Add(new TableRow(
+            _tableRows.Add(new TableRow(
                 new TableCell(CreateActionButton(properties.Actions[i])),
                 new TableCell(second)));
         }
@@ -193,7 +210,7 @@ internal sealed class PropertyPanel : Panel
 
     Button CreateActionButton(ElementAction action)
     {
-        var button = new Button { Text = action.DisplayName };
+        var button = new Button { Text = PropertyText.Action(action.DisplayName) };
         button.Click += (_, _) => RunAction(action);
         return button;
     }
@@ -207,7 +224,7 @@ internal sealed class PropertyPanel : Panel
         }
         catch (Exception ex)
         {
-            ShowError($"{action.DisplayName}：{ex.Message}");
+            ShowError(Localizer.T("Property.Error.Action", PropertyText.Action(action.DisplayName), ex.Message));
         }
 
         Rebuild();
@@ -222,7 +239,7 @@ internal sealed class PropertyPanel : Panel
             Wrap = WrapMode.Word,
         };
 
-        _table.Rows.Add(new TableRow(new TableCell(hint) { ScaleWidth = true }));
+        _tableRows.Add(new TableRow(new TableCell(hint) { ScaleWidth = true }));
     }
 
     void AddRow(PaperElement element, PropertyDescriptor descriptor)
@@ -393,7 +410,7 @@ internal sealed class PropertyPanel : Panel
         // 标签列固定宽度、编辑器列吸收剩余宽度；窗口变窄时整表可滚动，编辑器不会被挤没。
         var label = new Label
         {
-            Text = descriptor.DisplayName,
+            Text = PropertyText.Label(descriptor.DisplayName),
             TextColor = Colors.DimGray,
             ToolTip = DescribeTooltip(descriptor),
             Width = LabelColumnWidth,
@@ -401,7 +418,7 @@ internal sealed class PropertyPanel : Panel
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        _table.Rows.Add(new TableRow(
+        _tableRows.Add(new TableRow(
             new TableCell(label) { ScaleWidth = false },
             new TableCell(editor) { ScaleWidth = true }));
     }
@@ -416,7 +433,7 @@ internal sealed class PropertyPanel : Panel
         }
         catch (Exception ex)
         {
-            ShowError($"{descriptor.DisplayName}：{ex.Message}");
+            ShowError(Localizer.T("Property.Error.Apply", PropertyText.Label(descriptor.DisplayName), ex.Message));
             return false;
         }
     }
@@ -441,7 +458,7 @@ internal sealed class PropertyPanel : Panel
                 }
 
                 if (!double.TryParse(trimmed, NumberStyles.Float, Inv, out var number))
-                    return InputError(descriptor, $"“{text}”不是合法数字（请用小数点，如 12.5）。");
+                    return InputError(Localizer.T("Property.Error.Number", text));
 
                 if (descriptor.Min is { } min)
                     number = Math.Max(min, number);
@@ -459,7 +476,7 @@ internal sealed class PropertyPanel : Panel
                     return true;
 
                 if (!int.TryParse(trimmed, NumberStyles.Integer, Inv, out var integer))
-                    return InputError(descriptor, $"“{text}”不是合法整数。");
+                    return InputError(Localizer.T("Property.Error.Integer", text));
 
                 if (descriptor.Min is { } min && integer < min)
                     integer = (int)Math.Ceiling(min);
@@ -477,7 +494,7 @@ internal sealed class PropertyPanel : Panel
                     return true;
 
                 if (!SKColor.TryParse(trimmed, out var color))
-                    return InputError(descriptor, "颜色格式应为 #RRGGBB 或 #AARRGGBB。");
+                    return InputError(Localizer.T("Property.Error.Color"));
 
                 value = color;
                 return true;
@@ -495,7 +512,7 @@ internal sealed class PropertyPanel : Panel
                 for (var i = 0; i < parts.Length; i++)
                 {
                     if (!double.TryParse(parts[i], NumberStyles.Float, Inv, out segments[i]))
-                        return InputError(descriptor, $"“{parts[i]}”不是合法段长（用逗号分隔，如 1.5,1）。");
+                        return InputError(Localizer.T("Property.Error.Dash", parts[i]));
                 }
 
                 value = segments;
@@ -508,9 +525,9 @@ internal sealed class PropertyPanel : Panel
         }
     }
 
-    bool InputError(PropertyDescriptor descriptor, string message)
+    bool InputError(string message)
     {
-        ShowError($"{descriptor.DisplayName}：{message}");
+        ShowError(message);
         return false;
     }
 
@@ -527,7 +544,7 @@ internal sealed class PropertyPanel : Panel
     }
 
     static string DescribeTooltip(PropertyDescriptor descriptor)
-        => descriptor.Key + (descriptor.ReadOnly ? "（只读）" : string.Empty);
+        => descriptor.Key + (descriptor.ReadOnly ? Localizer.T("Property.ReadOnlyTip") : string.Empty);
 
     static int IndexOf(IReadOnlyList<string> options, string? value)
     {
@@ -566,7 +583,10 @@ internal sealed class PropertyPanel : Panel
         _ => value?.ToString() ?? string.Empty,
     };
 
-    static string TypeName(string typeKey) => typeKey switch
+    static string TypeName(string typeKey)
+        => PropertyText.ElementType(typeKey, ChineseTypeName(typeKey));
+
+    static string ChineseTypeName(string typeKey) => typeKey switch
     {
         ElementTypeKeys.Text => "文字",
         ElementTypeKeys.Line => "线段",

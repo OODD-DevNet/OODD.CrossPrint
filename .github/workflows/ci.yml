@@ -40,8 +40,9 @@ jobs:
         run: |
           echo "=== Test binaries present ==="
           Get-ChildItem tests/*/bin/Release/net8.0/*.Tests.dll | Select-Object Name, Length
-          echo "=== SkiaSharp native assets ==="
+          echo "=== SkiaSharp + HarfBuzz native assets ==="
           Get-ChildItem -Recurse -Filter "libSkiaSharp*" | Select-Object FullName
+          Get-ChildItem -Recurse -Filter "libHarfBuzzSharp*" | Select-Object FullName
 
   # 宿主适配与样例只在 Windows 上构建（WinForms/WPF 目标不可移植）。
   windows-hosts:

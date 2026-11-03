@@ -11,10 +11,17 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="FluentAssertions" />
+    <!-- 像素级回归：无头窗口 + Skia 后端抓帧，断言样例窗口不存在漏画的透明区域。 -->
+    <PackageReference Include="Avalonia.Headless" />
+    <PackageReference Include="Avalonia.Skia" />
+    <PackageReference Include="Semi.Avalonia" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Condition="'$(OS)' == 'Windows_NT'" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CrossPrint.Hosts.Avalonia\CrossPrint.Hosts.Avalonia.csproj" />
+    <!-- 整窗像素回归需要真实的样例视图（主题、布局、画布都与会话宿主一致）。 -->
+    <ProjectReference Include="..\..\samples\CrossPrint.Samples.Avalonia\CrossPrint.Samples.Avalonia.csproj" />
   </ItemGroup>
 
 </Project>

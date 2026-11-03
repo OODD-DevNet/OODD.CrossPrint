@@ -346,7 +346,7 @@ internal static class StyleParser
                 _ => null,
             };
             if (!string.IsNullOrEmpty(text))
-                props[key] = text;
+                props[key] = text!;
         }
 
         return ParseDict(props);

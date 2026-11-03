@@ -358,7 +358,7 @@ public static class HiprintTemplateImporter
             return;
 
         if (!ctx.Template.DesignData.ContainsKey(field))
-            ctx.Template.DesignData[field] = testData;
+            ctx.Template.DesignData[field] = testData!;
     }
 
     static PaperElement? UnknownElement(ImportContext ctx, string type, JsonElement options, string path, string id)

@@ -17,6 +17,22 @@ public static class Localizer
     static readonly ConcurrentDictionary<string, Dictionary<string, string>> _cache = new();
     static readonly Assembly _asm = typeof(Localizer).Assembly;
 
+    /// <summary>
+    /// 内嵌了翻译表的 culture 列表（从资源清单解析，新增 <c>Strings.xx.json</c> 自动生效）。
+    /// 语言切换的合法性校验以此为准：没有翻译表的 culture 切过去只会得到英文兜底。
+    /// </summary>
+    public static IReadOnlyList<string> AvailableCultures => _availableCultures.Value;
+
+    static readonly Lazy<IReadOnlyList<string>> _availableCultures = new(() =>
+    {
+        const string prefix = "CrossPrint.I18n.Strings.";
+        const string suffix = ".json";
+        return _asm.GetManifestResourceNames()
+            .Where(n => n.StartsWith(prefix, StringComparison.Ordinal) && n.EndsWith(suffix, StringComparison.Ordinal))
+            .Select(n => n.Substring(prefix.Length, n.Length - prefix.Length - suffix.Length))
+            .ToArray();
+    });
+
     static Localizer()
     {
         // 预热 en-US 和 zh-CN，这两个是肯定有的。

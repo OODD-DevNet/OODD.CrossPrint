@@ -216,8 +216,29 @@ internal sealed class MainWindow : Window
 
         var menu = new VerticalStackLayout { Spacing = 1, MinimumWidthRequest = 180 };
         menu.Add(MakeMenuAction(Localizer.T("Menu.Help.About"), true, () => _ = ShowAboutDialogAsync()));
+        menu.Add(new BoxView { HeightRequest = 1, Color = Colors.LightGray, Margin = new Thickness(4, 2) });
+        menu.Add(MakeMenuAction(Localizer.T("Language.System"), true, () => ChangeLanguage(null)));
+        menu.Add(MakeMenuAction(Localizer.T("Language.Chinese"), true, () => ChangeLanguage("zh-CN")));
+        menu.Add(MakeMenuAction(Localizer.T("Language.English"), true, () => ChangeLanguage("en-US")));
 
         ShowMenuCard(menu);
+    }
+
+    void ChangeLanguage(string? culture)
+    {
+        switch (LocalizationSwitch.Change(culture))
+        {
+            case LanguageChangeOutcome.Restarted:
+                // MAUI 的 Window 没有 Close()；新进程已经起来了，直接结束当前进程。
+                Environment.Exit(0);
+                break;
+            case LanguageChangeOutcome.SaveFailed:
+                SetStatus(Localizer.T("Language.SaveFailed"), error: true);
+                break;
+            default:
+                SetStatus(Localizer.T("Language.SavedRestartFailed", LocalizationSwitch.DisplayName(culture)), error: true);
+                break;
+        }
     }
 
     void ShowMenuCard(VerticalStackLayout menu)
@@ -740,7 +761,7 @@ internal sealed class MainWindow : Window
             if (_jsonDirty)
             {
                 _jsonDirty = false;
-                SetJsonState(Localizer.T("JsonPanel.Sync"), error: false);
+                SetJsonState(Localizer.T("JsonPanel.Synced", _designer.Kernel.Template.Elements.Count), error: false);
             }
             return;
         }
@@ -756,7 +777,7 @@ internal sealed class MainWindow : Window
         _jsonDirty = false;
         _templateJson.Text = text;
         _templateJson.CursorPosition = 0;
-        SetJsonState(note ?? Localizer.T("JsonPanel.Sync"), error: false);
+        SetJsonState(note ?? Localizer.T("JsonPanel.Synced", _designer.Kernel.Template.Elements.Count), error: false);
     }
 
     static string NormalizeJsonText(string? text) =>
@@ -953,6 +974,17 @@ internal sealed class MainWindow : Window
     async Task ShowAboutDialogAsync()
     {
         // 构建内容：标题居中、产品名 + 版本、描述、分隔线、第三方列表、关闭按钮
+        var logoBytes = LogoLoader.GetLogoBytes();
+        var logo = new Image
+        {
+            Source = logoBytes is null ? null : ImageSource.FromStream(() => new MemoryStream(logoBytes)),
+            WidthRequest = 96,
+            HeightRequest = 96,
+            Aspect = Aspect.AspectFit,
+            HorizontalOptions = LayoutOptions.Center,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+
         var productTitle = new Label
         {
             Text = AboutInfo.ProductName,
@@ -982,7 +1014,7 @@ internal sealed class MainWindow : Window
         var thirdPartyHeader = new Label
         {
             Text = Localizer.T("About.ThirdParty"),
-            FontAttributes = FontAttributes.SemiBold,
+            FontAttributes = FontAttributes.Bold,
             Margin = new Thickness(0, 4, 0, 4),
         };
 
@@ -1014,6 +1046,7 @@ internal sealed class MainWindow : Window
                 Spacing = 2,
                 Children =
                 {
+                    logo,
                     productTitle,
                     version,
                     description,

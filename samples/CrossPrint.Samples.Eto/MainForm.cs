@@ -56,7 +56,7 @@ internal sealed class MainForm : Form
     readonly Label _paperInfo = new() { TextColor = Colors.DimGray, Wrap = WrapMode.Word };
     readonly TextArea _templateJson = new();
     readonly Label _jsonState = new() { TextColor = Colors.DimGray, VerticalAlignment = VerticalAlignment.Center };
-    readonly Button _jsonToggleButton = new() { Text = "展开" };
+    readonly Button _jsonToggleButton = new() { Text = Localizer.T("JsonPanel.Expand") };
     Panel _jsonEditorArea = null!;
 
     MenuItem _verticalCenterItem = null!;
@@ -132,7 +132,7 @@ internal sealed class MainForm : Form
     {
         var fileMenu = new ButtonMenuItem { Text = Localizer.T("Menu.File") };
 
-        var loadComplexItem = new ButtonMenuItem { Text = "加载复杂测试模板" };
+        var loadComplexItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.LoadComplex") };
         loadComplexItem.Click += (_, _) => LoadComplexReceiptTemplate();
         fileMenu.Items.Add(loadComplexItem);
 
@@ -144,11 +144,57 @@ internal sealed class MainForm : Form
         var aboutItem = new ButtonMenuItem { Text = Localizer.T("Menu.Help.About") };
         aboutItem.Click += (_, _) => ShowAboutDialog();
         helpMenu.Items.Add(aboutItem);
+        helpMenu.Items.Add(new SeparatorMenuItem());
+        helpMenu.Items.Add(BuildLanguageMenu());
 
         var menu = new MenuBar();
         menu.Items.Add(fileMenu);
         menu.Items.Add(helpMenu);
         return menu;
+    }
+
+    /// <summary>语言子菜单：跟随系统 / 中文 / English。选择后保存偏好并重启进程（界面文字在构造时已固定）。</summary>
+    ButtonMenuItem BuildLanguageMenu()
+    {
+        var preferred = LocalizationSwitch.PreferredCulture();
+        var languageMenu = new ButtonMenuItem { Text = Localizer.T("Menu.Language") };
+
+        void AddChoice(string? culture, string label)
+        {
+            var item = new CheckMenuItem
+            {
+                Text = label,
+                Checked = preferred is null
+                    ? culture is null
+                    : string.Equals(preferred, culture, StringComparison.OrdinalIgnoreCase),
+            };
+            item.Click += (_, _) => ChangeLanguage(culture);
+            languageMenu.Items.Add(item);
+        }
+
+        AddChoice(null, Localizer.T("Language.System"));
+        AddChoice("zh-CN", Localizer.T("Language.Chinese"));
+        AddChoice("en-US", Localizer.T("Language.English"));
+        return languageMenu;
+    }
+
+    void ChangeLanguage(string? culture)
+    {
+        switch (LocalizationSwitch.Change(culture))
+        {
+            case LanguageChangeOutcome.Restarted:
+                Close();
+                break;
+            case LanguageChangeOutcome.SaveFailed:
+                SetStatus(Localizer.T("Language.SaveFailed"), error: true);
+                break;
+            default:
+                MessageBox.Show(
+                    this,
+                    Localizer.T("Language.SavedRestartFailed", LocalizationSwitch.DisplayName(culture)),
+                    Localizer.T("Menu.Language"));
+                break;
+        }
     }
 
     Control BuildToolBars()
@@ -626,9 +672,12 @@ internal sealed class MainForm : Form
 
     Control BuildTemplateJsonPanel()
     {
-        var apply = MakeButton("应用 JSON", ApplyTemplateJson, "解析文本框里的模板 JSON 并替换当前模板");
-        var reload = MakeButton("重新载入", () => RefreshTemplateJson("已重新载入当前模板，未应用的编辑已丢弃。"), "丢弃编辑，重新显示当前模板");
-        _jsonToggleButton.ToolTip = "展开或收起模板 JSON 编辑区";
+        var apply = MakeButton(Localizer.T("JsonPanel.Apply"), ApplyTemplateJson, Localizer.T("JsonPanel.ApplyTip"));
+        var reload = MakeButton(
+            Localizer.T("JsonPanel.Reload"),
+            () => RefreshTemplateJson(Localizer.T("Status.JsonReloaded")),
+            Localizer.T("JsonPanel.ReloadTip"));
+        _jsonToggleButton.ToolTip = Localizer.T("JsonPanel.ToggleTip");
         _jsonToggleButton.Click += (_, _) => ToggleTemplateJsonPanel();
 
         // 标题带永远可见：切换按钮 + 应用/重新载入 + 状态文字，折叠时操作和提示也不缺位。
@@ -659,16 +708,22 @@ internal sealed class MainForm : Form
 
         // 默认折叠成一条窄标题带，给画布让出竖向空间：
         // 控件 Visible=false 时不占布局空间，隐藏编辑区即可回收高度。
+        // 显式给高度：Eto 的 Panel 有 UserPreferredSize 时按它参与 AutoSize 行的高度计算，
+        // 否则嵌套的 TextArea 的 PreferredSize 在未挂载时可能是 0。
         _jsonEditorArea = new Panel
         {
             Content = _templateJson,
             Padding = new Padding(8, 2, 8, 4),
             Visible = false,
+            Height = 0,
         };
 
         var layout = new TableLayout { Spacing = new Size(0, 0) };
         layout.Rows.Add(new TableRow(new TableCell(header) { ScaleWidth = true }));
         layout.Rows.Add(new TableRow(new TableCell(_jsonEditorArea) { ScaleWidth = true }));
+        // Eto 的 TableLayout 总是把最后一行当作 Percent(1f)，AutoSize 的编辑区排最后会被算成 0 高。
+        // 尾巴留一个空行占住拉伸位，编辑区这一行才按 PreferredSize 拿到真实高度。
+        layout.Rows.Add(new TableRow(new TableCell(new Panel()) { ScaleWidth = true }));
 
         return new Panel { Content = layout, Padding = new Padding(0, 0, 0, 4) };
     }
@@ -678,7 +733,10 @@ internal sealed class MainForm : Form
     {
         _jsonExpanded = !_jsonExpanded;
         _jsonEditorArea.Visible = _jsonExpanded;
-        _jsonToggleButton.Text = _jsonExpanded ? "收起" : "展开";
+        // 高度必须跟着一起变：行是 AutoSize，Visible 只是不参与布局，
+        // 折叠后再展开时高度仍要由这里显式给出（TextArea 高度 + 上下内边距 2+4）。
+        _jsonEditorArea.Height = _jsonExpanded ? JsonEditorHeight + 6 : 0;
+        _jsonToggleButton.Text = Localizer.T(_jsonExpanded ? "JsonPanel.Collapse" : "JsonPanel.Expand");
     }
 
     /// <summary>把属性面板/纸张栏/JSON 面板全部接到当前内核上；LoadTemplate 换内核后必须重调。</summary>
@@ -957,16 +1015,28 @@ internal sealed class MainForm : Form
 
         var closeButton = new Button { Text = Localizer.T("About.Close") };
 
-        var body = new TableLayout { Spacing = new Size(0, 8), Padding = new Padding(16) };
-        body.Rows.Add(new TableRow(new TableCell(productLabel)));
-        body.Rows.Add(new TableRow(new TableCell(versionLabel)));
-        body.Rows.Add(new TableRow(new TableCell(descriptionLabel)));
-        body.Rows.Add(new TableRow(new TableCell(thirdPartyTitle)));
-        body.Rows.Add(new TableRow(new TableCell(thirdPartyLines)) { ScaleHeight = true });
-        body.Rows.Add(new TableRow(
+        // 行必须在构造 TableLayout 之前备齐：Eto 的表布局按行数一次性建原生控件，事后追加的行不显示。
+        var rows = new List<TableRow>();
+        if (LogoLoader.GetLogoBytes() is { } logoBytes)
+        {
+            rows.Add(new TableRow(new TableCell(new ImageView
+            {
+                Image = new Bitmap(logoBytes),
+                Size = new Size(96, 96),
+            })));
+        }
+
+        rows.Add(new TableRow(new TableCell(productLabel)));
+        rows.Add(new TableRow(new TableCell(versionLabel)));
+        rows.Add(new TableRow(new TableCell(descriptionLabel)));
+        rows.Add(new TableRow(new TableCell(thirdPartyTitle)));
+        rows.Add(new TableRow(new TableCell(thirdPartyLines)) { ScaleHeight = true });
+        rows.Add(new TableRow(
             new TableCell(null) { ScaleWidth = true },
             new TableCell(closeButton) { ScaleWidth = false }
         ));
+
+        var body = new TableLayout(rows.ToArray()) { Spacing = new Size(0, 8), Padding = new Padding(16) };
 
         var dialog = new Dialog
         {

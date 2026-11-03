@@ -2,9 +2,12 @@ using System;
 using CrossPrint.Core;
 using CrossPrint.Designer;
 using CrossPrint.Engine;
+using Microsoft.UI;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using SkiaSharp;
 using Uno.WinUI.Graphics2DSK;
 using Windows.Foundation;
@@ -25,8 +28,16 @@ namespace CrossPrint.Hosts.Uno;
 /// <see cref="SKCanvasElement"/> 走 Uno 合成器的 Skia 通道，各桌面头通用。
 /// </para>
 /// <para>
+/// 输入不挂在 <see cref="SKCanvasElement"/> 上，而是挂在包着它的 <see cref="Grid"/> 上：
+/// Uno 5.6 的 <see cref="SKCanvasElement"/> 没有复写内部的 <c>IsViewHit()</c>，命中测试会直接跳过它
+/// （上游修复见 unoplatform/uno#21137，落在 6.x）。而 <see cref="FrameworkElement"/> 的
+/// <c>IsViewHit()</c> 在非 legacy 路径下恒为 false、只有 <see cref="Panel"/>（如 Grid）才按
+/// “Background 非空”返回真——所以画布本身收不到任何指针事件，元素自然选不中。
+/// 这里用一层透明 Grid 承接输入，SKCanvasElement 只负责绘制。
+/// </para>
+/// <para>
 /// 坐标纪律：合成器绘制时画布已被预设 <c>RasterizationScale</c> 缩放，即 1 画布单位 = 1 DIP；
-/// <see cref="EditorCanvas"/> 与内核按设备 px 工作，所以 <see cref="RenderOverride"/> 里先
+/// <see cref="EditorCanvas"/> 与内核按设备 px 工作，所以 <see cref="Draw"/> 里先
 /// <c>Scale(96/Dpi)</c> 把画布换回设备 px，再交给引擎。<c>设备px = dip × Dpi / 96</c>，
 /// 内核内部再换到 mm，适配层不做任何 mm 数学。
 /// </para>
@@ -35,14 +46,14 @@ namespace CrossPrint.Hosts.Uno;
 /// 横纵缩放共用同一个值，与 WPF/Avalonia 宿主的口径一致，同一模板在各宿主的毫米落点才重合。
 /// </para>
 /// <para>
-/// 键盘：<see cref="SKCanvasElement"/> 基类是 <see cref="FrameworkElement"/>，没有可覆写的
-/// <c>OnKeyDown</c>（Uno 里那是内部方法），因此用事件订阅；控件取得焦点靠
+/// 键盘：Uno 的 <c>OnKeyDown</c> 是内部方法，不能覆写，因此用事件订阅；控件取得焦点靠
 /// <see cref="UIElement.IsTabStop"/> + 指针按下时的 <see cref="UIElement.Focus(FocusState)"/>。
 /// 修饰键由 Shift/Ctrl/Alt 的 KeyDown/KeyUp 自行跟踪（WinUI 的 KeyRoutedEventArgs 不带修饰键）。
 /// </para>
 /// </remarks>
-public sealed class DesignerControl : SKCanvasElement
+public sealed class DesignerControl : Grid
 {
+    readonly CanvasSurface _surface;
     readonly EditorRenderer _overlay;
     EditorKernel _kernel;
     PointerButton _pressedButton;
@@ -65,6 +76,12 @@ public sealed class DesignerControl : SKCanvasElement
 
         IsTabStop = true;
 
+        // Grid 的命中资格看 Background 是否为空（Panel.IsViewHit），透明画刷也算“有”，
+        // 这正是画布能收到点击的前提；SKCanvasElement 子项本身不参与命中，见类备注。
+        Background = new SolidColorBrush(Colors.Transparent);
+        _surface = new CanvasSurface(this);
+        Children.Add(_surface);
+
         Loaded += (_, _) => _invalidateReady = true;
 
         PointerPressed += OnPointerPressed;
@@ -74,6 +91,21 @@ public sealed class DesignerControl : SKCanvasElement
         PointerWheelChanged += OnPointerWheelChanged;
         KeyDown += OnKeyDown;
         KeyUp += OnKeyUp;
+    }
+
+    /// <summary>重绘画布。表面未挂树时是空操作，见 <see cref="InvalidateSafe"/>。</summary>
+    public void Invalidate() => InvalidateSafe();
+
+    /// <summary>只负责绘制的 Skia 表面；输入由外层 <see cref="DesignerControl"/> 承接。</summary>
+    sealed class CanvasSurface : SKCanvasElement
+    {
+        readonly DesignerControl _owner;
+
+        public CanvasSurface(DesignerControl owner) => _owner = owner;
+
+        protected override void RenderOverride(SKCanvas canvas, Size area) => _owner.Draw(canvas, area);
+
+        public void InvalidateSurface() => Invalidate();
     }
 
     /// <summary>交互内核；外部命令（工具箱、属性面板、层次）都直接对它调用。</summary>
@@ -160,7 +192,7 @@ public sealed class DesignerControl : SKCanvasElement
     void InvalidateSafe()
     {
         if (_invalidateReady)
-            Invalidate();
+            _surface.InvalidateSurface();
     }
 
     bool _invalidateReady;
@@ -168,7 +200,7 @@ public sealed class DesignerControl : SKCanvasElement
     /// <summary>最近一次绘制的降级告警汇总。</summary>
     public RenderReport? LastReport { get; private set; }
 
-    /// <summary>每次 <see cref="RenderOverride"/> 绘制完成后触发（含告警信息）。</summary>
+    /// <summary>每次 <see cref="Draw"/> 绘制完成后触发（含告警信息）。</summary>
     public event EventHandler? Rendered;
 
     /// <summary>替换当前模板：旧内核解绑、新内核重新绑定事件，并按当前视口尺寸整页适配一次。</summary>
@@ -211,7 +243,7 @@ public sealed class DesignerControl : SKCanvasElement
     }
 
     /// <summary>引擎绘制入口：合成器回调，画布处于 DIP 坐标系，见类备注的坐标纪律。</summary>
-    protected override void RenderOverride(SKCanvas canvas, Size area)
+    void Draw(SKCanvas canvas, Size area)
     {
         // 合成器画布处于 DIP 坐标系（WpfHost/X11 渲染前已按 RasterizationScale 预缩放），
         // 而引擎按设备 px 绘制：先撤销预缩放，把画布换回设备 px。

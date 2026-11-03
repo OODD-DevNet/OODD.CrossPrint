@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Uno.UI;
 
 namespace CrossPrint.Samples.Uno;
 
@@ -18,6 +19,14 @@ internal sealed class App : Application
     public App()
     {
         Resources.MergedDictionaries.Add(new XamlControlsResources());
+
+        // Uno 默认的 SymbolThemeFontFamily 指向 ms-appx:///Assets/Fonts/uno-fluentui-assets.ttf#Symbols，
+        // 但示例没有 XAML，Uno 源生成器不会把 UnoFonts 包里的实际路径写进 FeatureConfiguration，
+        // 于是下拉箭头、复选勾、工具栏图标全部退化成豆腐块。
+        // 该属性会把字体写进 Fluent 的主题字典（Resources.MergedDictionaries 里那份），
+        // 所以必须在合并 XamlControlsResources 之后设置；字体本身随 Uno.Fonts.Fluent 复制到输出目录，
+        // 各平台路径一致，CJK 正文仍由默认文本字体渲染。
+        FeatureConfiguration.Font.SymbolsFont = "ms-appx:///Uno.Fonts.Fluent/Fonts/uno-fluentui-assets.ttf#Symbols";
     }
 
     /// <inheritdoc />

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using CrossPrint.Core;
 using CrossPrint.Designer;
+using CrossPrint.I18n;
 using Microsoft.UI;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
@@ -122,7 +123,7 @@ public sealed class PropertyPanel : UserControl
                 _signature = string.Empty;
                 _rows.Children.Add(new TextBlock
                 {
-                    Text = "点击画布元素编辑属性；右键画布打开菜单；纸张大小在纸张栏设置。",
+                    Text = Localizer.T("Property.Hint.Empty"),
                     Foreground = new SolidColorBrush(Colors.Gray),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 8, 0, 0),
@@ -150,7 +151,7 @@ public sealed class PropertyPanel : UserControl
                     group = descriptor.Group;
                     _rows.Children.Add(new TextBlock
                     {
-                        Text = group,
+                        Text = PropertyText.Group(group),
                         FontSize = 12,
                         FontWeight = Microsoft.UI.Text.FontWeights.Bold,
                         Foreground = new SolidColorBrush(Colors.SteelBlue),
@@ -170,7 +171,7 @@ public sealed class PropertyPanel : UserControl
     static string BuildSignature(ElementProperties properties)
         => properties.Element.Id + "|" + string.Join("|", properties.Descriptors.Select(d => d.Key));
 
-    static string DescribeElement(PaperElement element) => element switch
+    static string DescribeElement(PaperElement element) => PropertyText.ElementType(element.TypeKey, element switch
     {
         TextElement => "文本元素",
         LineElement => "线条元素",
@@ -181,7 +182,7 @@ public sealed class PropertyPanel : UserControl
         BarcodeElement => "一维码元素",
         TableElement => "表格元素",
         _ => element.TypeKey,
-    };
+    });
 
     /// <summary>结构动作按钮行（表格列的增删）：点击交给内核，成败都重建面板（动作清单是快照）。</summary>
     /// <remarks>
@@ -203,7 +204,7 @@ public sealed class PropertyPanel : UserControl
         {
             var button = new Button
             {
-                Content = action.DisplayName,
+                Content = PropertyText.Action(action.DisplayName),
                 Padding = new Thickness(8, 2, 8, 2),
                 Margin = new Thickness(0, 0, 6, 4),
             };
@@ -225,7 +226,7 @@ public sealed class PropertyPanel : UserControl
         }
         catch (Exception ex)
         {
-            ShowMessage($"动作“{action.DisplayName}”执行失败：{ex.Message}");
+            ShowMessage(Localizer.T("Property.Error.Action", PropertyText.Action(action.DisplayName), ex.Message));
         }
 
         ScheduleRebuild();
@@ -235,7 +236,7 @@ public sealed class PropertyPanel : UserControl
     {
         var label = new TextBlock
         {
-            Text = descriptor.DisplayName,
+            Text = PropertyText.Label(descriptor.DisplayName),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = descriptor.Kind == PropertyKind.MultilineText
@@ -406,7 +407,7 @@ public sealed class PropertyPanel : UserControl
         }
         catch (Exception ex)
         {
-            ShowMessage($"属性“{descriptor.DisplayName}”：{ex.Message}");
+            ShowMessage(Localizer.T("Property.Error.Apply", PropertyText.Label(descriptor.DisplayName), ex.Message));
             ScheduleRebuild();
             return;
         }
@@ -431,7 +432,7 @@ public sealed class PropertyPanel : UserControl
         }
         catch (Exception ex)
         {
-            ShowMessage($"属性“{descriptor.DisplayName}”写入失败：{ex.Message}");
+            ShowMessage(Localizer.T("Property.Error.Apply", PropertyText.Label(descriptor.DisplayName), ex.Message));
         }
 
         ScheduleRebuild();
@@ -450,7 +451,7 @@ public sealed class PropertyPanel : UserControl
         if (descriptor.Kind == PropertyKind.Integer)
         {
             if (!int.TryParse(trimmed, NumberStyles.Integer, Inv, out var integer))
-                throw new FormatException($"“{text}”不是整数。");
+                throw new FormatException(Localizer.T("Property.Error.Integer", text));
 
             var clamped = (double)integer;
             if (descriptor.Min is { } min)
@@ -465,7 +466,7 @@ public sealed class PropertyPanel : UserControl
             return null;
 
         if (!double.TryParse(trimmed, NumberStyles.Float, Inv, out var number))
-            throw new FormatException($"“{text}”不是数字。");
+            throw new FormatException(Localizer.T("Property.Error.Number", text));
 
         if (descriptor.Min is { } lo && number < lo)
             number = lo;
@@ -481,7 +482,7 @@ public sealed class PropertyPanel : UserControl
             return null; // 可空颜色字段的"清空"语义
 
         if (!SKColor.TryParse(trimmed, out var color))
-            throw new FormatException("颜色需形如 #RRGGBB 或 #AARRGGBB。");
+            throw new FormatException(Localizer.T("Property.Error.Color"));
 
         return color;
     }
@@ -498,7 +499,7 @@ public sealed class PropertyPanel : UserControl
         for (var i = 0; i < parts.Length; i++)
         {
             if (!double.TryParse(parts[i], NumberStyles.Float, Inv, out values[i]))
-                throw new FormatException($"“{parts[i]}”不是数字；虚线段长写成 1.5,1 这样。");
+                throw new FormatException(Localizer.T("Property.Error.Dash", parts[i]));
         }
 
         return values;

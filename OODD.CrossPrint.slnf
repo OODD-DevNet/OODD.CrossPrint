@@ -22,6 +22,7 @@
       "tests\\CrossPrint.Designer.Tests\\CrossPrint.Designer.Tests.csproj",
       "tests\\CrossPrint.Engine.Tests\\CrossPrint.Engine.Tests.csproj",
       "tests\\CrossPrint.Hosts.Avalonia.Tests\\CrossPrint.Hosts.Avalonia.Tests.csproj",
+      "tests\\CrossPrint.I18n.Tests\\CrossPrint.I18n.Tests.csproj",
       "tests\\CrossPrint.Printing.Tests\\CrossPrint.Printing.Tests.csproj"
     ]
   }

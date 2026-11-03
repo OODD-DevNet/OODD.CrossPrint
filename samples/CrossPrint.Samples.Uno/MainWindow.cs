@@ -14,7 +14,9 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
+using Windows.Storage.Streams;
 using Windows.System;
 
 namespace CrossPrint.Samples.Uno;
@@ -199,10 +201,59 @@ internal sealed class MainWindow : Window
         aboutItem.Click += (_, _) => _ = ShowAboutDialogAsync();
         helpMenu.Items.Add(aboutItem);
 
+        var preferred = LocalizationSwitch.PreferredCulture();
+        helpMenu.Items.Add(new MenuFlyoutSeparator());
+        var languageItem = new MenuFlyoutSubItem { Text = Localizer.T("Menu.Language") };
+        void AddChoice(string? culture, string label)
+        {
+            var item = new ToggleMenuFlyoutItem
+            {
+                Text = label,
+                IsChecked = preferred is null
+                    ? culture is null
+                    : string.Equals(preferred, culture, StringComparison.OrdinalIgnoreCase),
+            };
+            item.Click += (_, _) => ChangeLanguage(culture);
+            languageItem.Items.Add(item);
+        }
+
+        AddChoice(null, Localizer.T("Language.System"));
+        AddChoice("zh-CN", Localizer.T("Language.Chinese"));
+        AddChoice("en-US", Localizer.T("Language.English"));
+        helpMenu.Items.Add(languageItem);
+
         var bar = new MenuBar();
         bar.Items.Add(fileMenu);
         bar.Items.Add(helpMenu);
         return bar;
+    }
+
+    void ChangeLanguage(string? culture)
+    {
+        switch (LocalizationSwitch.Change(culture))
+        {
+            case LanguageChangeOutcome.Restarted:
+                Close();
+                break;
+            case LanguageChangeOutcome.SaveFailed:
+                SetStatus(Localizer.T("Language.SaveFailed"), error: true);
+                break;
+            default:
+                _ = ShowLanguageRestartFailedAsync(culture);
+                break;
+        }
+    }
+
+    async Task ShowLanguageRestartFailedAsync(string? culture)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = Localizer.T("Menu.Language"),
+            Content = Localizer.T("Language.SavedRestartFailed", LocalizationSwitch.DisplayName(culture)),
+            CloseButtonText = Localizer.T("About.Close"),
+            XamlRoot = _designer.XamlRoot,
+        };
+        await dialog.ShowAsync();
     }
 
     UIElement BuildElementBar()
@@ -709,7 +760,7 @@ internal sealed class MainWindow : Window
             if (_jsonDirty)
             {
                 _jsonDirty = false;
-                SetJsonState(Localizer.T("JsonPanel.Sync", _designer.Kernel.Template.Elements.Count), error: false);
+                SetJsonState(Localizer.T("JsonPanel.Synced", _designer.Kernel.Template.Elements.Count), error: false);
             }
             return;
         }
@@ -725,7 +776,7 @@ internal sealed class MainWindow : Window
         _jsonDirty = false;
         _templateJson.Text = text;
         _templateJson.Select(0, 0);
-        SetJsonState(note ?? Localizer.T("JsonPanel.Sync", _designer.Kernel.Template.Elements.Count), error: false);
+        SetJsonState(note ?? Localizer.T("JsonPanel.Synced", _designer.Kernel.Template.Elements.Count), error: false);
     }
 
     static string NormalizeJsonText(string? text) =>
@@ -999,16 +1050,26 @@ internal sealed class MainWindow : Window
             });
         }
 
-        var contentPanel = new StackPanel
+        var contentPanel = new StackPanel();
+
+        var logo = await LoadAboutLogoAsync();
+        if (logo is not null)
         {
-            Children =
+            contentPanel.Children.Add(new Image
             {
-                productTitle,
-                version,
-                description,
-                thirdPartyPanel,
-            },
-        };
+                Source = logo,
+                Width = 96,
+                Height = 96,
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 4, 0, 0),
+            });
+        }
+
+        contentPanel.Children.Add(productTitle);
+        contentPanel.Children.Add(version);
+        contentPanel.Children.Add(description);
+        contentPanel.Children.Add(thirdPartyPanel);
 
         var dialog = new ContentDialog
         {
@@ -1019,6 +1080,36 @@ internal sealed class MainWindow : Window
         };
 
         await dialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// 从 I18n 嵌入资源读 logo 并解码成位图；资源缺失或解码失败时返回 null（对话框退化为纯文字）。
+    /// </summary>
+    static async Task<BitmapImage?> LoadAboutLogoAsync()
+    {
+        var bytes = LogoLoader.GetLogoBytes();
+        if (bytes is null)
+            return null;
+
+        try
+        {
+            // Uno 的 DataWriter.DetachStream 未实现，这里直接写内存流。
+            using var stream = new InMemoryRandomAccessStream();
+            using (var output = stream.AsStreamForWrite())
+            {
+                await output.WriteAsync(bytes, 0, bytes.Length);
+                await output.FlushAsync();
+            }
+
+            stream.Seek(0);
+            var bitmap = new BitmapImage();
+            await bitmap.SetSourceAsync(stream);
+            return bitmap;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     static void AddAt(Grid grid, UIElement element, int row, int rowSpan = 1)

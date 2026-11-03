@@ -568,19 +568,35 @@ A4 paper + one text element + one table — the bare minimum:
 
 ## Hosts & minimum framework
 
-| Component | Minimum .NET | Notes |
+| Component | Target framework | Notes |
 |---|---|---|
-| **Core** (CrossPrint.Core / Engine / Designer / Printing) | **.NET 8.0** | SkiaSharp 2.88.9 + Jint 4.x + System.Text.Json 8.0 all require net8.0 |
-| CrossPrint.I18n | net8.0 / **netstandard2.0** / **net461** | Triple-target — hosts on netstandard2.0 (e.g. WPF/WinForms net461) can still reference it |
+| CrossPrint.Core / Engine / Designer / Printing | **net8.0; net461** | Dual-target; the net461 side uses the netstandard2.0 targets of Jint 3.1.6 and System.Text.Json 6.0.9 |
+| CrossPrint.I18n | net8.0 / netstandard2.0 / net461 | Triple-target, so net461 hosts can reference it |
 | CrossPrint.Hosts.Avalonia | net8.0 | Avalonia 11.x requirement |
-| CrossPrint.Hosts.Wpf | **net8.0-windows** | WPF runs on .NET 8, not net461 |
-| CrossPrint.Hosts.WinForms | **net8.0-windows** | WinForms runs on .NET 8, not net461 |
-| CrossPrint.Hosts.Eto | net8.0-windows | |
+| CrossPrint.Hosts.Wpf | net8.0-windows | |
+| CrossPrint.Hosts.WinForms | net8.0-windows | |
+| CrossPrint.Hosts.Eto | net8.0 | |
 | CrossPrint.Hosts.WinUi | net8.0-windows10.0.19041.0 | |
 | CrossPrint.Hosts.Uno | net8.0-desktop | |
-| CrossPrint.Hosts.Maui | net8.0 | |
+| CrossPrint.Hosts.Maui | net8.0-windows10.0.19041.0 | Windows-only target |
 
-**About .NET Framework 4.x support**: Jint 4.x (template inline JS) and System.Text.Json 8.0 (template JSON) require net8.0. SkiaSharp 2.88.9 alone can target net461, but the full dependency chain cannot. **CrossPrint.I18n** is the only project that provides net461/netstandard2.0 targets — that exists so net461 hosts can reference it. The rendering engine, script runner, and JSON serializer all need net8.0. **.NET 8.0 minimum**.
+Core and I18n ship `net461` targets so older WPF/WinForms projects can reference them directly; all seven
+host adapters target .NET 8. Building the `net461` side produces TFM support warnings from `System.Memory`
+and friends ("not tested with net461") without blocking the build; runtime behavior is defined by .NET 8,
+and CI plus the full test suite cover `net8.0` only.
+
+### UI language
+
+All samples share the embedded Chinese/English resources in `CrossPrint.I18n`
+(`Strings.zh-CN.json` / `Strings.en-US.json`). At startup the UI language is resolved in this order:
+**environment variable `CROSSPRINT_LANG` → `ui-culture.txt` next to the executable → OS language**.
+The **Language / 语言** menu switches between "Follow system / 中文 / English"; the choice is written to
+`ui-culture.txt` and the app restarts automatically, because UI labels are captured when windows are built.
+
+```powershell
+# One-off override, nothing persisted
+$env:CROSSPRINT_LANG = "en-US"
+```
 
 ---
 
@@ -607,7 +623,8 @@ The repo ships a GitHub Actions workflow ([`.github/workflows/pages-demo.yml`](.
 - **No watermark** — hiprint's `watermarkOptions` can't be drawn. Workaround: use a background ImageElement (bottom layer, semi-transparent).
 - **No page numbers** — `paperNumberFormat` and friends aren't recognized. Let us know if you actually need this.
 - **WASM sample** has no file dialogs (browser sandbox). Importing hiprint templates goes through the template JSON panel at the bottom.
-- **.NET Framework 4.x not supported** — SkiaSharp 2.88.9 can run net461, but Jint 4.x and System.Text.Json 8.0 require net8.0. Supporting old .NET would mean downgrading every dependency and maintaining a fork. .NET 8 minimum.
+- **Complex scripts (Arabic / Devanagari / Tibetan) may need an extra native package on Linux** — the engine uses HarfBuzz for ligatures and positional forms (initial / medial / final), and the `HarfBuzzSharp` managed package only declares its Win32 and macOS natives as dependencies. Avalonia hosts are covered (`Avalonia.Skia` pulls it in transitively); **library-only consumers** (console, WPF/WinForms/Eto/WinUI/Uno/MAUI) on Linux must add one line to the host app: `<PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" />`. **Nothing throws when it is missing** — Arabic just falls back to "every letter in its isolated form", which looks broken but stays silent. See [`docs/rendering-spec.md`](docs/rendering-spec.md) §3.3 for the four placement rules and how they were measured.
+- **.NET Framework 4.x is supported in the core layer only** — Core / Engine / Designer / Printing / I18n ship `net461` targets (Jint 3.1.6 and System.Text.Json 6.0.9 both provide netstandard2.0 targets), but all seven host adapters require .NET 8 (Avalonia 11 / WinUI 3 / MAUI 8 do not support net461). The `net461` target is compile-compatible only; tests and CI cover `net8.0`.
 
 ---
 

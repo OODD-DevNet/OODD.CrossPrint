@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Browser;
 using Avalonia.Logging;
 using Avalonia.Media;
+using CrossPrint.I18n;
 using CrossPrint.Samples.Avalonia;
 
 namespace CrossPrint.Samples.Avalonia.Browser;
@@ -15,6 +16,9 @@ internal static class Program
     {
         try
         {
+            // 浏览器没有可写的程序目录，也没有进程重启；这里只按环境/系统语言定一次。
+            LocalizationSwitch.Apply();
+
             await AppBuilder.Configure<App>()
                 .UseBrowser()
                 // Debug 级日志（含 FontManager 的"族未找到"诊断）走 Trace → stdout。

@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using CrossPrint.Core;
 using CrossPrint.Designer;
+using CrossPrint.I18n;
 using SkiaSharp;
 
 namespace CrossPrint.Samples.Wpf;
@@ -134,15 +135,15 @@ internal sealed class PropertyPanel : UserControl
             if (properties is null)
             {
                 _header.Text = _kernel.Selection.IsEmpty
-                    ? "属性"
-                    : $"属性（已选中 {_kernel.Selection.Ids.Count} 个）";
+                    ? Localizer.T("PropertyGrid.Section")
+                    : Localizer.T("Property.Header.Multi", _kernel.Selection.Ids.Count);
 
                 _form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 var hint = new TextBlock
                 {
                     Text = _kernel.Selection.IsEmpty
-                        ? "点击画布元素编辑属性；右键画布打开菜单；纸张大小在纸张栏设置。"
-                        : "属性面板仅支持单选；请在画布上只选中一个元素。",
+                        ? Localizer.T("Property.Hint.Empty")
+                        : Localizer.T("Property.Hint.Multi"),
                     Foreground = Brushes.Gray,
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(10, 4, 10, 10),
@@ -187,7 +188,7 @@ internal sealed class PropertyPanel : UserControl
         {
             var button = new Button
             {
-                Content = action.DisplayName,
+                Content = PropertyText.Action(action.DisplayName),
                 Padding = new Thickness(8, 2, 8, 2),
                 Margin = new Thickness(0, 0, 6, 2),
             };
@@ -228,7 +229,7 @@ internal sealed class PropertyPanel : UserControl
 
         var header = new TextBlock
         {
-            Text = text,
+            Text = PropertyText.Group(text),
             FontSize = 11,
             FontWeight = FontWeights.Bold,
             Foreground = Brushes.SteelBlue,
@@ -398,7 +399,7 @@ internal sealed class PropertyPanel : UserControl
                 {
                     Text = FormatColor(descriptor.GetValue(element)),
                     IsEnabled = !descriptor.ReadOnly,
-                    ToolTip = "#RRGGBB 或 #AARRGGBB；留空表示无颜色",
+                    ToolTip = Localizer.T("Property.Tip.Color"),
                 };
                 box.Tag = box.Text;
 
@@ -435,7 +436,7 @@ internal sealed class PropertyPanel : UserControl
                 {
                     Text = FormatDash(descriptor.GetValue(element)),
                     IsEnabled = !descriptor.ReadOnly,
-                    ToolTip = "逗号分隔的段长（mm），如 1.5,1；留空表示实线",
+                    ToolTip = Localizer.T("Property.Tip.Dash"),
                 };
                 box.Tag = box.Text;
 
@@ -468,7 +469,7 @@ internal sealed class PropertyPanel : UserControl
 
             case PropertyKind.StyleRef:
             {
-                const string none = "（不引用）";
+                var none = Localizer.T("Property.StyleRef.None");
                 var items = new List<string> { none };
                 var idByDisplay = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var style in _kernel.Template.Styles)
@@ -482,7 +483,7 @@ internal sealed class PropertyPanel : UserControl
                 {
                     ItemsSource = items,
                     IsEnabled = !descriptor.ReadOnly,
-                    ToolTip = "引用模板样式库；样式作默认值打底，本元素内联已设置的值优先。",
+                    ToolTip = Localizer.T("Property.Tip.StyleRef"),
                 };
 
                 string DisplayOf(string? id) => string.IsNullOrEmpty(id)
@@ -509,7 +510,7 @@ internal sealed class PropertyPanel : UserControl
                     Content = "…",
                     Width = 24,
                     Padding = new Thickness(0),
-                    ToolTip = "管理模板样式库（新增/编辑/删除样式）",
+                    ToolTip = Localizer.T("Property.Tip.StyleLibrary"),
                 };
                 manageButton.Click += (_, _) =>
                 {
@@ -551,13 +552,13 @@ internal sealed class PropertyPanel : UserControl
 
         var label = new TextBlock
         {
-            Text = descriptor.DisplayName,
+            Text = PropertyText.Label(descriptor.DisplayName),
             FontSize = 11,
             Foreground = Brushes.DimGray,
             TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(10, 4, 8, 4),
-            ToolTip = descriptor.Key + (descriptor.ReadOnly ? "（只读）" : string.Empty),
+            ToolTip = descriptor.Key + (descriptor.ReadOnly ? Localizer.T("Property.ReadOnlyTip") : string.Empty),
         };
         Grid.SetRow(label, rowIndex);
         Grid.SetColumn(label, 0);
@@ -635,7 +636,10 @@ internal sealed class PropertyPanel : UserControl
         }));
     }
 
-    static string TypeName(string typeKey) => typeKey switch
+    static string TypeName(string typeKey)
+        => PropertyText.ElementType(typeKey, ChineseTypeName(typeKey));
+
+    static string ChineseTypeName(string typeKey) => typeKey switch
     {
         ElementTypeKeys.Text => "文字",
         ElementTypeKeys.Line => "线段",
@@ -682,7 +686,7 @@ internal sealed class PropertyPanel : UserControl
             return null;
 
         if (!double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-            throw new FormatException($"“{text}”不是合法数字（请用小数点，如 12.5）。");
+            throw new FormatException(Localizer.T("Property.Error.Number", text));
 
         // Min/Max 只是编辑器提示，内核不夹紧；面板按提示夹一次再写回。
         if (descriptor.Min is { } min && value < min)
@@ -702,7 +706,7 @@ internal sealed class PropertyPanel : UserControl
             return null;
 
         if (!SKColor.TryParse(trimmed, out var color))
-            throw new FormatException("颜色格式应为 #RRGGBB 或 #AARRGGBB。");
+            throw new FormatException(Localizer.T("Property.Error.Color"));
 
         return color;
     }
@@ -717,7 +721,7 @@ internal sealed class PropertyPanel : UserControl
         for (var i = 0; i < parts.Length; i++)
         {
             if (!double.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
-                throw new FormatException($"“{parts[i]}”不是合法段长（用逗号分隔，如 1.5,1）。");
+                throw new FormatException(Localizer.T("Property.Error.Dash", parts[i]));
         }
 
         return values;

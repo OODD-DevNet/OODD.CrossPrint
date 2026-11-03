@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
+using CrossPrint.I18n;
 
 namespace CrossPrint.Samples.Wpf;
 
@@ -10,6 +11,9 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        // 界面文字在控件构造时一次性取好，所以必须在建窗口之前定下 UI 语言。
+        LocalizationSwitch.Apply();
+
         // 样例刻意不建 App.xaml：整个 UI 用代码搭出来，读起来就是一份可复制的接线说明。
         var app = new Application();
 

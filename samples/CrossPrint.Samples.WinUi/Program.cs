@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
+using CrossPrint.I18n;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 
@@ -19,6 +20,9 @@ public static class Program
     [STAThread]
     private static void Main()
     {
+        // 界面文字在控件构造时一次性取好，所以必须在建窗口之前定下 UI 语言。
+        LocalizationSwitch.Apply();
+
         XamlCheckProcessRequirements();
         WinRT.ComWrappersSupport.InitializeComWrappers();
 

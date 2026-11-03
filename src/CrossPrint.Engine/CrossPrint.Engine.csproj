@@ -21,6 +21,7 @@
     <PackageReference Include="SkiaSharp" />
     <PackageReference Include="ZXing.Net" />
     <PackageReference Include="Jint" />
+    <PackageReference Include="HarfBuzzSharp" />
   </ItemGroup>
 
 </Project>

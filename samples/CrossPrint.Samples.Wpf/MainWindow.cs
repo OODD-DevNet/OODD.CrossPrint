@@ -186,9 +186,58 @@ internal sealed class MainWindow : Window
         var aboutItem = new MenuItem { Header = Localizer.T("Menu.Help.About") };
         aboutItem.Click += (_, _) => ShowAboutDialog();
         helpMenu.Items.Add(aboutItem);
+        helpMenu.Items.Add(new Separator());
+        helpMenu.Items.Add(BuildLanguageMenu());
         menu.Items.Add(helpMenu);
 
         return menu;
+    }
+
+    /// <summary>语言子菜单：跟随系统 / 中文 / English。选择后保存偏好并重启进程（界面文字在构造时已固定）。</summary>
+    MenuItem BuildLanguageMenu()
+    {
+        var preferred = LocalizationSwitch.PreferredCulture();
+        var languageMenu = new MenuItem { Header = Localizer.T("Menu.Language") };
+
+        void AddChoice(string? culture, string label)
+        {
+            var item = new MenuItem
+            {
+                Header = label,
+                IsCheckable = true,
+                IsChecked = preferred is null
+                    ? culture is null
+                    : string.Equals(preferred, culture, StringComparison.OrdinalIgnoreCase),
+            };
+            item.Click += (_, _) => ChangeLanguage(culture);
+            languageMenu.Items.Add(item);
+        }
+
+        AddChoice(null, Localizer.T("Language.System"));
+        AddChoice("zh-CN", Localizer.T("Language.Chinese"));
+        AddChoice("en-US", Localizer.T("Language.English"));
+        return languageMenu;
+    }
+
+    void ChangeLanguage(string? culture)
+    {
+        switch (LocalizationSwitch.Change(culture))
+        {
+            case LanguageChangeOutcome.Restarted:
+                Close();
+                break;
+            case LanguageChangeOutcome.SaveFailed:
+                SetStatus(Localizer.T("Language.SaveFailed"), error: true);
+                break;
+            default:
+                MessageBox.Show(
+                    this,
+                    Localizer.T("Language.SavedRestartFailed", LocalizationSwitch.DisplayName(culture)),
+                    Localizer.T("Menu.Language"),
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                break;
+        }
     }
 
     UIElement BuildToolBars()
@@ -926,11 +975,11 @@ internal sealed class MainWindow : Window
                     .Where(i => i.Severity != HiprintImportSeverity.Info)
                     .Select(i => i.Message)
                     .ToList();
-                var summary = $"已按 hiprint 模板导入：{imported.Template.Elements.Count} 个元素";
+                var summary = Localizer.T("Status.HiprintImportedSummary", imported.Template.Elements.Count);
                 if (imported.Panels.Count > 1)
-                    summary += $"（共 {imported.Panels.Count} 个面板，只导入第 {imported.Panels.First(p => p.Imported).Index} 个）";
+                    summary += Localizer.T("Status.HiprintImportedPanels", imported.Panels.Count, imported.Panels.First(p => p.Imported).Index);
                 if (imported.Template.DesignData.Count > 0)
-                    summary += $"；已保留 {imported.Template.DesignData.Count} 项测试数据（设计/预览时用于占位）";
+                    summary += Localizer.T("Status.HiprintImportedDesignData", imported.Template.DesignData.Count);
                 if (notes.Count > 0)
                     summary += "；" + string.Join("；", notes);
 
@@ -972,7 +1021,7 @@ internal sealed class MainWindow : Window
         var dialog = new OpenFileDialog
         {
             Title = Localizer.T("Dialog.Import.Title"),
-            Filter = $"{Localizer.T("Dialog.Import.HiprintFilter")} (*.js;*.json;*.txt)|*.js;*.json;*.txt|{Localizer.T("Dialog.Import.AllFiles")}(*.*)|*.*",
+            Filter = $"{Localizer.T("Dialog.Import.HiprintFilter")} (*.js;*.json;*.txt)|*.js;*.json;*.txt|{Localizer.T("Dialog.Import.AllFiles")} (*.*)|*.*",
             CheckFileExists = true,
         };
 

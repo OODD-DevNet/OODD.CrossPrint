@@ -202,6 +202,10 @@ public sealed class MainView : UserControl
 
         fileMenu.Items.Add(new Separator());
 
+#if !BROWSER
+        fileMenu.Items.Add(BuildLanguageMenu());
+#endif
+
         var aboutItem = new MenuItem { Header = Localizer.T("Menu.Help.About") };
         aboutItem.Click += (_, _) => _ = ShowAboutAsync();
         fileMenu.Items.Add(aboutItem);
@@ -210,6 +214,50 @@ public sealed class MainView : UserControl
         menu.Items.Add(fileMenu);
         return menu;
     }
+
+#if !BROWSER
+    /// <summary>语言子菜单：跟随系统 / 中文 / English。选择后保存偏好并重启进程（界面文字在构造时已固定）。</summary>
+    MenuItem BuildLanguageMenu()
+    {
+        var preferred = LocalizationSwitch.PreferredCulture();
+        var languageMenu = new MenuItem { Header = Localizer.T("Menu.Language") };
+
+        void AddChoice(string? culture, string label)
+        {
+            var item = new MenuItem
+            {
+                Header = label,
+                ToggleType = MenuItemToggleType.CheckBox,
+                IsChecked = preferred is null
+                    ? culture is null
+                    : string.Equals(preferred, culture, StringComparison.OrdinalIgnoreCase),
+            };
+            item.Click += (_, _) => ChangeLanguage(culture);
+            languageMenu.Items.Add(item);
+        }
+
+        AddChoice(null, Localizer.T("Language.System"));
+        AddChoice("zh-CN", Localizer.T("Language.Chinese"));
+        AddChoice("en-US", Localizer.T("Language.English"));
+        return languageMenu;
+    }
+
+    void ChangeLanguage(string? culture)
+    {
+        switch (LocalizationSwitch.Change(culture))
+        {
+            case LanguageChangeOutcome.Restarted:
+                (TopLevel.GetTopLevel(this) as Window)?.Close();
+                break;
+            case LanguageChangeOutcome.SaveFailed:
+                SetStatus(Localizer.T("Language.SaveFailed"));
+                break;
+            default:
+                SetStatus(Localizer.T("Language.SavedRestartFailed", LocalizationSwitch.DisplayName(culture)));
+                break;
+        }
+    }
+#endif
 
     /// <summary>左侧栏：纸张面板固定在顶部，工具箱占满剩余高度。</summary>
     Control BuildSidebar()
@@ -347,22 +395,22 @@ public sealed class MainView : UserControl
         var panel = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 4) };
 
         foreach (var (label, key) in ElementButtons)
-            panel.Children.Add(ToolbarButton(label, () => AddElement(key), Localizer.T("Toolbar.AddWithLabel", label)));
+            panel.Children.Add(ToolbarButton(label, () => AddElement(key), Localizer.T("Toolbar.AddElement.Tooltip", label)));
 
         panel.Children.Add(Separator());
         // 标签尽量短（完整说明放 ToolTip）：工具带项目多，窄窗口换行时省横向空间。
-        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.Duplicate"), DuplicateSelection, Localizer.T("Toolbar.DuplicateTip")));
-        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.Delete"), DeleteSelection, Localizer.T("Toolbar.DeleteTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.Duplicate"), DuplicateSelection, Localizer.T("Toolbar.Duplicate.Tip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.Delete"), DeleteSelection, Localizer.T("Toolbar.Delete.Tip")));
 
         panel.Children.Add(Separator());
-        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.BringForward"), () => RunKernel(kernel => kernel.BringForward()), Localizer.T("Toolbar.BringForwardTip")));
-        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.SendBackward"), () => RunKernel(kernel => kernel.SendBackward()), Localizer.T("Toolbar.SendBackwardTip")));
-        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.BringToFront"), () => RunKernel(kernel => kernel.BringToFront()), Localizer.T("Toolbar.BringToFrontTip")));
-        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.SendToBack"), () => RunKernel(kernel => kernel.SendToBack()), Localizer.T("Toolbar.SendToBackTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.BringForward"), () => RunKernel(kernel => kernel.BringForward()), Localizer.T("Toolbar.BringForward.Tip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.SendBackward"), () => RunKernel(kernel => kernel.SendBackward()), Localizer.T("Toolbar.SendBackward.Tip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.BringToFront"), () => RunKernel(kernel => kernel.BringToFront()), Localizer.T("Toolbar.BringToFront.Tip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.SendToBack"), () => RunKernel(kernel => kernel.SendToBack()), Localizer.T("Toolbar.SendToBack.Tip")));
 
         panel.Children.Add(Separator());
-        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.FitToPage"), FitToPage, Localizer.T("Toolbar.FitToPageTip")));
-        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.ZoomActual"), ZoomActual, Localizer.T("Toolbar.ZoomActualTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.FitToPage"), FitToPage, Localizer.T("Toolbar.FitToPage.Tip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.ZoomActual"), ZoomActual, Localizer.T("Toolbar.ZoomActual.Tip")));
 
         panel.Children.Add(Separator());
         panel.Children.Add(Toggle(Localizer.T("Toolbar.Grid"), true, value =>
@@ -370,7 +418,7 @@ public sealed class MainView : UserControl
             _designer.Overlay.Options.ShowGrid = value;
             _designer.Redraw();
         }));
-        panel.Children.Add(Toggle(Localizer.T("Toolbar.Rulers"), true, value =>
+        panel.Children.Add(Toggle(Localizer.T("Toolbar.Ruler"), true, value =>
         {
             _designer.Overlay.Options.ShowRulers = value;
             _designer.Redraw();
@@ -382,9 +430,9 @@ public sealed class MainView : UserControl
         }));
 
         panel.Children.Add(Separator());
-        panel.Children.Add(ToolbarButton(Localizer.T("Menu.File.ImportHiprint"), () => _ = ImportHiprintAsync(), Localizer.T("Toolbar.ImportTip")));
-        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.ExportPdf"), () => _ = ExportPdfAsync(), Localizer.T("Toolbar.ExportPdfTip")));
-        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.Preview"), OpenPreview, Localizer.T("Toolbar.PreviewTip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Menu.File.ImportHiprint"), () => _ = ImportHiprintAsync(), Localizer.T("Toolbar.Import.Tip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.ExportPdf"), () => _ = ExportPdfAsync(), Localizer.T("Toolbar.ExportPdf.Tip")));
+        panel.Children.Add(ToolbarButton(Localizer.T("Toolbar.Preview"), OpenPreview, Localizer.T("Toolbar.Preview.Tip")));
 
         return panel;
     }
@@ -432,14 +480,14 @@ public sealed class MainView : UserControl
         var index = _toolbox.SelectedIndex;
         if (index < 0)
         {
-            SetStatus(Localizer.T("Status.SelectFirstInToolbox"));
+            SetStatus(Localizer.T("Status.SelectFirst"));
             return;
         }
 
         var (label, key) = ElementButtons[index];
         _designer.Kernel.AddElementAtCenter(key);
         _designer.Focus();
-        SetStatus(Localizer.T("Status.ToolboxAdded", label));
+        SetStatus(Localizer.T("Status.ElementAddedCenter", label));
     }
 
     /// <summary>加载 80mm 连续纸长小票复杂模板：写法照抄 kitchen-sink 的 LoadSampleTemplate，失败时状态栏提示。</summary>
@@ -449,7 +497,7 @@ public sealed class MainView : UserControl
         var text = SampleAssets.Read("complex-receipt.template.json");
         if (text is null)
         {
-            SetStatus(Localizer.T("Status.LoadComplexNotFound"));
+            SetStatus(Localizer.T("Status.ComplexNotFound"));
             return;
         }
 
@@ -458,9 +506,9 @@ public sealed class MainView : UserControl
             var result = TemplateJson.Load(text, TemplateJsonLoadOptions.Tolerant);
             // LoadTemplate 会换内核：属性面板、纸张栏和 JSON 面板都要接到新内核上。
             _designer.LoadTemplate(result.Template);
-            BindKernel(Localizer.T("Status.LoadComplex"));
+            BindKernel(Localizer.T("Status.ComplexLoaded"));
 
-            var status = Localizer.T("Status.LoadComplexDetail", result.Template.Elements.Count);
+            var status = Localizer.T("Status.ComplexLoadedInfo", result.Template.Elements.Count);
             if (result.Warnings.Count > 0)
                 status += "；" + string.Join("；", result.Warnings);
             SetStatus(status);
@@ -468,7 +516,7 @@ public sealed class MainView : UserControl
         }
         catch (Exception ex)
         {
-            SetStatus(Localizer.T("Status.LoadComplexFailed", ex.Message));
+            SetStatus(Localizer.T("Status.ComplexLoadFailed", ex.Message));
         }
     }
 
@@ -482,14 +530,14 @@ public sealed class MainView : UserControl
     {
         if (_designer.Kernel.Selection.IsEmpty)
         {
-            SetStatus(Localizer.T("Status.SelectFirstBeforeDuplicate"));
+            SetStatus(Localizer.T("Status.SelectBeforeDuplicate"));
             _designer.Focus();
             return;
         }
 
         _designer.Kernel.DuplicateSelection();
         _designer.Focus();
-        SetStatus(Localizer.T("Status.Duplicated", EditorKernel.DuplicateOffsetMm));
+        SetStatus(Localizer.T("Status.DuplicateDone", EditorKernel.DuplicateOffsetMm));
     }
 
     void RunKernel(Action<EditorKernel> action)
@@ -525,12 +573,12 @@ public sealed class MainView : UserControl
         AddSelectionItem(Localizer.T("Canvas.Context.AlignCenter"), null, () =>
         {
             RunKernel(kernel => kernel.CenterSelectionHorizontally());
-            SetStatus(Localizer.T("Status.AlignHorizontally"));
+            SetStatus(Localizer.T("Status.HAlignCenter"));
         });
         _verticalCenterItem = AddSelectionItem(Localizer.T("Canvas.Context.AlignMiddle"), null, () =>
         {
             RunKernel(kernel => kernel.CenterSelectionVertically());
-            SetStatus(Localizer.T("Status.AlignVertically"));
+            SetStatus(Localizer.T("Status.VAlignCenter"));
         });
         _canvasMenu.Items.Add(new Separator());
         AddCanvasItem(Localizer.T("Canvas.Context.FitToPage"), null, FitToPage);

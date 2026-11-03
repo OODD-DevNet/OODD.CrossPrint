@@ -14,7 +14,8 @@
     版本与宿主一致：MAUI 8.0.82 + WindowsAppSDK 1.6.250205002 + SkiaSharp.Views.Maui 2.88.9。
   -->
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- WinExe：不带控制台窗口。Exe 会先弹一个黑色命令框，随后因缺少原生依赖静默退出。 -->
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <UseMaui>true</UseMaui>
@@ -22,6 +23,14 @@
          纳入编译、App.xaml 注册为 ApplicationDefinition。 -->
     <SingleProject>true</SingleProject>
     <WindowsPackageType>None</WindowsPackageType>
+    <!--
+      没显式给 RID 时，`dotnet build` 只产出托管程序集：Windows App Runtime Bootstrap 与
+      SkiaSharp 原生库都按 RID 筛选，缺了它们双击 exe 就是 0xC000027B 静默退出。
+      这里兜底用 SDK 自己的 RID（Windows 上即 win-x64 / win-arm64），并把产物落回默认目录，
+      保证 `dotnet build` 直接得到一个完整可运行的文件夹。
+    -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</RuntimeIdentifier>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <!-- MAUI 的 WinUI targets 默认注入 WindowsAppSDKSelfContained=true；本示例与 WinUI 样例一致走
          框架依赖（Bootstrap 加载系统已装运行时），这里显式关掉。 -->
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>

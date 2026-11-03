@@ -1,6 +1,8 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using CrossPrint.Core;
 using CrossPrint.Designer;
+using CrossPrint.I18n;
 using SkiaSharp;
 
 namespace CrossPrint.Samples.WinForms;
@@ -12,8 +14,12 @@ public sealed class PropertyPanel : UserControl
 {
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
+    const int WM_SETREDRAW = 0x000B;
+
     EditorKernel _kernel;
-    readonly TableLayoutPanel _table;
+    readonly BufferedTableLayoutPanel _table;
+    Font? _boldFont;
+    int _nextRow;
     bool _rebuilding;
     string _selectionSignature = string.Empty;
 
@@ -23,8 +29,11 @@ public sealed class PropertyPanel : UserControl
         _kernel = kernel;
         AutoScroll = true;
         Padding = new Padding(8, 4, 8, 8);
+        // 面板整块重排时不要逐控件重画：条数多（表格元素上百个属性行）时逐行刷新就是那两三秒闪屏的来源。
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        DoubleBuffered = true;
 
-        _table = new TableLayoutPanel
+        _table = new BufferedTableLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
@@ -60,9 +69,33 @@ public sealed class PropertyPanel : UserControl
     protected override void Dispose(bool disposing)
     {
         if (disposing)
+        {
             _kernel.ViewChanged -= OnKernelViewChanged;
+            _boldFont?.Dispose();
+            _boldFont = null;
+        }
 
         base.Dispose(disposing);
+    }
+
+    /// <inheritdoc/>
+    protected override void OnFontChanged(EventArgs e)
+    {
+        base.OnFontChanged(e);
+        // 主题/DPI 变化会换字体，粗体副本跟着重建，避免把旧字号的字画进新布局。
+        _boldFont?.Dispose();
+        _boldFont = null;
+    }
+
+    Font BoldFont => _boldFont ??= new Font(Font, FontStyle.Bold);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    void SetRedraw(bool enabled)
+    {
+        if (IsHandleCreated)
+            SendMessage(Handle, WM_SETREDRAW, enabled ? new IntPtr(1) : IntPtr.Zero, IntPtr.Zero);
     }
 
     void OnKernelViewChanged()
@@ -117,9 +150,13 @@ public sealed class PropertyPanel : UserControl
         }
 
         _rebuilding = true;
+        // 重建期间冻结重绘 + 挂起两层布局：否则每 Add 一个控件就要算一次 TableLayoutPanel 的
+        // AutoSize，表格元素上百个属性行时就是用户看到的两三秒闪屏。
+        SetRedraw(false);
+        SuspendLayout();
+        _table.SuspendLayout();
         try
         {
-            _table.SuspendLayout();
             foreach (var control in _table.Controls.Cast<Control>().ToArray())
                 control.Dispose();
             _table.Controls.Clear();
@@ -129,11 +166,10 @@ public sealed class PropertyPanel : UserControl
             var properties = _kernel.SelectedProperties;
             if (properties is null)
             {
-                _table.RowCount = 1;
-                _table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                AllocateRows(1);
                 var hint = new Label
                 {
-                    Text = "未选中元素。点击画布上的元素编辑属性；右键画布可打开菜单；纸张大小在左侧「纸张」栏设置。",
+                    Text = Localizer.T("Property.Hint.Empty"),
                     AutoSize = true,
                     // 右栏默认 310px，去掉内边距后提示文本按 ~290 宽换行，不会被面板裁掉。
                     MaximumSize = new Size(290, 0),
@@ -145,11 +181,27 @@ public sealed class PropertyPanel : UserControl
                 return;
             }
 
+            // 行数先算好，一次配齐 RowCount / RowStyles，避免逐行扩容触发重复布局。
+            var rowCount = 1 + (properties.Actions.Count > 0 ? 1 : 0);
+            string? countedGroup = null;
+            foreach (var descriptor in properties.Descriptors)
+            {
+                if (!string.Equals(descriptor.Group, countedGroup, StringComparison.Ordinal))
+                {
+                    countedGroup = descriptor.Group;
+                    rowCount++;
+                }
+
+                rowCount++;
+            }
+
+            AllocateRows(rowCount);
+
             AddSpanRow(new Label
             {
                 Text = DescribeElement(properties.Element),
                 AutoSize = true,
-                Font = new Font(Font, FontStyle.Bold),
+                Font = BoldFont,
                 Margin = new Padding(0, 0, 0, 4),
             });
 
@@ -164,9 +216,9 @@ public sealed class PropertyPanel : UserControl
                     group = descriptor.Group;
                     AddSpanRow(new Label
                     {
-                        Text = group,
+                        Text = PropertyText.Group(group),
                         AutoSize = true,
-                        Font = new Font(Font, FontStyle.Bold),
+                        Font = BoldFont,
                         ForeColor = Color.SteelBlue,
                         Margin = new Padding(0, 8, 0, 2),
                     });
@@ -178,6 +230,10 @@ public sealed class PropertyPanel : UserControl
         finally
         {
             _table.ResumeLayout(true);
+            ResumeLayout(true);
+            SetRedraw(true);
+            _table.Invalidate(true);
+            Invalidate(true);
             _rebuilding = false;
             _selectionSignature = Signature();
         }
@@ -195,10 +251,17 @@ public sealed class PropertyPanel : UserControl
         }
     }
 
+    void AllocateRows(int count)
+    {
+        _nextRow = 0;
+        _table.RowCount = count;
+        for (var i = 0; i < count; i++)
+            _table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+    }
+
     void AddSpanRow(Control control)
     {
-        var row = _table.RowCount++;
-        _table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var row = _nextRow++;
         _table.Controls.Add(control, 0, row);
         _table.SetColumnSpan(control, 2);
     }
@@ -217,7 +280,7 @@ public sealed class PropertyPanel : UserControl
         {
             var button = new Button
             {
-                Text = action.DisplayName,
+                Text = PropertyText.Action(action.DisplayName),
                 AutoSize = true,
                 Margin = new Padding(0, 0, 6, 2),
             };
@@ -238,8 +301,8 @@ public sealed class PropertyPanel : UserControl
         {
             MessageBox.Show(
                 this,
-                $"动作“{action.DisplayName}”执行失败：{ex.Message}",
-                "动作执行失败",
+                Localizer.T("Property.Error.Action", PropertyText.Action(action.DisplayName), ex.Message),
+                Localizer.T("Property.Error.ActionTitle"),
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
@@ -247,7 +310,7 @@ public sealed class PropertyPanel : UserControl
         ScheduleRebuild();
     }
 
-    static string DescribeElement(PaperElement element) => element switch
+    static string DescribeElement(PaperElement element) => PropertyText.ElementType(element.TypeKey, element switch
     {
         TextElement => "文本元素",
         LineElement => "线条元素",
@@ -258,16 +321,15 @@ public sealed class PropertyPanel : UserControl
         BarcodeElement => "一维码元素",
         TableElement => "表格元素",
         _ => element.TypeKey,
-    };
+    });
 
     void AddRow(PropertyDescriptor descriptor, PaperElement element)
     {
-        var row = _table.RowCount++;
-        _table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var row = _nextRow++;
 
         var label = new Label
         {
-            Text = descriptor.DisplayName,
+            Text = PropertyText.Label(descriptor.DisplayName),
             AutoSize = true,
             Anchor = AnchorStyles.Left,
             Margin = new Padding(0, 6, 8, 4),
@@ -393,7 +455,7 @@ public sealed class PropertyPanel : UserControl
 
                 if (!double.TryParse(text2, NumberStyles.Float, Inv, out var number))
                 {
-                    ShowInputError(descriptor, "请输入有效数字（小数用 . 分隔）。");
+                    ShowInputError(Localizer.T("Property.Error.Number", text2));
                     return false;
                 }
 
@@ -410,7 +472,7 @@ public sealed class PropertyPanel : UserControl
             {
                 if (!int.TryParse(text.Trim(), NumberStyles.Integer, Inv, out var integer))
                 {
-                    ShowInputError(descriptor, "请输入整数。");
+                    ShowInputError(Localizer.T("Property.Error.Integer", text.Trim()));
                     return false;
                 }
 
@@ -431,7 +493,7 @@ public sealed class PropertyPanel : UserControl
 
                 if (!SKColor.TryParse(colorText, out var color))
                 {
-                    ShowInputError(descriptor, "颜色格式应为 #RRGGBB 或 #AARRGGBB。");
+                    ShowInputError(Localizer.T("Property.Error.Color"));
                     return false;
                 }
 
@@ -449,7 +511,7 @@ public sealed class PropertyPanel : UserControl
                 {
                     if (!double.TryParse(part, NumberStyles.Float, Inv, out var segment))
                     {
-                        ShowInputError(descriptor, "虚线段长格式应为 1.5,1（逗号分隔的数字）。");
+                        ShowInputError(Localizer.T("Property.Error.Dash", part));
                         return false;
                     }
 
@@ -476,8 +538,8 @@ public sealed class PropertyPanel : UserControl
         {
             MessageBox.Show(
                 this,
-                $"属性“{descriptor.DisplayName}”写入失败：{ex.Message}",
-                "属性写入失败",
+                Localizer.T("Property.Error.Apply", PropertyText.Label(descriptor.DisplayName), ex.Message),
+                Localizer.T("Property.Error.Title"),
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             ScheduleRebuild();
@@ -488,12 +550,12 @@ public sealed class PropertyPanel : UserControl
         return true;
     }
 
-    void ShowInputError(PropertyDescriptor descriptor, string message)
+    void ShowInputError(string message)
     {
         MessageBox.Show(
             this,
-            $"属性“{descriptor.DisplayName}”：{message}",
-            "属性输入",
+            message,
+            Localizer.T("Property.Error.InputTitle"),
             MessageBoxButtons.OK,
             MessageBoxIcon.Warning);
     }
@@ -512,4 +574,15 @@ public sealed class PropertyPanel : UserControl
     static string FormatColor(SKColor color) => color.Alpha == 255
         ? $"#{color.Red:X2}{color.Green:X2}{color.Blue:X2}"
         : $"#{color.Alpha:X2}{color.Red:X2}{color.Green:X2}{color.Blue:X2}";
+
+    /// <summary>开了双缓冲的表格：<see cref="Control.DoubleBuffered"/> 在本类外不可见，只能派生一次。</summary>
+    sealed class BufferedTableLayoutPanel : TableLayoutPanel
+    {
+        public BufferedTableLayoutPanel()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+            SetStyle(ControlStyles.ResizeRedraw, false);
+        }
+    }
 }
