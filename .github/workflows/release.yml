@@ -24,10 +24,13 @@ permissions:
 env:
   DOTNET_NOLOGO: "1"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
-  # 手动 dispatch 时若填了 version_tag 就用它；push 标签时 github.ref_name 即标签名（如 v1.0.0）。
-  VERSION: ${{ inputs.version_tag != '' && inputs.version_tag || github.ref_name }}
+  # 变量名必须避开 MSBuild 属性 Version（属性名大小写不敏感，环境变量会自动注入为属性）。
+  # 若命名为 VERSION，MSBuild 会把 "v1.0.0" 当成 Version，NuGet 报
+  # "'v1.0.0' is not a valid version string"，导致 pack / 所有 publish 直接失败。
+  # 故用 RELEASE_TAG 承载带 v 的标签名；包版本仍由 Directory.Build.props 的 VersionPrefix 提供。
+  # 另用 github.event.inputs.* 而非 inputs.*：inputs 上下文在 tag-push 事件下不可用。
+  RELEASE_TAG: ${{ github.event.inputs.version_tag || github.ref_name }}
   RELEASE_BODY: |
-    ## OODD CrossPrint ${{ env.VERSION }}
 
     跨平台 .NET 打印模板组件。一份模板、一个 SkiaSharp 渲染内核，嵌入 Avalonia / WPF / WinForms / Eto.Forms / WinUI / Uno / .NET MAUI。
 
@@ -192,9 +195,12 @@ jobs:
         run: ls -lh artifacts/raw/
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}
-          name: OODD CrossPrint ${{ env.VERSION }}
-          body: ${{ env.RELEASE_BODY }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: OODD CrossPrint ${{ env.RELEASE_TAG }}
+          body: |
+            ## OODD CrossPrint ${{ env.RELEASE_TAG }}
+
+            ${{ env.RELEASE_BODY }}
           files: artifacts/raw/*.zip
           generate_release_notes: true
           draft: false
