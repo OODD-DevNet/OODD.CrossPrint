@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -419,7 +420,8 @@ internal static class ModalDialog
         Visual anchor, string title, Control content,
         double width, double height, double minWidth, Action finish)
     {
-        IPanel? layer = null;
+        // 注意：本仓 Avalonia 11.3 没有 IPanel（Avalonia 12 才引入），直接用 Panel。
+        Panel? layer = null;
         foreach (var ancestor in anchor.GetSelfAndVisualAncestors())
         {
             if (ancestor is IModalOverlayHost host && host.ModalLayer is { } l)

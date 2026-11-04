@@ -27,6 +27,8 @@ public class FontFamilyExistsTests
         // 实测（探针 §22）：中文 Windows 的 FontFamilies 列的是本地化名"微软雅黑"，
         // 而 MatchCharacter 用的是字体内部英文名 "Microsoft YaHei"。
         // 只按列表判定会把装得好好的字体报成缺失——这正是本仓曾经误报 4 条 FontFallback 的原因。
+        // ⚠ 覆盖力前提是平台行为：本地化显示名是 Windows 专属，Linux/macOS 的字体列表
+        //   通常直接列内部英文名，hidden 为空是环境正常态而非缺陷——覆盖断言只在 Windows 强制。
         var manager = SKFontManager.Default;
         var listed = new HashSet<string>(manager.FontFamilies, StringComparer.OrdinalIgnoreCase);
 
@@ -39,7 +41,10 @@ public class FontFamilyExistsTests
                 hidden.Add(english);
         }
 
-        hidden.Should().NotBeEmpty("这台机器上应至少存在一个'本地化名 ≠ 字体内部英文名'的族，否则本条测试没有覆盖力");
+        if (OperatingSystem.IsWindows())
+            hidden.Should().NotBeEmpty("Windows 上应至少存在一个'本地化名 ≠ 字体内部英文名'的族，否则本条测试没有覆盖力");
+
+        // 行为断言与环境无关：凡是 MatchCharacter 能按名选中的（无论是否在列表里），FamilyExists 必须放行。
         foreach (var name in hidden)
             DefaultFontResolver.Shared.FamilyExists(name).Should().BeTrue($"'{name}' 能通过按名匹配选中，却不能从列表里查到");
     }

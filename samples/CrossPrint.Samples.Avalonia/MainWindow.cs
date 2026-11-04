@@ -900,6 +900,8 @@ public sealed class MainView : UserControl, IModalOverlayHost
         }
     }
 
+#if !BROWSER
+    // 浏览器编译不走这里：依赖桌面专属的 _printing / PrintToSystemAsync（见 2071 起）。
     void PrintSolution()
     {
         if (SelectedSolutionRecord() is not { } record)
@@ -925,6 +927,7 @@ public sealed class MainView : UserControl, IModalOverlayHost
             SetStatus(Localizer.T("Error.PrintFailed", ex.Message), error: true);
         }
     }
+#endif
 
 
     // ---- 解决方案操作 ----

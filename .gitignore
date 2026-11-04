@@ -47,7 +47,10 @@ probe*/
 *.etl
 
 # docs/ 下 .md 不上传（用户明确要求只留 README.md / README.en.md 于仓库根）
+# 例外：third-party-licenses.md 是 LicenseInventoryTests 的输入（CI 上必须 checkout 到），
+# 交接文档等研发过程文档继续忽略。
 docs/*.md
+!docs/third-party-licenses.md
 
 # 便携 SDK / 本机 dotnet-workload-manifests（绕过官方安装时的临时补丁目录）
 .cache/
