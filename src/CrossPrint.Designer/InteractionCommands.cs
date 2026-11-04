@@ -404,6 +404,34 @@ public sealed class TableColumnCommand : EditorCommand
         }, element.WidthMm);
     }
 
+    /// <summary>
+    /// 创建"把第 <paramref name="fromIndex"/> 列移动到第 <paramref name="toIndex"/> 位（移动后的下标）"的命令。
+    /// 列移动同样牵动每行单元格与表头/静态行合并的列下标，与插入/删除共用快照与联动逻辑。
+    /// </summary>
+    /// <exception cref="InvalidOperationException">表格只有一列，或两位置相同。</exception>
+    public static TableColumnCommand Move(TableElement element, int fromIndex, int toIndex)
+    {
+        var count = element.Table.Columns.Count;
+        if (count <= 1)
+            throw new InvalidOperationException("表格只有一列，无需移动。");
+
+        var from = Math.Max(0, Math.Min(count - 1, fromIndex));
+        var to = Math.Max(0, Math.Min(count - 1, toIndex));
+        if (from == to)
+            throw new InvalidOperationException("列已在目标位置，无需移动。");
+
+        return new TableColumnCommand(element, $"移动表格列（第 {from + 1} 列 → 第 {to + 1} 列）", () =>
+        {
+            var columns = element.Table.Columns;
+            if (from >= columns.Count)
+                return;
+
+            var moving = columns[from];
+            RemoveColumnAt(element.Table, from);
+            InsertColumnAt(element.Table, Math.Min(to, columns.Count), moving);
+        }, element.WidthMm);
+    }
+
     /// <inheritdoc/>
     public string Label { get; }
 

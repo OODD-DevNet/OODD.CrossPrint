@@ -73,6 +73,11 @@ public sealed class ScriptRunner : IScriptRunner
                 options.LimitRecursion(MaxRecursionDepth);
             });
 
+            // 暴露内置助手给 formatter 脚本：日期/布尔/数字格式化与中文金额大写。
+            // 导入器把 hiprint 的 dataType/format、upperCase 翻译成调用它们的 formatter。
+            engine.SetValue("fmt", new Func<object?, string?, string?, string?>(FormatHelpers.Fmt));
+            engine.SetValue("rmbUpper", new Func<object?, string>(FormatHelpers.RmbUpper));
+
             var fn = engine.Evaluate($"(function(){{return ({source});}})()");
             if (fn is not Function function)
             {
@@ -274,6 +279,15 @@ internal static class ScriptSupport
             return null;
 
         return scripts.RunFormatter(col.Formatter, ColumnArgs(value, row, index, elementId, ctx.Data), elementId, ctx.Report);
+    }
+
+    /// <summary>执行表格级 formatter（列级无 formatter 时回落）；返回 null 表示保留原单元格文本。</summary>
+    public static object? TableFormatterResult(RenderContext ctx, string? formatter, object? value, object? row, int index, string elementId)
+    {
+        if (ctx.Scripts is not { } scripts || string.IsNullOrWhiteSpace(formatter))
+            return null;
+
+        return scripts.RunFormatter(formatter, ColumnArgs(value, row, index, elementId, ctx.Data), elementId, ctx.Report);
     }
 
     /// <summary>执行表格列 styler；返回 null 表示不改样式。</summary>

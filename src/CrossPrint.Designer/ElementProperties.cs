@@ -72,6 +72,9 @@ public sealed class ElementProperties
             case EllipseElement:
                 list.AddRange(ForShape(ElementTypeKeys.Ellipse));
                 break;
+            case ShapeElement:
+                list.AddRange(ForPolygon());
+                break;
             case ImageElement:
                 list.AddRange(ForImage());
                 break;
@@ -130,8 +133,13 @@ public sealed class ElementProperties
         Num<PaperElement>("opacity", "不透明度 (0–1)", el => el.Opacity, (el, v) => el.Opacity = v, min: 0, max: 1, step: 0.05),
         StyleRef<PaperElement>("styleId", "样式引用（模板样式库）", el => el.StyleId, (el, v) => el.StyleId = v),
         MultilineStrOpt<PaperElement>("formatter", "格式化脚本 (JS)：function(value, options, target, templateData)，返回值替换显示内容（undefined 保持原值）", el => el.Formatter, (el, v) => el.Formatter = v),
+        StrOpt<PaperElement>("binding", "字段绑定 ({{字段}} 或纯字段名，留空 = 不绑定)", el => el.Binding, (el, v) => el.Binding = string.IsNullOrWhiteSpace(v) ? null : v.Trim()),
         MultilineStrOpt<PaperElement>("styler", "样式脚本 (JS)：返回 {color, fontSize, ...} 或 CSS 字符串，优先级高于内联与样式库", el => el.Styler, (el, v) => el.Styler = v),
         MultilineStrOpt<PaperElement>("testData", "测试数据（占位符兜底值；表格按换行分行、制表符分列）", el => el.TestData, (el, v) => el.TestData = v),
+        Bool<PaperElement>("fixed", "每页重复显示（页眉/页脚/常驻水印打勾后每页都画）", el => el.Fixed, (el, v) => el.Fixed = v),
+        Bool<PaperElement>("pageBreakAfter", "本元素之后强制分页", el => el.PageBreakAfter, (el, v) => el.PageBreakAfter = v),
+        StrOpt<PaperElement>("showInPages", "显示页区间（如 1,3-5；留空 = 所有页显示）", el => el.ShowInPages, (el, v) => el.ShowInPages = PageRangeSpec.Normalize(v)),
+        StrOpt<PaperElement>("unShowInPages", "隐藏页区间（如 1-3,7-8；优先于显示区间）", el => el.UnShowInPages, (el, v) => el.UnShowInPages = PageRangeSpec.Normalize(v)),
     ];
 
     // ---------------- text ----------------
@@ -160,6 +168,10 @@ public sealed class ElementProperties
             Num<TextElement>(P + "paddingBottomMm", "下内边距 (mm)", t => t.Text.PaddingBottomMm, (t, v) => t.Text.PaddingBottomMm = v, min: 0, step: 0.1),
             Num<TextElement>(P + "letterSpacingPt", "字间距 (pt)", t => t.Text.LetterSpacingPt, (t, v) => t.Text.LetterSpacingPt = v, min: 0, step: 0.1),
             Bool<TextElement>(P + "ellipsis", "超宽省略号", t => t.Text.Ellipsis, (t, v) => t.Text.Ellipsis = v),
+            Bool<TextElement>(P + "overline", "上划线", t => t.Text.Overline, (t, v) => t.Text.Overline = v),
+            Num<TextElement>(P + "indentMm", "整段左缩进 (mm)", t => t.Text.IndentMm, (t, v) => t.Text.IndentMm = v, min: 0, step: 0.1),
+            Num<TextElement>(P + "firstLineIndentMm", "首行额外缩进 (mm)", t => t.Text.FirstLineIndentMm, (t, v) => t.Text.FirstLineIndentMm = v, min: 0, step: 0.1),
+            Bool<TextElement>(P + "continueOnOverflow", "内容超出自动续页", t => t.Text.ContinueOnOverflow, (t, v) => t.Text.ContinueOnOverflow = v),
         ];
     }
 
@@ -189,15 +201,50 @@ public sealed class ElementProperties
             ? el => ((RectangleElement)el).Rectangle
             : el => ((EllipseElement)el).Ellipse;
 
-        var cornerName = typeKey == ElementTypeKeys.Rectangle ? "圆角半径 (mm)" : "圆角半径 (mm)（椭圆不生效）";
+        var perEllipse = typeKey != ElementTypeKeys.Rectangle;
+        var cornerRadiiName = perEllipse
+            ? "圆角半径（逐角，逗号分隔：左上,右上,左下,右下）（椭圆不生效）"
+            : "圆角半径（逐角，逗号分隔：左上,右上,左下,右下；只填一个值＝四角相同）";
+        // 标量圆角已并入逐角字段（模型保留兼容旧模板/hiprint 导入，渲染端继续消费），面板不露第二个框。
+        Func<PaperElement, double[]?> radiiDisplay = el =>
+        {
+            var o = options(el);
+            return o.CornerRadiiMm ?? (o.CornerRadiusMm > 0 ? new[] { o.CornerRadiusMm } : null);
+        };
         return
         [
             StyleRef<PaperElement>(p + "styleId", "样式引用（模板样式库）", el => options(el).StyleId, (el, v) => options(el).StyleId = v),
             ColorOpt<PaperElement>(p + "strokeColor", "描边色（留空不描边）", el => options(el).StrokeColor, (el, v) => options(el).StrokeColor = v),
             Num<PaperElement>(p + "strokeWidthMm", "描边宽 (mm)", el => options(el).StrokeWidthMm, (el, v) => options(el).StrokeWidthMm = v, min: 0, max: 50, step: 0.05),
             ColorOpt<PaperElement>(p + "fillColor", "填充色（留空不填充）", el => options(el).FillColor, (el, v) => options(el).FillColor = v),
-            Num<PaperElement>(p + "cornerRadiusMm", cornerName, el => options(el).CornerRadiusMm, (el, v) => options(el).CornerRadiusMm = v, min: 0, step: 0.1),
+            Num<PaperElement>(p + "cornerRadiusMm", perEllipse ? "圆角半径 (mm)（椭圆不生效）" : "圆角半径 (mm)", el => options(el).CornerRadiusMm, (el, v) => options(el).CornerRadiusMm = v, min: 0, step: 0.1, hidden: true),
+            Dash<PaperElement>(p + "cornerRadiiMm", cornerRadiiName, radiiDisplay, (el, v) => options(el).CornerRadiiMm = v),
             Dash<PaperElement>(p + "dashPatternMm", "虚线段长 (mm)", el => options(el).DashPatternMm, (el, v) => options(el).DashPatternMm = v),
+        ];
+    }
+
+    // ---------------- shape（参数化多边形） ----------------
+
+    /// <summary>逐角圆角显示值：数组优先；旧模板只有标量时把标量包成单项数组，编辑不断档。</summary>
+    static double[]? RadiiDisplayOf(PaperElement el)
+    {
+        var s = ((ShapeElement)el).Shape;
+        return s.CornerRadiiMm ?? (s.CornerRadiusMm > 0 ? new[] { s.CornerRadiusMm } : null);
+    }
+
+    static List<PropertyDescriptor> ForPolygon()
+    {
+        const string P = ElementTypeKeys.Shape + ".";
+        return
+        [
+            EnumProp<ShapeElement, ShapeKind>(P + "kind", "形状种类", t => t.Shape.Kind, (t, v) => t.Shape.Kind = v),
+            StyleRef<PaperElement>(P + "styleId", "样式引用（模板样式库）", el => ((ShapeElement)el).Shape.StyleId, (el, v) => ((ShapeElement)el).Shape.StyleId = v),
+            ColorOpt<PaperElement>(P + "strokeColor", "描边色（留空不描边）", el => ((ShapeElement)el).Shape.StrokeColor, (el, v) => ((ShapeElement)el).Shape.StrokeColor = v),
+            Num<PaperElement>(P + "strokeWidthMm", "描边宽 (mm)", el => ((ShapeElement)el).Shape.StrokeWidthMm, (el, v) => ((ShapeElement)el).Shape.StrokeWidthMm = v, min: 0, max: 50, step: 0.05),
+            ColorOpt<PaperElement>(P + "fillColor", "填充色（留空不填充）", el => ((ShapeElement)el).Shape.FillColor, (el, v) => ((ShapeElement)el).Shape.FillColor = v),
+            Num<PaperElement>(P + "cornerRadiusMm", "圆角半径 (mm)（仅圆角矩形生效）", el => ((ShapeElement)el).Shape.CornerRadiusMm, (el, v) => ((ShapeElement)el).Shape.CornerRadiusMm = v, min: 0, step: 0.1, hidden: true),
+            Dash<PaperElement>(P + "cornerRadiiMm", "圆角半径（逐顶点，逗号分隔：按顶点序，矩形/圆角矩形=左上,右上,左下,右下，三角形=上,右下,左下；只填一个值＝全部相同）", RadiiDisplayOf, (el, v) => ((ShapeElement)el).Shape.CornerRadiiMm = v),
+            Dash<PaperElement>(P + "dashPatternMm", "虚线段长 (mm)", el => ((ShapeElement)el).Shape.DashPatternMm, (el, v) => ((ShapeElement)el).Shape.DashPatternMm = v),
         ];
     }
 
@@ -209,10 +256,12 @@ public sealed class ElementProperties
         return
         [
             EnumProp<ImageElement, ImageSourceType>(P + "sourceType", "图片来源", t => t.Image.SourceType, (t, v) => t.Image.SourceType = v),
-            MultilineStrOpt<ImageElement>(P + "data", "Base64 图片数据", t => t.Image.Data, (t, v) => t.Image.Data = v),
+            MultilineStrOpt<ImageElement>(P + "data", "内嵌图片 (data URI / Base64 / SVG)", t => t.Image.Data, (t, v) => t.Image.Data = v),
+            StrOpt<ImageElement>(P + "url", "图片地址 (http/https)", t => t.Image.Url, (t, v) => t.Image.Url = v),
             StrOpt<ImageElement>(P + "resolverKey", "资源键", t => t.Image.ResolverKey, (t, v) => t.Image.ResolverKey = v),
             EnumProp<ImageElement, ImageFitMode>(P + "fitMode", "适配方式", t => t.Image.FitMode, (t, v) => t.Image.FitMode = v),
             Num<ImageElement>(P + "cornerRadiusMm", "圆角半径 (mm)", t => t.Image.CornerRadiusMm, (t, v) => t.Image.CornerRadiusMm = v, min: 0, step: 0.1),
+            StrOpt<ImageElement>(P + "field", "字段绑定", t => t.Image.Field, (t, v) => t.Image.Field = v),
         ];
     }
 
@@ -230,6 +279,7 @@ public sealed class ElementProperties
             Color<QrCodeElement>(P + "foregroundColor", "前景色", t => t.QrCode.ForegroundColor, (t, v) => t.QrCode.ForegroundColor = v),
             ColorOpt<QrCodeElement>(P + "backgroundColor", "背景色（留空透明）", t => t.QrCode.BackgroundColor, (t, v) => t.QrCode.BackgroundColor = v),
             Num<QrCodeElement>(P + "quietZoneMm", "静区宽 (mm)", t => t.QrCode.QuietZoneMm, (t, v) => t.QrCode.QuietZoneMm = v, min: 0, step: 0.1),
+            Num<QrCodeElement>(P + "moduleWidthMm", "模块宽度 (mm)（0=拉伸到元素宽）", t => t.QrCode.ModuleWidthMm, (t, v) => t.QrCode.ModuleWidthMm = v, min: 0, step: 0.1),
             Str<QrCodeElement>(P + "caption", "可读文本", t => t.QrCode.Caption, (t, v) => t.QrCode.Caption = v),
             Bool<QrCodeElement>(P + "showCaption", "显示可读文本", t => t.QrCode.ShowCaption, (t, v) => t.QrCode.ShowCaption = v),
             Num<QrCodeElement>(P + "captionFontSizePt", "可读文本字号 (pt)", t => t.QrCode.CaptionFontSizePt, (t, v) => t.QrCode.CaptionFontSizePt = v, min: 1, max: 1000, step: 0.5),
@@ -237,6 +287,9 @@ public sealed class ElementProperties
             Color<QrCodeElement>(P + "captionColor", "可读文本颜色", t => t.QrCode.CaptionColor, (t, v) => t.QrCode.CaptionColor = v),
             EnumProp<QrCodeElement, HorizontalAlign>(P + "captionAlign", "可读文本对齐", t => t.QrCode.CaptionAlign, (t, v) => t.QrCode.CaptionAlign = v),
             Num<QrCodeElement>(P + "captionLineSpacing", "可读文本行距倍数", t => t.QrCode.CaptionLineSpacing, (t, v) => t.QrCode.CaptionLineSpacing = v, min: 0.1, max: 10, step: 0.05),
+            StrOpt<QrCodeElement>(P + "logoData", "中心 Logo 数据 (data URI / Base64)", t => t.QrCode.LogoData, (t, v) => t.QrCode.LogoData = v),
+            StrOpt<QrCodeElement>(P + "logoField", "中心 Logo 字段（{{占位符}}）", t => t.QrCode.LogoField, (t, v) => t.QrCode.LogoField = v),
+            EnumProp<QrCodeElement, QrLogoFit>(P + "logoFit", "中心 Logo 适配", t => t.QrCode.LogoFit, (t, v) => t.QrCode.LogoFit = v),
         ];
     }
 
@@ -256,6 +309,14 @@ public sealed class ElementProperties
             Num<BarcodeElement>(P + "fontSizePt", "文本字号 (pt)", t => t.Barcode.FontSizePt, (t, v) => t.Barcode.FontSizePt = v, min: 1, max: 1000, step: 0.5),
             Str<BarcodeElement>(P + "fontFamily", "文本字体名", t => t.Barcode.FontFamily, (t, v) => t.Barcode.FontFamily = v),
             Num<BarcodeElement>(P + "quietZoneMm", "静区宽 (mm)", t => t.Barcode.QuietZoneMm, (t, v) => t.Barcode.QuietZoneMm = v, min: 0, step: 0.1),
+            Num<BarcodeElement>(P + "moduleWidthMm", "模块宽度 (mm)", t => t.Barcode.ModuleWidthMm, (t, v) => t.Barcode.ModuleWidthMm = v, min: 0, step: 0.1),
+            Str<BarcodeElement>(P + "caption", "条码标题", t => t.Barcode.Caption, (t, v) => t.Barcode.Caption = v),
+            Bool<BarcodeElement>(P + "showCaption", "显示条码标题", t => t.Barcode.ShowCaption, (t, v) => t.Barcode.ShowCaption = v),
+            Num<BarcodeElement>(P + "captionFontSizePt", "条码标题字号 (pt)", t => t.Barcode.CaptionFontSizePt, (t, v) => t.Barcode.CaptionFontSizePt = v, min: 1, max: 1000, step: 0.5),
+            Str<BarcodeElement>(P + "captionFontFamily", "条码标题字体名", t => t.Barcode.CaptionFontFamily, (t, v) => t.Barcode.CaptionFontFamily = v),
+            Color<BarcodeElement>(P + "captionColor", "条码标题颜色", t => t.Barcode.CaptionColor, (t, v) => t.Barcode.CaptionColor = v),
+            EnumProp<BarcodeElement, HorizontalAlign>(P + "captionAlign", "条码标题对齐", t => t.Barcode.CaptionAlign, (t, v) => t.Barcode.CaptionAlign = v),
+            Num<BarcodeElement>(P + "captionLineSpacing", "条码标题行距倍数", t => t.Barcode.CaptionLineSpacing, (t, v) => t.Barcode.CaptionLineSpacing = v, min: 0.1, max: 10, step: 0.05),
         ];
     }
 
@@ -272,9 +333,11 @@ public sealed class ElementProperties
             Num<TableElement>(P + "gridWidthMm", "网格线宽 (mm)", t => t.Table.GridWidthMm, (t, v) => t.Table.GridWidthMm = v, min: 0, max: 50, step: 0.05),
             Bool<TableElement>(P + "showBorder", "绘制外框", t => t.Table.ShowBorder, (t, v) => t.Table.ShowBorder = v),
             Bool<TableElement>(P + "showHeader", "绘制表头", t => t.Table.ShowHeader, (t, v) => t.Table.ShowHeader = v),
+            Bool<TableElement>(P + "repeatHeaderOnEachPage", "每页重复表头", t => t.Table.RepeatHeaderOnEachPage, (t, v) => t.Table.RepeatHeaderOnEachPage = v),
             ColorOpt<TableElement>(P + "headerFillColor", "表头底色（留空不填）", t => t.Table.HeaderFillColor, (t, v) => t.Table.HeaderFillColor = v),
             Bool<TableElement>(P + "headerBold", "表头加粗", t => t.Table.HeaderBold, (t, v) => t.Table.HeaderBold = v),
             Str<TableElement>(P + "field", "数据源字段（空=按列首段推断）", t => t.Table.Field, (t, v) => t.Table.Field = v),
+            StrOpt<TableElement>(P + "formatter", "格式化脚本 (JS)：function(value, row, index, options)", t => t.Table.Formatter, (t, v) => t.Table.Formatter = v),
             Num<TableElement>(P + "headerRowHeightMm", "表头行高 (mm)（-1 自适应）", t => t.Table.HeaderRowHeightMm, (t, v) => t.Table.HeaderRowHeightMm = v, min: -1, step: 0.1),
             new PropertyDescriptor(headerFontSizeKey, "表头字号 (pt)（留空继承正文）", PropertyKind.Number,
                 el => ((TableElement)el).Table.HeaderFontSizePt,
@@ -307,6 +370,10 @@ public sealed class ElementProperties
         {
             actions.Add(new ElementAction($"{P}columns[{i}].insertBefore", $"在列{i + 1}前插入"));
             actions.Add(new ElementAction($"{P}columns[{i}].remove", $"删除列{i + 1}"));
+            if (i > 0)
+                actions.Add(new ElementAction($"{P}columns[{i}].moveUp", $"上移列{i + 1}"));
+            if (i < table.Table.Columns.Count - 1)
+                actions.Add(new ElementAction($"{P}columns[{i}].moveDown", $"下移列{i + 1}"));
         }
 
         actions.Add(new ElementAction(P + "appendConditional", "追加条件样式"));
@@ -405,6 +472,32 @@ public sealed class ElementProperties
             yield return new PropertyDescriptor(mergeKey, $"{label}·同值合并（连续数据行）", PropertyKind.Boolean,
                 el => Peek(el, index)?.MergeSameValue,
                 (el, v) => Column(el, index, mergeKey).MergeSameValue = PropertyValues.ToBool(mergeKey, v));
+
+            var cellRenderKey = head + "cellRender";
+            var cellRenderNames = Enum.GetNames(typeof(TableCellRender));
+            yield return new PropertyDescriptor(cellRenderKey, $"{label}·渲染方式", PropertyKind.Enum,
+                el => Peek(el, index)?.CellRender,
+                (el, v) => Column(el, index, cellRenderKey).CellRender = PropertyValues.ToEnum<TableCellRender>(cellRenderKey, v, cellRenderNames),
+                options: cellRenderNames);
+
+            var cellSymbologyKey = head + "cellSymbology";
+            var cellSymbologyNames = Enum.GetNames(typeof(BarcodeSymbology));
+            yield return new PropertyDescriptor(cellSymbologyKey, $"{label}·码制", PropertyKind.Enum,
+                el => Peek(el, index)?.CellSymbology,
+                (el, v) => Column(el, index, cellSymbologyKey).CellSymbology = PropertyValues.ToEnum<BarcodeSymbology>(cellSymbologyKey, v, cellSymbologyNames),
+                options: cellSymbologyNames);
+
+            var cellErrKey = head + "cellErrorCorrection";
+            var cellErrNames = Enum.GetNames(typeof(QrErrorCorrection));
+            yield return new PropertyDescriptor(cellErrKey, $"{label}·纠错等级", PropertyKind.Enum,
+                el => Peek(el, index)?.CellErrorCorrection,
+                (el, v) => Column(el, index, cellErrKey).CellErrorCorrection = PropertyValues.ToEnum<QrErrorCorrection>(cellErrKey, v, cellErrNames),
+                options: cellErrNames);
+
+            var cellShowKey = head + "cellShowText";
+            yield return new PropertyDescriptor(cellShowKey, $"{label}·显示可读文本", PropertyKind.Boolean,
+                el => Peek(el, index)?.CellShowText,
+                (el, v) => Column(el, index, cellShowKey).CellShowText = PropertyValues.ToBool(cellShowKey, v));
         }
     }
 
@@ -439,6 +532,11 @@ public sealed class ElementProperties
             yield return new PropertyDescriptor(titleKey, $"{label}·标题", PropertyKind.Text,
                 el => PeekHeader(el, index)?.Title,
                 (el, v) => HeaderCell(el, index, titleKey).Title = PropertyValues.ToText(titleKey, v));
+
+            var groupTitleKey = head + "groupTitle";
+            yield return new PropertyDescriptor(groupTitleKey, $"{label}·分组标题", PropertyKind.Text,
+                el => PeekHeader(el, index)?.GroupTitle,
+                (el, v) => HeaderCell(el, index, groupTitleKey).GroupTitle = PropertyValues.ToText(groupTitleKey, v));
 
             var colSpanKey = head + "colSpan";
             yield return new PropertyDescriptor(colSpanKey, $"{label}·跨列数", PropertyKind.Integer,
@@ -768,9 +866,9 @@ public sealed class ElementProperties
         static (el, v) => throw new ArgumentException("属性 \"id\" 只读：元素编号由内核生成与维护，宿主不得改写。", paramName: "id"),
         readOnly: true);
 
-    static PropertyDescriptor Num<T>(string key, string displayName, Func<T, double> get, Action<T, double> set, double? min = null, double? max = null, double? step = null)
+    static PropertyDescriptor Num<T>(string key, string displayName, Func<T, double> get, Action<T, double> set, double? min = null, double? max = null, double? step = null, bool hidden = false)
         where T : PaperElement
-        => new(key, displayName, PropertyKind.Number, el => get((T)el), (el, v) => set((T)el, PropertyValues.ToDouble(key, v)), min: min, max: max, step: step);
+        => new(key, displayName, PropertyKind.Number, el => get((T)el), (el, v) => set((T)el, PropertyValues.ToDouble(key, v)), min: min, max: max, step: step, hidden: hidden);
 
     static PropertyDescriptor Int(string key, string displayName, Func<PaperElement, int> get, Action<PaperElement, int> set, double? step = null) => new(
         key, displayName, PropertyKind.Integer, el => get(el), (el, v) => set(el, PropertyValues.ToInt(key, v)), step: step);
@@ -803,9 +901,9 @@ public sealed class ElementProperties
         where T : PaperElement
         => new(key, displayName, PropertyKind.Color, el => get((T)el), (el, v) => set((T)el, PropertyValues.OptionalColor(key, v, allowNull: true)));
 
-    static PropertyDescriptor Dash<T>(string key, string displayName, Func<T, double[]?> get, Action<T, double[]?> set)
+    static PropertyDescriptor Dash<T>(string key, string displayName, Func<T, double[]?> get, Action<T, double[]?> set, bool hidden = false)
         where T : PaperElement
-        => new(key, displayName, PropertyKind.DashPattern, el => get((T)el), (el, v) => set((T)el, PropertyValues.ToDash(key, v)));
+        => new(key, displayName, PropertyKind.DashPattern, el => get((T)el), (el, v) => set((T)el, PropertyValues.ToDash(key, v)), hidden: hidden);
 
     /// <summary>样式库引用：值是模板样式库的样式 id（可空）。候选项是运行时样式清单，宿主自己填下拉。</summary>
     static PropertyDescriptor StyleRef<T>(string key, string displayName, Func<T, string?> get, Action<T, string?> set)

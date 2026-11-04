@@ -49,7 +49,7 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
                     $"表格内容高 {contentHeight:0.##}mm 超出元素高 {element.HeightMm:0.##}mm（{body.RowHeights.Length} 行数据），超出部分被裁切。");
             }
 
-            Paint(canvas, element, o, header, body, footer, lefts, widths, aligns);
+            Paint(canvas, element, o, header, body, footer, lefts, widths, aligns, context);
         }
         finally
         {
@@ -92,7 +92,8 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
         HorizontalAlign Align,
         List<StyledLine> Lines,
         SKColor? Background,
-        SKColor? TextColor = null);
+        SKColor? TextColor = null,
+        int Column = -1);
 
     /// <summary>表体整体布局：行高 + 占用网格（合并格共享引用）+ 去重的格子清单 + 每行条件底色。</summary>
     internal sealed record BodyLayout(
@@ -492,7 +493,7 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
             {
                 var box = new BodyCellLayout(
                     lefts[c], rowTops[r], widths[c], rowHeights[r],
-                    cellAlign[r, c], lineCache[r, c]!, cellBg[r, c], cellFg[r, c]);
+                    cellAlign[r, c], lineCache[r, c]!, cellBg[r, c], cellFg[r, c], c);
                 boxes[r, c] = box;
                 grid[r, c] = box;
                 cells.Add(box);
@@ -535,7 +536,7 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
                 lefts[column], rowTops[row], width, height,
                 cellAlign[row, column], lines,
                 cellBg[row, column] ?? rowFills[row],
-                cellFg[row, column]);
+                cellFg[row, column], column);
 
             for (var rr = row; rr < row + rowSpan; rr++)
             {
@@ -1056,7 +1057,8 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
         RowBlock? footer,
         double[] lefts,
         double[] widths,
-        HorizontalAlign[] aligns)
+        HorizontalAlign[] aligns,
+        RenderContext context)
     {
         var tableRight = element.XMm + widths.Sum();
         var y = element.YMm;
@@ -1099,7 +1101,7 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
 
         // 3. 文本：普通格与合并格统一走混排绘制
         foreach (var cell in body.Cells)
-            DrawBodyCell(canvas, o, cell, bodyTop);
+            DrawBodyCell(canvas, o, cell, bodyTop, context);
 
         if (footer is not null)
         {
@@ -1173,8 +1175,19 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
     /// 画一个表体格（普通或合并）：片段底色矩形 + 混排文本。
     /// 每格整体裁剪，长内容只压垮自己那一格，不侵入邻格。
     /// </summary>
-    static void DrawBodyCell(SKCanvas canvas, TableOptions o, BodyCellLayout cell, double bodyTop)
+    static void DrawBodyCell(SKCanvas canvas, TableOptions o, BodyCellLayout cell, double bodyTop, RenderContext context)
     {
+        // 单元格条码/二维码：把绑定值编码成码绘入整格，跳过文本绘制
+        if (cell.Column >= 0 && cell.Column < o.Columns.Count)
+        {
+            var col = o.Columns[cell.Column];
+            if (col.CellRender != TableCellRender.Text)
+            {
+                DrawCellCode(canvas, cell, bodyTop, col, context);
+                return;
+            }
+        }
+
         var saved = canvas.Save();
         canvas.ClipRect(new SKRect((float)cell.X, (float)(bodyTop + cell.Top), (float)(cell.X + cell.Width), (float)(bodyTop + cell.Top + cell.Height)));
 
@@ -1231,6 +1244,28 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
         }
 
         canvas.RestoreToCount(saved);
+    }
+
+    /// <summary>
+    /// 单元格条码/二维码：把本格绑定值编码成码绘入整格（短边缩放、居中、留静区），跳过文本混排。
+    /// 内容由所有分段文本拼接还原（码不应被换行拆断），空值则不画。
+    /// </summary>
+    static void DrawCellCode(SKCanvas canvas, BodyCellLayout cell, double bodyTop, TableColumn col, RenderContext context)
+    {
+        var content = string.Concat(cell.Lines.SelectMany(l => l.Segments).Select(s => s.Text)).Trim();
+        if (content.Length == 0)
+            return;
+
+        var rect = new SKRect(
+            (float)cell.X,
+            (float)(bodyTop + cell.Top),
+            (float)(cell.X + cell.Width),
+            (float)(bodyTop + cell.Top + cell.Height));
+
+        if (col.CellRender == TableCellRender.QrCode)
+            CellCodePainter.PaintQr(canvas, rect, content, SKColors.Black, null, col.CellErrorCorrection);
+        else
+            CellCodePainter.PaintBarcode(canvas, rect, content, SKColors.Black, null, col.CellSymbology, col.CellShowText, context);
     }
 
     /// <summary>画汇总行文本：无条件样式，逐列复用折行时定稿的样式（分页测量与绘制同一实例，字体口径不分叉）。</summary>
@@ -1665,6 +1700,9 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
                     // 列 formatter（hiprint 同款）：function(value, row, index, options)，返回值替换单元格文本
                     if (ScriptSupport.ColumnFormatterResult(context, col, value, item, dataIndex, elementId) is { } formatted)
                         text = DataBinder.ToString(formatted);
+                    // 表格级 formatter：列级未命中时回落（info：表格级 formatter 已落地，列级优先）
+                    else if (ScriptSupport.TableFormatterResult(context, o.Formatter, value, item, dataIndex, elementId) is { } tableFormatted)
+                        text = DataBinder.ToString(tableFormatted);
 
                     line.Add(text);
                 }

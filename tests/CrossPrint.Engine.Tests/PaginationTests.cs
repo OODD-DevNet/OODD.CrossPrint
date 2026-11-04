@@ -619,6 +619,56 @@ public class PaginationTests
             tableWindows: windows, pageNo: pageNo, pageTotal: pageTotal));
     }
 
+    [Fact]
+    public void 表格跨页_重复表头关闭时续页隐藏表头()
+    {
+        var (template, _) = BigInvoice();
+        var table = template.Elements.OfType<TableElement>().Single();
+        table.Table.ShowHeader = true;
+        table.Table.RepeatHeaderOnEachPage = false;
+
+        var plan = TemplatePaginator.PlanLayout(template, PaginationOptions(), Payload(RowCount));
+        plan.Count.Should().BeGreaterThan(1, "大发票必须分页");
+
+        foreach (var p in plan.Where(p => p.PageNo > 1))
+        {
+            var cont = p.Template.Elements.OfType<TableElement>().Single();
+            cont.Table.ShowHeader.Should().BeFalse("续页应隐藏表头");
+        }
+
+        plan[0].Template.Elements.OfType<TableElement>().Single().Table.ShowHeader.Should().BeTrue("首页面始终绘制表头");
+    }
+
+    [Fact]
+    public void 表格跨页_重复表头开启时续页保留表头()
+    {
+        var (template, _) = BigInvoice();
+        var table = template.Elements.OfType<TableElement>().Single();
+        table.Table.ShowHeader = true;
+        table.Table.RepeatHeaderOnEachPage = true;
+
+        var plan = TemplatePaginator.PlanLayout(template, PaginationOptions(), Payload(RowCount));
+        foreach (var p in plan)
+        {
+            var cont = p.Template.Elements.OfType<TableElement>().Single();
+            cont.Table.ShowHeader.Should().BeTrue("每页都应重复表头");
+        }
+    }
+
+    /// <summary>引擎的分页可见性判定必须走公共区间解析（全角逗号 / 隐藏优先）。</summary>
+    [Fact]
+    public void 分页可见性_引擎走公共区间解析_全角逗号与半角等价()
+    {
+        var shown = new TextElement { ShowInPages = "1，3-5" };
+        var hidden = new TextElement { ShowInPages = "1-5", UnShowInPages = "3" };
+
+        TemplatePaginator.IsVisibleOnPage(shown, 1).Should().BeTrue("全角逗号要在引擎侧被识别");
+        TemplatePaginator.IsVisibleOnPage(shown, 2).Should().BeFalse();
+        TemplatePaginator.IsVisibleOnPage(shown, 4).Should().BeTrue();
+        TemplatePaginator.IsVisibleOnPage(hidden, 3).Should().BeFalse("隐藏区间优先于显示区间");
+        TemplatePaginator.IsVisibleOnPage(hidden, 4).Should().BeTrue();
+    }
+
     sealed class InvoiceRow
     {
         public string Name { get; init; } = "";

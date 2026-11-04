@@ -1015,14 +1015,14 @@ public class EditorKernelTests
     // ---------------------------------------------------------------- 放置
 
     [Fact]
-    public void 八个类型都能居中放置且落在页面内()
+    public void 全部类型都能居中放置且落在页面内()
     {
         var kernel = KernelFixture.Kernel();
 
         foreach (var key in ElementTypeKeys.All)
             kernel.AddElementAtCenter(key);
 
-        kernel.Template.Elements.Should().HaveCount(8);
+        kernel.Template.Elements.Should().HaveCount(ElementTypeKeys.All.Count);
 
         // 可见页面区域（mm）：
         //   可见右 = 800 / 3.7795275590551180 = 211.66666666666666 > 页宽 210 → 取 210
@@ -1062,15 +1062,16 @@ public class EditorKernelTests
 
         var ids = kernel.Template.Elements.Select(e => e.Id).ToList();
         ids.Should().OnlyHaveUniqueItems("同一模板里 id 重复会让 JSON 往返与宿主属性面板互相打架");
-        ids.Should().Equal("el-1", "el-2", "el-3", "el-4", "el-5", "el-6", "el-7", "el-8");
+        ids.Should().Equal(ElementTypeKeys.All.Select((_, i) => $"el-{i + 1}"));
 
         kernel.Selection.Select(ids[^1]);
         kernel.DeleteSelection();
         kernel.AddElementAtCenter(ElementTypeKeys.Text);
 
-        kernel.Template.Elements.Should().HaveCount(8);
-        kernel.Template.Elements.Select(e => e.Id).Should().NotContain("el-8");
-        kernel.Template.Elements.Last().Id.Should().Be("el-9");
+        kernel.Template.Elements.Should().HaveCount(ElementTypeKeys.All.Count);
+        var maxId = ElementTypeKeys.All.Count;
+        kernel.Template.Elements.Select(e => e.Id).Should().NotContain($"el-{maxId}");
+        kernel.Template.Elements.Last().Id.Should().Be($"el-{maxId + 1}");
     }
 
     [Fact]

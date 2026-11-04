@@ -428,7 +428,7 @@ JS 对象形态（camelCase）和 CSS 字符串形态（kebab-case）都能。�
 
 先说最爽的部分：**90% 的 hiprint 模板丢进来直接用，不需要改**。几何（pt→mm 自动换算）、元素类型、数据绑定、formatter/styler 脚本、表格二维表头、条码、二维码——全支持。
 
-下面说的是那剩下 10%。**不支持的能力不会被静默丢弃**——导入器会在结果里列一条问题清单，告诉你"这里原来有个水印，CrossPrint 画不出来"，绝对不会悄悄吃掉你花了一下午画的东西。
+下面说的是那剩下 10%。**不支持的能力不会被静默丢弃**——导入器会在结果里列一条问题清单，告诉你"这里原来有个 HTML 元素，CrossPrint 用占位框代替了"，绝对不会悄悄吃掉你花了一下午画的东西。
 
 ### 支持的 hiprint 元素和属性（完整清单）
 
@@ -468,22 +468,20 @@ JS 对象形态（camelCase）和 CSS 字符串形态（kebab-case）都能。�
 | `tableSummary` / `tableSummaryTitle` / `tableSummaryText` / `tableSummaryNumFormat` / `tableSummaryColspan` | 全部支持，尾行汇总 |
 | `checked: false` | 标记为隐藏列，导入时忽略 |
 | `tableTextType` | 影响表头单元格文本处理（保持原样） |
+| **水印** `watermarkOptions` | 图片水印 → 覆盖整页的最底层图片元素；文字水印 → 最底层低灰度居中文本元素。也可用 CrossPrint 原生平铺文字水印（模板字段 `watermark`，设计器纸张面板可配置） |
+| **页码** `paperNumber*` | 启用自动页码脚注（模板字段 `paperNumber`，每页「第 X / Y 页」，与手工绑定 `{{pageNo}}/{{pageCount}}` 的文本元素可并存） |
+| **长文本自动续页** `longText` | 内容超出元素框自动续到下一页，后面元素顺延 |
+| **强制分页** `pageBreak` | 通用分页：本元素之后强制分页 |
+| **按页选择性打印** `showInPage` / `unShowInPage` | 通用分页：按页显示/过滤 |
+| **每页重复打印** `fixed` | 通用分页：每页重复（页眉/页脚/常驻水印） |
 
 ### 不支持的 hiprint 能力（导入时会告警）
 
 | hiprint 能力 | 会发生什么 | 严重级别 | 替代方案 |
 |---|---|---|---|
-| **水印** `watermarkOptions` | 忽略 | ⚠️ Warning | 用背景图（ImageElement 放最底层）或自定义绘制 |
-| **页码** `paperNumber*` | 忽略 | ⚠️ Warning | 暂时没有。如果很多人需要我们可以加 |
 | **面板打印偏移** `leftOffset/topOffset` | 忽略 | ⚠️ Warning | CrossPrint 不支持整张纸偏移 |
 | **HTML 元素** | 变成虚线灰色占位框 | ⚠️ Warning | 改成文本 + 图片 + 表格组合 |
-| **插件自定义元素** | 跳过（整张元素消失） | ⚠️ Warning | 用内置元素重画 |
-| **长文本自动续页** `longText` | 裁切在元素框内，不会自动分页 | ⚠️ Warning | 暂时没有自动分页能力 |
-| **日期/布尔格式化** `dataType` / `format` | 按原始值打印 | ⚠️ Warning | 用 formatter 脚本自己写格式化逻辑 |
-| **中文金额大写** `upperCase` | 按原值打印 | ⚠️ Warning | 用 formatter 脚本自己转 |
-| **强制分页** `pageBreak` | 忽略 | ⚠️ Warning | 暂时没有手动分页能力 |
-| **按页选择性打印** `showInPage` / `unShowInPage` | 忽略 | ⚠️ Warning | —— |
-| **每页重复打印** `fixed` | 只出现一次 | ⚠️ Warning | —— |
+| **插件自定义元素** | 跳过（整张元素消失） | ⚠️ Warning | 用内置元素重画（或 `HiprintCustomElementRegistry` 注册转换器） |
 | **条形码固定模块宽** `barWidth` | 等比拉伸到元素宽度（扫描不受影响） | ℹ️ Info | —— |
 | **图片外链 URL**（非 data:） | 需要宿主提供 IImageResolver，否则占位框 | ℹ️ Info | 要么转 base64 内嵌，要么实现 resolver |
 | **表格级 formatter/styler** | 丢掉（只保留列级） | ℹ️ Info | 用列级脚本逐列处理 |
@@ -624,9 +622,8 @@ dotnet publish samples/CrossPrint.Samples.Avalonia.Browser -c Release
 ## 已知限制（最后再讲一遍，避免踩坑）
 
 - **二维码静区**按 4 模块绘制。极少数扫码器特别严格的话可能有问题——但大部分手机扫没问题。
-- **没有手动分页**——模板写多长就画多长，长过一张纸会被裁掉。如果业务需要多页打印，建议模板按页拆分（两份模板 = 两页）。
-- **没有水印**——hiprint 的 `watermarkOptions` 画不出来。想加水印用背景图（ImageElement 放最底层，半透明）。
-- **没有页码**——`paperNumberFormat` 这些属性 CrossPrint 不认识。等有人真正需要了再加。
+- **表格跨页与长文本续页是自动的，普通元素不是**——表格数据行超高一页装不下会自动切窗口续页，`longText` 溢出会续排；但普通元素（矩形、图片……）摆到纸外就是被裁掉，没有"整体元素自动挪到下一页"的通用排版。
+- **原生水印是平铺文字**——模板字段 `watermark`（设计器纸张面板可配置）。图片水印没有原生平铺能力，用覆盖整页的最底层图片元素代替。
 - **WASM 版**没有文件对话框（浏览器安全沙箱），hiprint 导入走底部的模板 JSON 面板粘贴。
 - **复杂脚本（阿拉伯文 / 天城文 / 藏文）在 Linux 上可能要自己点名原生库**——引擎用 HarfBuzz 做连字与词形式（词首/词中/词尾）替换，`HarfBuzzSharp` 的托管包只把 Win32/macOS 原生库写成自己的依赖。Avalonia 宿主不用管（`Avalonia.Skia` 会间接带上）；**纯库消费方**（控制台、WPF/WinForms/Eto/WinUI/Uno/MAUI）在 Linux 上给宿主应用加一行 `<PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" />`。**缺它不报错**，但阿拉伯文会退回"每个字母都是独立形式"，看着像坏了又没抛异常。取证与四条口径见 [`docs/rendering-spec.md`](docs/rendering-spec.md) §3.3。
 - **.NET Framework 4.x 只在核心层**——Core / Engine / Designer / Printing / I18n 提供 `net461` 目标（Jint 3.1.6 与 System.Text.Json 6.0.9 都有 netstandard2.0 目标），但七个宿主适配层统一要求 .NET 8（Avalonia 11 / WinUI 3 / MAUI 8 本身就不支持 net461）。`net461` 目标只保证编译兼容，测试与 CI 覆盖的是 `net8.0`。

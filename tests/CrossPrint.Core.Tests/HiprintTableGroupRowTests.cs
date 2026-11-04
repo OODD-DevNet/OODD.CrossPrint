@@ -53,13 +53,16 @@ public class HiprintTableGroupRowTests
         table.Table.Columns.Select(c => c.Field).Should().Equal("name", "qty");
         table.Table.Columns.Should().HaveCountGreaterOrEqualTo(2,
             "设计器 Remove 的守卫是 Columns.Count <= 1 就抛异常，列数 ≥ 2 才能删列");
-        table.Table.HeaderRows.Should().HaveCount(2, "展开后的两列各自落在第 0 行表头");
-        table.Table.HeaderRows.Select(h => (h.Row, h.Column)).Should().Equal((0, 0), (0, 1));
 
-        var issue = result.Issues.Should().ContainSingle(i => i.Code == "hiprint.table-group-header").Subject;
-        issue.Severity.Should().Be(HiprintImportSeverity.Info, "分组标题留不住属可接受的降级，不是警告");
-        issue.ElementId.Should().Be("el-1");
-        issue.Message.Should().Contain("基本信息", "提示要列出被丢掉的分组标题");
+        // 分组标题原生保留：第 0 行是一格跨 2 列的"基本信息"，子列落在第 1 行并挂 GroupTitle
+        table.Table.HeaderRows.Should().HaveCount(3, "分组标题占一行 + 展开后的两列各占一格");
+        var group = table.Table.HeaderRows.Single(h => h.Title == "基本信息");
+        (group.Row, group.Column, group.ColSpan).Should().Be((0, 0, 2));
+        table.Table.HeaderRows.Where(h => h.GroupTitle == "基本信息")
+            .Select(h => (h.Row, h.Column)).Should().Equal((1, 0), (1, 1));
+
+        result.Issues.Should().NotContain(i => i.Code == "hiprint.table-group-header",
+            "分组表头已原生支持，不该再记降级提示");
     }
 
     [Fact]
@@ -83,7 +86,7 @@ public class HiprintTableGroupRowTests
     }
 
     [Fact]
-    public void 表头_多行里各自的分组列对象只记一条分组表头提示()
+    public void 表头_多行里各自的分组列对象保留为跨列分组标题()
     {
         const string columns = """
             [
@@ -106,11 +109,19 @@ public class HiprintTableGroupRowTests
         table.Table.Columns.Should().HaveCount(2);
         table.Table.Columns.Select(c => c.Field).Should().Equal(new[] { "c", "d" },
             "叶列取最底层表头单元格，分组标题只作用于上一行");
-        table.Table.HeaderRows.Should().HaveCount(4, "上层展开出 2 个分组子列 + 下层 2 个普通单元格");
-        table.Table.HeaderRows.Count(h => h.Row == 0).Should().Be(2);
 
-        var issue = result.Issues.Should().ContainSingle(i => i.Code == "hiprint.table-group-header").Subject;
-        issue.Message.Should().Contain("组一", "分组标题被丢掉要能指名");
+        // 分组标题原生保留：第 0 行是跨 2 列的"组一"，子列甲/乙落在第 1 行并挂 GroupTitle，丙/丁在第 2 行
+        table.Table.HeaderRows.Should().HaveCount(5,
+            "分组标题占第 0 行 + 子列甲/乙占第 1 行 + 普通丙/丁占第 2 行");
+        table.Table.HeaderRows.Count(h => h.Row == 0).Should().Be(1, "第 0 行只有跨列分组标题一格");
+
+        var group = table.Table.HeaderRows.Single(h => h.Title == "组一" && h.ColSpan == 2);
+        group.Row.Should().Be(0);
+        table.Table.HeaderRows.Where(h => h.GroupTitle == "组一")
+            .Select(h => h.Title).Should().Equal("甲", "乙");
+
+        result.Issues.Should().NotContain(i => i.Code == "hiprint.table-group-header",
+            "分组表头已原生支持，不该再提示降级");
     }
 
     [Fact]
@@ -138,10 +149,16 @@ public class HiprintTableGroupRowTests
         // 于是第 0 列被“备注”占住，“品名”只剩表头标题、不再对应任何列的字段绑定。
         table.Table.Columns.Select(c => c.Field).Should().Equal(new[] { "note", "qty" },
             "第 1 列没有底层单元格，字段回落到自下而上第一个有值的单元格");
-        table.Table.HeaderRows.Should().HaveCount(3);
-        table.Table.HeaderRows.Select(h => (h.Row, h.Column)).Should().Equal((0, 0), (0, 1), (1, 0));
 
-        result.Issues.Should().ContainSingle(i => i.Code == "hiprint.table-group-header",
-            "整张表只记一条分组表头提示");
+        // 分组标题原生保留：第 0 行跨 2 列“基本信息”，子列品名/数量落第 1 行，备注落第 2 行
+        table.Table.HeaderRows.Should().HaveCount(4);
+        table.Table.HeaderRows.Select(h => (h.Row, h.Column, h.Title, h.ColSpan)).Should().Equal(
+            (0, 0, "基本信息", 2),
+            (1, 0, "品名", 1),
+            (1, 1, "数量", 1),
+            (2, 0, "备注", 1));
+
+        result.Issues.Should().NotContain(i => i.Code == "hiprint.table-group-header",
+            "分组表头已原生支持，不该再提示降级");
     }
 }

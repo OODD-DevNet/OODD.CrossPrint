@@ -159,6 +159,9 @@ internal sealed class PropertyPanel : UserControl
             string? group = null;
             foreach (var descriptor in properties.Descriptors)
             {
+                if (descriptor.Hidden)
+                    continue;
+
                 if (!string.Equals(descriptor.Group, group, StringComparison.Ordinal))
                 {
                     group = descriptor.Group;

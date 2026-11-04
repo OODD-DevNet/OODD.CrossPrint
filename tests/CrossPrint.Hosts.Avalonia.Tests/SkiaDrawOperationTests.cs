@@ -14,7 +14,7 @@ public class SkiaDrawOperationTests
     [Fact]
     public void 命中区覆盖整块绘制区()
     {
-        using var operation = new SkiaDrawOperation(new Rect(0, 0, 320, 200), (_, _) => { });
+        using var operation = new SkiaDrawOperation(new Rect(0, 0, 320, 200), 1.0, (_, _, _) => { });
 
         operation.HitTest(new Point(10, 10)).Should().BeTrue("元素所在的左上区域必须可命中");
         operation.HitTest(new Point(160, 100)).Should().BeTrue("画布中心必须可命中");

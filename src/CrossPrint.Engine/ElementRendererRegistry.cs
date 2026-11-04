@@ -16,7 +16,7 @@ public sealed class ElementRendererRegistry
     {
     }
 
-    /// <summary>创建并填满 8 个内置渲染器。</summary>
+    /// <summary>创建并填满 9 个内置渲染器。</summary>
     public static ElementRendererRegistry CreateDefault()
     {
         var registry = new ElementRendererRegistry();
@@ -24,6 +24,7 @@ public sealed class ElementRendererRegistry
         registry.Register(new LineRenderer());
         registry.Register(new RectangleRenderer());
         registry.Register(new EllipseRenderer());
+        registry.Register(new ShapeRenderer());
         registry.Register(new ImageRenderer());
         registry.Register(new QrCodeRenderer());
         registry.Register(new BarcodeRenderer());

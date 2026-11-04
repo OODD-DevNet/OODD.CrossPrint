@@ -56,6 +56,12 @@ public class TemplateJsonTests
             Ellipse = new ShapeOptions { FillColor = null, StrokeColor = SKColors.Red, StrokeWidthMm = 0.5 },
         });
 
+        t.Add(new ShapeElement
+        {
+            XMm = 100, YMm = 60, WidthMm = 30, HeightMm = 30,
+            Shape = new PolygonOptions { Kind = ShapeKind.Star5, FillColor = new SKColor(0xFF, 0xC8, 0x00), StrokeWidthMm = 0.25 },
+        });
+
         t.Add(new ImageElement
         {
             XMm = 5, YMm = 90, WidthMm = 30, HeightMm = 30,
@@ -107,7 +113,7 @@ public class TemplateJsonTests
         back.Margins.Right.Should().Be(12);
         back.Margins.Bottom.Should().Be(13);
         back.Margins.Left.Should().Be(14);
-        back.Elements.Should().HaveCount(8);
+        back.Elements.Should().HaveCount(9);
 
         var text = back.Elements[0].Should().BeOfType<TextElement>().Subject;
         text.Id.Should().Be("el-1");
@@ -140,21 +146,27 @@ public class TemplateJsonTests
         ellipse.Ellipse.FillColor.Should().BeNull();
         ellipse.Ellipse.StrokeColor.Should().Be(SKColors.Red);
 
-        var image = back.Elements[4].Should().BeOfType<ImageElement>().Subject;
+        var shape = back.Elements[4].Should().BeOfType<ShapeElement>().Subject;
+        shape.TypeKey.Should().Be(ElementTypeKeys.Shape);
+        shape.Shape.Kind.Should().Be(ShapeKind.Star5);
+        shape.Shape.FillColor.Should().Be(new SKColor(0xFF, 0xC8, 0x00));
+        shape.Shape.StrokeWidthMm.Should().Be(0.25);
+
+        var image = back.Elements[5].Should().BeOfType<ImageElement>().Subject;
         image.Image.FitMode.Should().Be(ImageFitMode.Cover);
         image.Image.Data.Should().StartWith("iVBOR");
 
-        var qr = back.Elements[5].Should().BeOfType<QrCodeElement>().Subject;
+        var qr = back.Elements[6].Should().BeOfType<QrCodeElement>().Subject;
         qr.QrCode.ErrorCorrection.Should().Be(QrErrorCorrection.H);
         qr.QrCode.QuietZoneMm.Should().Be(2);
         qr.QrCode.BackgroundColor.Should().BeNull();
 
-        var barcode = back.Elements[6].Should().BeOfType<BarcodeElement>().Subject;
+        var barcode = back.Elements[7].Should().BeOfType<BarcodeElement>().Subject;
         barcode.Barcode.Symbology.Should().Be(BarcodeSymbology.Code39);
         barcode.Barcode.ShowText.Should().BeFalse();
         barcode.Barcode.FontSizePt.Should().Be(6.5);
 
-        var table = back.Elements[7].Should().BeOfType<TableElement>().Subject;
+        var table = back.Elements[8].Should().BeOfType<TableElement>().Subject;
         table.Table.Columns.Should().HaveCount(2);
         table.Table.Columns[0].Field.Should().Be("items.name");
         table.Table.Columns[0].Align.Should().Be(HorizontalAlign.Right);
@@ -332,7 +344,7 @@ public class TemplateJsonTests
         TemplateJson.WriteTo(BuildKitchenSink(), ms);
         ms.Position = 0;
         var fromStream = TemplateJson.Load(ms).Template;
-        fromStream.Elements.Should().HaveCount(8);
+        fromStream.Elements.Should().HaveCount(9);
     }
 
     [Fact]
@@ -372,8 +384,8 @@ public class TemplateJsonTests
         ((TextElement)copy.Elements[0]).Text.Content = "changed";
         ((TextElement)t.Elements[0]).Text.Content.Should().Be("订单 {{order.no}}");
 
-        ((TableElement)copy.Elements[7]).Table.Columns[0].Title = "改";
-        ((TableElement)t.Elements[7]).Table.Columns[0].Title.Should().Be("品名");
+        ((TableElement)copy.Elements[8]).Table.Columns[0].Title = "改";
+        ((TableElement)t.Elements[8]).Table.Columns[0].Title.Should().Be("品名");
     }
 
     [Fact]
@@ -482,7 +494,7 @@ public class TemplateJsonTests
         again.Should().Be(source);
         // 补齐后的 id 不会让元素计数或顺序发生变化。
         TemplateJson.Deserialize(again).Elements.Select(e => e.Id).Should().Equal(
-            Enumerable.Range(1, 8).Select(i => $"el-{i}"));
+            Enumerable.Range(1, 9).Select(i => $"el-{i}"));
     }
 
     [Fact]

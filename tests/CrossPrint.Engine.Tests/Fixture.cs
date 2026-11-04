@@ -16,26 +16,27 @@ internal static class Fixture
         };
 
     /// <summary>渲染到指定 DPI 的位图，并断言没有任何"渲染失败"级告警。</summary>
-    public static SKBitmap Render(PrintTemplate template, double dpi, object? data = null, RenderReport? report = null, IImageResolver? images = null, bool preferTestData = false)
+    public static SKBitmap Render(PrintTemplate template, double dpi, object? data = null, RenderReport? report = null, IImageResolver? images = null, bool preferTestData = false, RenderOptions? options = null)
     {
         var r = report ?? new RenderReport();
+        var opt = options is null ? new RenderOptions { Dpi = dpi } : options.WithDpi(dpi);
         var bitmap = new SKBitmap(new SKImageInfo(
             Math.Max(1, (int)Math.Ceiling(template.Paper.PageWidthMm * dpi / 25.4)),
-            Math.Max(1, (int)Math.Ceiling(TemplateRenderer.ResolvePageHeightMm(template, new RenderOptions { Dpi = dpi }) * dpi / 25.4)),
+            Math.Max(1, (int)Math.Ceiling(TemplateRenderer.ResolvePageHeightMm(template, opt) * dpi / 25.4)),
             SKColorType.Rgba8888,
             SKAlphaType.Premul));
         using var canvas = new SKCanvas(bitmap);
         canvas.Clear(SKColors.White);
-        TemplateRenderer.Default.Render(template, canvas, new RenderContext(new RenderOptions { Dpi = dpi }, r, images: images, data: data, preferTestData: preferTestData));
+        TemplateRenderer.Default.Render(template, canvas, new RenderContext(opt, r, images: images, data: data, preferTestData: preferTestData));
         return bitmap;
     }
 
     /// <summary>渲染单元素页面。</summary>
-    public static SKBitmap RenderElement(PaperElement element, double dpi = 150, double pageWidthMm = 100, double pageHeightMm = 100, RenderReport? report = null, IImageResolver? images = null, object? data = null, bool preferTestData = false)
+    public static SKBitmap RenderElement(PaperElement element, double dpi = 150, double pageWidthMm = 100, double pageHeightMm = 100, RenderReport? report = null, IImageResolver? images = null, object? data = null, bool preferTestData = false, RenderOptions? options = null)
     {
         var t = Page(pageWidthMm, pageHeightMm);
         t.Elements.Add(element);
-        return Render(t, dpi, data, report, images, preferTestData);
+        return Render(t, dpi, data, report, images, preferTestData, options);
     }
 
     public static TextElement Text(string content, double x, double y, double w, double h)

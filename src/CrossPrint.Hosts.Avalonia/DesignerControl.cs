@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Threading;
 using CrossPrint.Core;
 using CrossPrint.Designer;
 using CrossPrint.Engine;
@@ -159,7 +160,12 @@ public sealed class DesignerControl : Control
     /// <inheritdoc />
     public override void Render(DrawingContext context)
     {
-        context.Custom(new SkiaDrawOperation(new Rect(Bounds.Size), DrawFrame));
+        // ⚠ Render 在 UI 线程跑，但 ICustomDrawOperation.Render 由渲染线程执行：
+        // 所有 Avalonia 状态（尺寸、缩放）必须在这里快照带走。
+        // 曾直接读 RenderScaling（经 TopLevel.GetTopLevel → VerifyAccess），
+        // 渲染线程上抛 "Call from invalid thread"，整帧被丢弃 → 窗口停在上一次画面，
+        // 表现为"最大化/拉大后右侧一片透明"。
+        context.Custom(new SkiaDrawOperation(new Rect(Bounds.Size), RenderScaling, DrawFrame));
     }
 
     /// <inheritdoc />
@@ -280,20 +286,32 @@ public sealed class DesignerControl : Control
         _kernel.TemplateChanged += OnKernelChanged;
     }
 
-    void OnKernelChanged() => InvalidateVisual();
+    /// <inheritdoc />
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        var size = base.ArrangeOverride(finalSize);
 
-    void DrawFrame(SKCanvas canvas, Rect bounds)
+        // 视口同步只能在 UI 线程做：改内核视口会触发 MaybeAutoFit → FitToPage →
+        // OnKernelChanged → InvalidateVisual；这条链若发生在渲染线程（DrawFrame 内），
+        // Avalonia 会抛 "Call from invalid thread"，整帧作废、窗口停在上一次画面。
+        SyncViewport(finalSize);
+        return size;
+    }
+
+    /// <summary>把当前尺寸/DPI 同步给内核（UI 线程、布局阶段调用）。</summary>
+    /// <param name="size">控件尺寸（DIP）。</param>
+    void SyncViewport(Size size)
     {
         var scaling = RenderScaling;
-        var width = bounds.Width * scaling;
-        var height = bounds.Height * scaling;
+        var width = size.Width * scaling;
+        var height = size.Height * scaling;
         if (width < 1 || height < 1)
             return;
 
         var dpi = 96.0 * scaling;
 
         // 内核的滚轮滚动/滚动条/自动适配都以视口尺寸为准；其余宿主在 FitViewport 里同步，
-        // 本控件直接驱动 Viewport，这里每帧补齐（幂等赋值），否则普通滚轮永远滚不动。
+        // 本控件直接驱动 Viewport（幂等赋值），否则普通滚轮永远滚不动。
         _kernel.Viewport.Dpi = dpi;
         _kernel.ViewWidthHostPx = width;
         _kernel.ViewHeightHostPx = height;
@@ -304,6 +322,28 @@ public sealed class DesignerControl : Control
             _autoFitDone = true;
             _kernel.Viewport.FitToPage(Template.Paper.PageWidthMm, _kernel.PageHeightMm, width, height, dpi);
         }
+    }
+
+    void OnKernelChanged()
+    {
+        // 内核可能在后台/渲染线程上被改（例如绘制期同步视口），统一切回 UI 线程再重绘。
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(InvalidateVisual);
+            return;
+        }
+
+        InvalidateVisual();
+    }
+
+    void DrawFrame(SKCanvas canvas, Rect bounds, double scaling)
+    {
+        var width = bounds.Width * scaling;
+        var height = bounds.Height * scaling;
+        if (width < 1 || height < 1)
+            return;
+
+        var dpi = 96.0 * scaling;
 
         var save = canvas.Save();
         canvas.Scale(1f / (float)scaling); // 租到的画布是 DIP，内核契约要设备 px

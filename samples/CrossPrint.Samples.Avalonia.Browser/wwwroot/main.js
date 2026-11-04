@@ -14,8 +14,9 @@ try {
     const config = dotnetRuntime.getConfig();
     await dotnetRuntime.runMain(config.mainAssemblyName, [globalThis.location.href]);
 
-    // .NET WASM 启动成功，隐藏启动遮罩
-    document.body.classList.add('ready');
+    // 注意：这里不再立刻收遮罩——WASM 运行时启动成功 ≠ Avalonia 已渲染第一帧，
+    // 提前收掉用户会看到一段空白。由托管侧 MainView 挂树并渲染首帧后调
+    // window.crossprintReady()（见 index.html / BrowserBoot.cs）。
 } catch (err) {
     // 启动失败——把错误信息写进启动遮罩，让用户看到而不是白屏无提示
     console.error('CrossPrint WASM 启动失败:', err);

@@ -1,4 +1,5 @@
 using CrossPrint.Core;
+using CrossPrint.Core.Rendering;
 using SkiaSharp;
 
 namespace CrossPrint.Designer;
@@ -41,6 +42,9 @@ public sealed class EditorRendererOptions
 
     /// <summary>安全区虚线颜色。</summary>
     public SKColor MarginGuideColor { get; set; } = new(0x3A, 0x9B, 0xFF);
+
+    /// <summary>页眉/页脚分界虚线颜色（取上/下留白处的独立横线，颜色区别于整圈安全区）。</summary>
+    public SKColor HeaderFooterGuideColor { get; set; } = new(0x00, 0x8F, 0x6E);
 
     /// <summary>选中框与手柄描边颜色。</summary>
     public SKColor SelectionColor { get; set; } = new(0x1E, 0x88, 0xE5);
@@ -137,6 +141,8 @@ public sealed class EditorRenderer
         using (var paper = new SKPaint { Color = Options.PageColor, IsAntialias = false, Style = SKPaintStyle.Fill })
             canvas.DrawRect(page, paper);
 
+        // 水印不在这里画：EditorCanvas.Draw 随后的 TemplateRenderer.Render 会画（数据绑定/与打印同源），
+        // 两处都画会叠加两次 alpha，设计画布上的水印比打印件深一截。
         if (Options.ShowGrid)
             DrawGrid(kernel, canvas, page);
 
@@ -290,6 +296,27 @@ public sealed class EditorRenderer
             PathEffect = dash,
         };
         canvas.DrawRect(host, paint);
+
+        // 页眉/页脚分界：上/下留白处各画一条独立虚线（青绿色，区别于整圈蓝色安全区）。
+        // 连续纸没有页脚概念（页高自适应），只画页眉线。
+        using var hfPaint = new SKPaint
+        {
+            Color = Options.HeaderFooterGuideColor,
+            IsAntialias = false,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 1,
+            PathEffect = dash,
+        };
+        var vp = kernel.Viewport;
+        var left = (float)vp.ToHostPx(0f, 0f, (float)vp.Dpi).X;
+        var right = (float)vp.ToHostPx((float)pageWidth, 0f, (float)vp.Dpi).X;
+        var headerY = (float)vp.ToHostPx(0f, (float)margins.Top, (float)vp.Dpi).Y;
+        canvas.DrawLine(left, headerY, right, headerY, hfPaint);
+        if (pageHeight > 0 && margins.Bottom > 0)
+        {
+            var footerY = (float)vp.ToHostPx(0f, (float)(pageHeight - margins.Bottom), (float)vp.Dpi).Y;
+            canvas.DrawLine(left, footerY, right, footerY, hfPaint);
+        }
     }
 
     void DrawGhost(EditorKernel kernel, SKCanvas canvas, SKRect ghostMm)

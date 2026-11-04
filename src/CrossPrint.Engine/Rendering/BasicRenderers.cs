@@ -20,12 +20,82 @@ public sealed class TextRenderer : ElementRenderer<TextElement>
     /// <inheritdoc/>
     protected override void Draw(SKCanvas canvas, TextElement element, RenderContext context)
     {
+        using var block = BuildBlock(element, context);
+        if (block is null)
+            return;
+
+        var style = block.Style;
+        var lines = block.Lines;
+        var innerLeft = block.InnerLeft;
+        var innerWidth = block.InnerWidth;
+        var lineHeight = block.LineHeight;
+        var hAlign = block.HorizontalAlign;
+        var color = block.Color;
+
+        var blockHeight = lines.Count * lineHeight;
+        var top = block.VerticalAlign switch
+        {
+            VerticalAlign.Middle => block.InnerTop + (block.InnerHeight - blockHeight) / 2,
+            VerticalAlign.Bottom => block.InnerTop + block.InnerHeight - blockHeight,
+            _ => block.InnerTop,
+        };
+        var baselineOffset = style.BaselineOffset(lineHeight);
+
+        var firstIndentExtra = block.FirstLineIndentMm;
+        using var decorationPaint = block.Underline || block.Strikethrough || block.Overline
+            ? Paints.Stroke(color, Math.Max(0.05, style.SizeMm * 0.06), dashMm: null)
+            : null;
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var baseline = top + i * lineHeight + baselineOffset;
+            var justify = hAlign == HorizontalAlign.Justify && i < lines.Count - 1;
+            var extra = justify ? JustifySpacing(style, lines[i], innerWidth) : 0;
+            var x = hAlign == HorizontalAlign.Justify
+                ? innerLeft
+                : style.AlignedX(innerLeft, innerWidth, lines[i], hAlign);
+            if (i == 0)
+                x += firstIndentExtra;
+            style.DrawLine(canvas, lines[i], x, baseline, color, extra);
+
+            if (decorationPaint is null || lines[i].Length == 0)
+                continue;
+
+            var width = style.Measure(lines[i]);
+            if (block.Underline)
+            {
+                var y = baseline + style.SizeMm * 0.12;
+                canvas.DrawLine((float)x, (float)y, (float)(x + width), (float)y, decorationPaint);
+            }
+
+            if (block.Strikethrough)
+            {
+                var y = baseline - style.SizeMm * 0.3;
+                canvas.DrawLine((float)x, (float)y, (float)(x + width), (float)y, decorationPaint);
+            }
+
+            if (block.Overline)
+            {
+                var y = top + i * lineHeight + Math.Max(0.15, style.SizeMm * 0.1);
+                canvas.DrawLine((float)x, (float)y, (float)(x + width), (float)y, decorationPaint);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 一次性算出"这个文本元素最终会画成什么样"：绑定并格式化后的内容、级联后的字体/对齐/内边距、
+    /// 可排区域、行高与折行结果。绘制与分页度量共用这条路径，避免两处各写一份级联逻辑后悄悄漂移。
+    /// </summary>
+    /// <returns>没有可画内容（空串）时返回 null；调用方负责 Dispose。</returns>
+    internal static TextBlock? BuildBlock(TextElement element, RenderContext context)
+    {
         var o = element.Text;
-        var content = DataBinder.BindText(o.Content, context.Data, context.Report, element.Id, element.TestData, context.PreferTestData, context);
+        // 元素带 binding（hiprint field 语义）时内容优先取数据源该字段。
+        var content = DataBinder.BindContent(o.Content, element.Binding, context.Data, context.Report, element.Id, element.TestData, context.PreferTestData, context);
         // formatter（hiprint 同款）：返回值替换显示内容；无脚本/降级保留原文本
         content = ScriptSupport.FormatContent(context, element, o.Content, content);
         if (content.Length == 0)
-            return;
+            return null;
 
         // 样式库级联：库样式打底、内联覆盖（非空内联字段等于模型默认值视为未设置，哨兵口径）
         var named = StyleCascade.Find(context, o.StyleId);
@@ -35,6 +105,9 @@ public sealed class TextRenderer : ElementRenderer<TextElement>
         var italic = StyleCascade.Pick(o.Italic, false, named?.Italic);
         var underline = StyleCascade.Pick(o.Underline, false, named?.Underline);
         var strikethrough = StyleCascade.Pick(o.Strikethrough, false, named?.Strikethrough);
+        var overline = StyleCascade.Pick(o.Overline, false, named?.Overline);
+        var indentMm = StyleCascade.Pick(o.IndentMm, 0, named?.IndentMm);
+        var firstLineIndentMm = StyleCascade.Pick(o.FirstLineIndentMm, 0, named?.FirstLineIndentMm);
         var letterSpacingPt = StyleCascade.Pick(o.LetterSpacingPt, 0, named?.LetterSpacingPt);
         var lineSpacing = StyleCascade.Pick(o.LineSpacing, 1.2, named?.LineSpacing);
         var color = StyleCascade.Pick(o.Color, SKColors.Black, named?.TextColor);
@@ -62,15 +135,16 @@ public sealed class TextRenderer : ElementRenderer<TextElement>
         padRight = script?.PaddingRightMm ?? padRight;
         padBottom = script?.PaddingBottomMm ?? padBottom;
 
-        using var style = new TextStyle(context, fontFamily, fontSizePt, bold, italic, content, element.Id);
+        var style = new TextStyle(context, fontFamily, fontSizePt, bold, italic, content, element.Id);
         style.LetterSpacingMm = Math.Max(0, context.PtToUnits(letterSpacingPt));
 
         // 内边距把可排区域从元素框里缩出来：hiprint 的 contentPadding 是文本真正能占的盒子，
         // 对齐、换行、垂直居中都以它为准，而不是元素框。
         var leftPad = Math.Max(0, padLeft);
-        var innerLeft = element.XMm + leftPad;
+        var indent = Math.Max(0, indentMm);
+        var innerLeft = element.XMm + leftPad + indent;
         var innerTop = element.YMm + Math.Max(0, padTop);
-        var innerWidth = Math.Max(0, element.WidthMm - leftPad - Math.Max(0, padRight));
+        var innerWidth = Math.Max(0, element.WidthMm - leftPad - Math.Max(0, padRight) - indent);
         var innerHeight = Math.Max(0, element.HeightMm - Math.Max(0, padTop) - Math.Max(0, padBottom));
 
         var lineHeight = style.LineHeight(lineSpacing);
@@ -81,45 +155,76 @@ public sealed class TextRenderer : ElementRenderer<TextElement>
                 lines[i] = style.Truncate(lines[i], innerWidth);
         }
 
-        var blockHeight = lines.Count * lineHeight;
-        var top = vAlign switch
+        return new TextBlock
         {
-            VerticalAlign.Middle => innerTop + (innerHeight - blockHeight) / 2,
-            VerticalAlign.Bottom => innerTop + innerHeight - blockHeight,
-            _ => innerTop,
+            Style = style,
+            Content = content,
+            Lines = lines,
+            LineHeight = lineHeight,
+            InnerLeft = innerLeft,
+            InnerTop = innerTop,
+            InnerWidth = innerWidth,
+            InnerHeight = innerHeight,
+            HorizontalAlign = hAlign,
+            VerticalAlign = vAlign,
+            Color = color,
+            Underline = underline,
+            Strikethrough = strikethrough,
+            Overline = overline,
+            FirstLineIndentMm = Math.Max(0, firstLineIndentMm),
         };
-        var baselineOffset = style.BaselineOffset(lineHeight);
+    }
 
-        using var decorationPaint = underline || strikethrough
-            ? Paints.Stroke(color, Math.Max(0.05, style.SizeMm * 0.06), dashMm: null)
-            : null;
+    /// <summary>文本排版结果（绘制与分页度量共用）。持有 <see cref="TextStyle"/>，用后必须 Dispose。</summary>
+    internal sealed class TextBlock : IDisposable
+    {
+        /// <summary>字体/度量上下文。</summary>
+        public required TextStyle Style { get; init; }
 
-        for (var i = 0; i < lines.Count; i++)
-        {
-            var baseline = top + i * lineHeight + baselineOffset;
-            var justify = hAlign == HorizontalAlign.Justify && i < lines.Count - 1;
-            var extra = justify ? JustifySpacing(style, lines[i], innerWidth) : 0;
-            var x = hAlign == HorizontalAlign.Justify
-                ? innerLeft
-                : style.AlignedX(innerLeft, innerWidth, lines[i], hAlign);
-            style.DrawLine(canvas, lines[i], x, baseline, color, extra);
+        /// <summary>绑定 + 格式化后的最终文本。</summary>
+        public required string Content { get; init; }
 
-            if (decorationPaint is null || lines[i].Length == 0)
-                continue;
+        /// <summary>折行结果（已按可排宽度切好）。</summary>
+        public required List<string> Lines { get; init; }
 
-            var width = style.Measure(lines[i]);
-            if (underline)
-            {
-                var y = baseline + style.SizeMm * 0.12;
-                canvas.DrawLine((float)x, (float)y, (float)(x + width), (float)y, decorationPaint);
-            }
+        /// <summary>单行行高（mm）。</summary>
+        public required double LineHeight { get; init; }
 
-            if (strikethrough)
-            {
-                var y = baseline - style.SizeMm * 0.3;
-                canvas.DrawLine((float)x, (float)y, (float)(x + width), (float)y, decorationPaint);
-            }
-        }
+        /// <summary>可排区域左边界（mm）。</summary>
+        public required double InnerLeft { get; init; }
+
+        /// <summary>可排区域上边界（mm）。</summary>
+        public required double InnerTop { get; init; }
+
+        /// <summary>可排区域宽度（mm）。</summary>
+        public required double InnerWidth { get; init; }
+
+        /// <summary>可排区域高度（mm）。</summary>
+        public required double InnerHeight { get; init; }
+
+        /// <summary>水平对齐。</summary>
+        public required HorizontalAlign HorizontalAlign { get; init; }
+
+        /// <summary>垂直对齐。</summary>
+        public required VerticalAlign VerticalAlign { get; init; }
+
+        /// <summary>字色。</summary>
+        public required SKColor Color { get; init; }
+
+        /// <summary>下划线。</summary>
+        public required bool Underline { get; init; }
+
+        /// <summary>删除线。</summary>
+        public required bool Strikethrough { get; init; }
+
+        /// <summary>上划线。</summary>
+        public required bool Overline { get; init; }
+
+        /// <summary>首行额外缩进（mm）。</summary>
+        public required double FirstLineIndentMm { get; init; }
+
+        /// <inheritdoc/>
+        public void Dispose() => Style.Dispose();
     }
 
     /// <summary>两端对齐时每个字缝要补的间距（mm）；行太短或只有一个字时不补。</summary>
@@ -190,10 +295,25 @@ public sealed class RectangleRenderer : ElementRenderer<RectangleElement>
         // 圆角半径夹到短边一半，否则 Skia 会把整条路径判空（画不出也不报错，属静默失败）
         var radius = (float)Math.Max(0, Math.Min(Math.Min(rect.Width, rect.Height) / 2, o.CornerRadiusMm));
 
+        // 逐角模式：cornerRadiiMm 给了非空数组即启用（序「左上,右上,左下,右下」，
+        // 缺省角沿用标量；显式 0 = 直角，压过标量）。填充与描边共用一条路径。
+        var perCornerMode = o.CornerRadiiMm is { Length: > 0 };
+        using var cornerPath = perCornerMode
+            ? CornerRounding.Build(CornerRounding.RectPoints(rect), CornerRounding.RectRadii(o.CornerRadiusMm, o.CornerRadiiMm!))
+            : null;
+
         if (fill is { } fillColor)
         {
             using var fillPaint = Paints.Fill(fillColor);
-            if (radius > 0)
+            if (cornerPath is not null)
+            {
+                canvas.DrawPath(cornerPath, fillPaint);
+            }
+            else if (perCornerMode)
+            {
+                canvas.DrawRect(rect, fillPaint); // 逐角全零＝直角
+            }
+            else if (radius > 0)
             {
                 using var path = new SKPath();
                 path.AddRoundRect(rect, radius, radius, SKPathDirection.Clockwise);
@@ -209,17 +329,46 @@ public sealed class RectangleRenderer : ElementRenderer<RectangleElement>
         {
             var dash = script?.BorderDashPatternMm ?? o.DashPatternMm ?? named?.BorderDashPatternMm;
             using var strokePaint = Paints.Stroke(strokeColor, strokeWidth, dash);
-            if (radius > 0)
+            var sides = element.BorderSides & BorderSide.All;
+            if (sides == BorderSide.All)
             {
-                using var path = new SKPath();
-                path.AddRoundRect(rect, radius, radius, SKPathDirection.Clockwise);
-                canvas.DrawPath(path, strokePaint);
+                if (cornerPath is not null)
+                {
+                    canvas.DrawPath(cornerPath, strokePaint);
+                }
+                else if (perCornerMode)
+                {
+                    canvas.DrawRect(rect, strokePaint);
+                }
+                else if (radius > 0)
+                {
+                    using var path = new SKPath();
+                    path.AddRoundRect(rect, radius, radius, SKPathDirection.Clockwise);
+                    canvas.DrawPath(path, strokePaint);
+                }
+                else
+                {
+                    canvas.DrawRect(rect, strokePaint);
+                }
             }
-            else
+            else if (sides != BorderSide.None)
             {
-                canvas.DrawRect(rect, strokePaint);
+                DrawSides(canvas, rect, sides, strokePaint);
             }
         }
+    }
+
+    /// <summary>在矩形 <paramref name="rect"/> 上只描选中的边（分边线型）。</summary>
+    internal static void DrawSides(SKCanvas canvas, SKRect rect, BorderSide sides, SKPaint paint)
+    {
+        if (sides.HasFlag(BorderSide.Top))
+            canvas.DrawLine(rect.Left, rect.Top, rect.Right, rect.Top, paint);
+        if (sides.HasFlag(BorderSide.Right))
+            canvas.DrawLine(rect.Right, rect.Top, rect.Right, rect.Bottom, paint);
+        if (sides.HasFlag(BorderSide.Bottom))
+            canvas.DrawLine(rect.Left, rect.Bottom, rect.Right, rect.Bottom, paint);
+        if (sides.HasFlag(BorderSide.Left))
+            canvas.DrawLine(rect.Left, rect.Top, rect.Left, rect.Bottom, paint);
     }
 }
 
@@ -256,7 +405,16 @@ public sealed class EllipseRenderer : ElementRenderer<EllipseElement>
         {
             var dash = script?.BorderDashPatternMm ?? o.DashPatternMm ?? named?.BorderDashPatternMm;
             using var strokePaint = Paints.Stroke(strokeColor, strokeWidth, dash);
-            canvas.DrawOval(rect, strokePaint);
+            var sides = element.BorderSides & BorderSide.All;
+            if (sides == BorderSide.All)
+            {
+                canvas.DrawOval(rect, strokePaint);
+            }
+            else if (sides != BorderSide.None)
+            {
+                // 椭圆分边用外接框四边近似（一条直线段代表被保留的那条边）
+                RectangleRenderer.DrawSides(canvas, rect, sides, strokePaint);
+            }
         }
     }
 }

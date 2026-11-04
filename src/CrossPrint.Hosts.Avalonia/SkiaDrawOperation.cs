@@ -16,12 +16,14 @@ namespace CrossPrint.Hosts.Avalonia;
 /// </remarks>
 internal sealed class SkiaDrawOperation : ICustomDrawOperation
 {
-    readonly Action<SKCanvas, Rect> _draw;
+    readonly Action<SKCanvas, Rect, double> _draw;
     readonly Rect _bounds;
+    readonly double _scaling;
 
-    internal SkiaDrawOperation(Rect bounds, Action<SKCanvas, Rect> draw)
+    internal SkiaDrawOperation(Rect bounds, double scaling, Action<SKCanvas, Rect, double> draw)
     {
         _bounds = bounds;
+        _scaling = scaling;
         _draw = draw;
     }
 
@@ -50,6 +52,11 @@ internal sealed class SkiaDrawOperation : ICustomDrawOperation
 
     /// <summary>租出 <see cref="SKCanvas"/> 并交给控件绘制。</summary>
     /// <param name="context">Avalonia 的立即绘制上下文。</param>
+    /// <remarks>
+    /// ⚠ 本方法运行在渲染线程：<c>_draw</c> 内严禁访问 Avalonia 对象（属性读取会触发
+    /// <c>Dispatcher.VerifyAccess</c> 抛 "Call from invalid thread"），也不得改动会回调
+    /// <c>InvalidateVisual</c> 的内核状态。否则整帧被丢弃，窗口会停在上一次画面。
+    /// </remarks>
     public void Render(ImmediateDrawingContext context)
     {
         var feature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
@@ -57,6 +64,6 @@ internal sealed class SkiaDrawOperation : ICustomDrawOperation
             return;
 
         using var lease = feature.Lease();
-        _draw(lease.SkCanvas, _bounds);
+        _draw(lease.SkCanvas, _bounds, _scaling);
     }
 }

@@ -1,4 +1,5 @@
 using CrossPrint.Core;
+using CrossPrint.Core.Rendering;
 using CrossPrint.Engine.Rendering;
 using SkiaSharp;
 
@@ -135,6 +136,37 @@ public sealed class TemplateRenderer
                 canvas.DrawRect(new SKRect(0, 0, (float)pageWidth, (float)pageHeight), bgPaint);
             }
 
+            // 文字水印：垫在所有元素之下、背景之上，打印/导出与设计画布一致（mm 空间 pxPerMm=1）。
+            // 文字支持 {{字段}} 占位符：与文本元素同一套绑定（设计态测试/设计数据优先，打印/导出走宿主数据）。
+            if (template.Watermark is { Enabled: true } watermark && pageWidth > 0 && pageHeight > 0)
+            {
+                var effective = watermark;
+                // 字段绑定（纯字段名自动包 {{}}）与 {{字段}} 占位符同一套 BindContent 口径；
+                // 设计态测试数据优先（preferTestData），打印时测试数据仅作缺字段兜底——与元素一致。
+                if (!string.IsNullOrWhiteSpace(watermark.Binding) || DataBinder.HasPlaceholder(watermark.Text))
+                {
+                    var resolved = DataBinder.BindContent(
+                        watermark.Text, watermark.Binding, context.Data, context.Report, "watermark",
+                        missingFallback: watermark.TestData, preferTestData: context.PreferTestData, context: context);
+                    if (!string.Equals(resolved, watermark.Text, StringComparison.Ordinal))
+                    {
+                        effective = watermark.Clone(); // 不污染模板模型（撤销栈还持有原对象）
+                        effective.Text = resolved;
+                    }
+                }
+
+                var wmSave = canvas.Save();
+                canvas.ClipRect(new SKRect(0, 0, (float)pageWidth, (float)pageHeight));
+                WatermarkPainter.Draw(canvas, effective, pageWidth, pageHeight, pxPerMm: 1.0);
+                canvas.RestoreToCount(wmSave);
+            }
+
+            // 面板整体偏移：整张页面内容平移（背景色保持铺满），实现 hiprint 的 leftOffset/topOffset。
+            var ox = template.LeftOffsetMm;
+            var oy = template.TopOffsetMm;
+            if (ox != 0 || oy != 0)
+                canvas.Translate((float)ox, (float)oy);
+
             foreach (var element in template.Elements.OrderBy(e => e.ZIndex))
             {
                 var renderer = Registry.Find(element.TypeKey);
@@ -170,11 +202,27 @@ public sealed class TemplateRenderer
 
                         // 旋转围绕元素中心：hiprint/浏览器 CSS transform 的默认原点也是元素中心，
                         // 顺时针为正（Skia 与 CSS 的 rotate 同向）。背景、内容、边框一起转。
+                        // scale/translate 同样作用于整块内容（围绕元素中心缩放，再整体平移）。
                         var rotation = !double.IsNaN(element.RotationDegrees) && !double.IsInfinity(element.RotationDegrees) ? element.RotationDegrees : 0;
-                        if (rotation != 0)
-                            canvas.RotateDegrees((float)rotation,
-                                (float)(element.XMm + element.WidthMm / 2),
-                                (float)(element.YMm + element.HeightMm / 2));
+                        var scaleX = !double.IsNaN(element.ScaleX) && !double.IsInfinity(element.ScaleX) ? element.ScaleX : 1;
+                        var scaleY = !double.IsNaN(element.ScaleY) && !double.IsInfinity(element.ScaleY) ? element.ScaleY : 1;
+                        var translateX = !double.IsNaN(element.TranslateMmX) && !double.IsInfinity(element.TranslateMmX) ? element.TranslateMmX : 0;
+                        var translateY = !double.IsNaN(element.TranslateMmY) && !double.IsInfinity(element.TranslateMmY) ? element.TranslateMmY : 0;
+
+                        var cx = element.XMm + element.WidthMm / 2;
+                        var cy = element.YMm + element.HeightMm / 2;
+                        if (rotation != 0 || scaleX != 1 || scaleY != 1)
+                        {
+                            canvas.Translate((float)cx, (float)cy);
+                            if (rotation != 0)
+                                canvas.RotateDegrees((float)rotation);
+                            if (scaleX != 1 || scaleY != 1)
+                                canvas.Scale((float)scaleX, (float)scaleY);
+                            canvas.Translate((float)-cx, (float)-cy);
+                        }
+
+                        if (translateX != 0 || translateY != 0)
+                            canvas.Translate((float)translateX, (float)translateY);
 
                         // styler 每个元素每次渲染只跑一次，框底/边框与内容绘制共用结果（脚本 > 内联 > 库）
                         var named = StyleCascade.Find(context, element.StyleId);

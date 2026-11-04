@@ -142,35 +142,6 @@ internal sealed class MainWindow : Window
         }
     }
 
-    /// <summary>加载输出目录下的 complex-receipt.template.json（80mm 连续纸长小票）并替换当前模板。</summary>
-    void LoadComplexReceipt()
-    {
-        var path = Path.Combine(AppContext.BaseDirectory, "complex-receipt.template.json");
-        if (!File.Exists(path))
-        {
-            SetStatus(Localizer.T("Status.ComplexNotFound"), error: true);
-            return;
-        }
-
-        try
-        {
-            var result = TemplateJson.Load(File.ReadAllText(path), TemplateJsonLoadOptions.Tolerant);
-            var note = Localizer.T("Status.ComplexLoadedInfo", result.Template.Elements.Count);
-            if (result.Warnings.Count > 0)
-                note += string.Join("；", result.Warnings);
-
-            // LoadTemplate 会换内核：纸张栏、属性面板和 JSON 面板都要换到新内核上。
-            _designer.LoadTemplate(result.Template);
-            BindKernel(note);
-            SetStatus(note);
-            _designer.Focus(FocusState.Programmatic);
-        }
-        catch (Exception ex)
-        {
-            SetStatus(Localizer.T("Status.ComplexLoadFailed", ex.Message), error: true);
-        }
-    }
-
     /// <summary>窗口小于最小尺寸时撑回去（Uno 桌面头没有 presenter 级最小尺寸 API）。</summary>
     void OnAppWindowChanged(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
     {
@@ -191,10 +162,6 @@ internal sealed class MainWindow : Window
         var importItem = new MenuFlyoutItem { Text = Localizer.T("Menu.File.ImportHiprint") };
         importItem.Click += (_, _) => ShowImportHiprint();
         fileMenu.Items.Add(importItem);
-
-        var loadItem = new MenuFlyoutItem { Text = Localizer.T("Menu.File.LoadComplex") };
-        loadItem.Click += (_, _) => LoadComplexReceipt();
-        fileMenu.Items.Add(loadItem);
 
         var helpMenu = new MenuBarItem { Title = Localizer.T("Menu.Help") };
         var aboutItem = new MenuFlyoutItem { Text = Localizer.T("Menu.Help.About") };

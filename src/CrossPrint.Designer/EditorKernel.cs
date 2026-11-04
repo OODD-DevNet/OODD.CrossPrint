@@ -15,8 +15,8 @@ namespace CrossPrint.Designer;
 /// <item><description><b>拖拽中途直改模型，松手才出命令。</b>拖拽要实时重绘，等松手再改就变成"拖完才跳"；
 /// 代价是中途状态不在命令里，所以按下时抓一份几何快照（<see cref="_drag"/>），
 /// <see cref="OnKeyDown"/> 的 Esc 用快照回滚——回滚不是撤销，所以不发命令。</description></item>
-/// <item><description><b>所有变更都过 <see cref="EditorCommand"/>。</b>v0.1 故意不做撤销栈（架构 §4.2），
-/// 只把命令通过 <see cref="CommandExecuted"/> 交给宿主；P1 加栈时内核一行不改。</description></item>
+/// <item><description><b>所有变更都过 <see cref="EditorCommand"/>。</b>执行即入撤销栈（容量 <see cref="UndoCapacity"/>，
+/// 默认 200 条），撤销/重做走 <see cref="Undo"/>/<see cref="Redo"/>；命令仍通过 <see cref="CommandExecuted"/> 交给宿主监听。</description></item>
 /// </list>
 /// </remarks>
 public sealed class EditorKernel
@@ -66,6 +66,72 @@ public sealed class EditorKernel
     SKRect? _placingGhostMm;
 
     int _issuedIdFloor;
+
+    readonly List<EditorCommand> _undoStack = [];
+    readonly List<EditorCommand> _redoStack = [];
+
+    /// <summary>撤销栈默认容量（条命令数）。</summary>
+    public const int DefaultUndoCapacity = 200;
+
+    int _undoCapacity = DefaultUndoCapacity;
+
+    /// <summary>撤销栈容量（条命令数），默认 <see cref="DefaultUndoCapacity"/>（200）。入栈超限时最旧的命令被丢弃。</summary>
+    public int UndoCapacity
+    {
+        get => _undoCapacity;
+        set => _undoCapacity = Math.Max(0, value);
+    }
+
+    /// <summary>是否还有可撤销的命令。</summary>
+    public bool CanUndo => _undoStack.Count > 0;
+
+    /// <summary>是否还有可重做的命令。</summary>
+    public bool CanRedo => _redoStack.Count > 0;
+
+    /// <summary>撤销/重做可用性变化（命令执行、撤销、重做、清栈都会触发），宿主据此刷新按钮可用态。</summary>
+    public event Action? UndoStateChanged;
+
+    /// <summary>撤销最近一条命令。没有可撤销内容返回 false。</summary>
+    public bool Undo()
+    {
+        if (_undoStack.Count == 0)
+            return false;
+
+        var command = _undoStack[^1];
+        _undoStack.RemoveAt(_undoStack.Count - 1);
+        command.Revert();
+        _redoStack.Add(command);
+        TemplateChanged?.Invoke();
+        ViewChanged?.Invoke();
+        UndoStateChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>重做最近一条被撤销的命令。没有可重做内容返回 false。</summary>
+    public bool Redo()
+    {
+        if (_redoStack.Count == 0)
+            return false;
+
+        var command = _redoStack[^1];
+        _redoStack.RemoveAt(_redoStack.Count - 1);
+        command.Apply();
+        _undoStack.Add(command);
+        TemplateChanged?.Invoke();
+        ViewChanged?.Invoke();
+        UndoStateChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>清空撤销/重做历史（换模板、整体替换内容时调用）。</summary>
+    public void ClearUndoHistory()
+    {
+        if (_undoStack.Count == 0 && _redoStack.Count == 0)
+            return;
+        _undoStack.Clear();
+        _redoStack.Clear();
+        UndoStateChanged?.Invoke();
+    }
 
     /// <summary>用模板构造内核。内核直接编辑传入的模板对象图（不拷贝），宿主保存的就是这一个实例。</summary>
     /// <param name="template">待编辑模板。</param>
@@ -529,6 +595,19 @@ public sealed class EditorKernel
         Place(element, PlacementDefaults.BoxCenteredAt(typeKey, center.X, center.Y));
     }
 
+    /// <summary>从工具箱拖放添加元素：按类型默认尺寸把元素中心落在给定页面坐标（mm）。未知键不抛，直接返回。</summary>
+    /// <param name="typeKey">类型键，见 <see cref="CrossPrint.Core.ElementTypeKeys"/>。</param>
+    /// <param name="xMm">落点中心 X（mm）。</param>
+    /// <param name="yMm">落点中心 Y（mm）。</param>
+    public void AddElementAt(string typeKey, double xMm, double yMm)
+    {
+        var element = CreatePending(typeKey);
+        if (element is null)
+            return;
+
+        Place(element, PlacementDefaults.BoxCenteredAt(typeKey, xMm, yMm));
+    }
+
     /// <summary>开始"从工具箱拖入"：进入放置态并把首个幽灵框落在起点。松手时元素落在拖出点。</summary>
     /// <param name="typeKey">类型键。</param>
     /// <param name="start">按下点（宿主设备 px）。</param>
@@ -601,6 +680,43 @@ public sealed class EditorKernel
                 : Math.Max(0, Math.Min(pageHeight - clone.HeightMm, source.YMm + DuplicateOffsetMm));
             clones.Add(clone);
         }
+
+        Execute(new DuplicateElementsCommand(Template, Selection, clones));
+        ViewChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 粘贴一批外部复制的元素（宿主 Ctrl+V）：逐个重编 id、按偏移落位（夹进纸内），
+    /// 一次命令整体可撤销；粘贴后选中新元素。来源通常是 <see cref="DuplicateSelection"/> 同源的 CloneDeep 副本。
+    /// </summary>
+    public void PasteElements(IEnumerable<PaperElement> sources, double offsetXmm, double offsetYmm)
+    {
+        if (sources is null)
+            return;
+
+        var pageWidth = Template.Paper.PageWidthMm;
+        var continuous = Template.Paper.IsContinuous;
+        var pageHeight = continuous ? 0 : Template.Paper.PageHeightMm;
+
+        var clones = new List<PaperElement>();
+        foreach (var source in sources)
+        {
+            if (source is null)
+                continue;
+
+            var clone = source.CloneDeep();
+            clone.Id = AssignElementId();
+            clone.XMm = pageWidth > 0
+                ? Math.Max(0, Math.Min(pageWidth - clone.WidthMm, source.XMm + offsetXmm))
+                : source.XMm + offsetXmm;
+            clone.YMm = continuous
+                ? source.YMm + offsetYmm
+                : Math.Max(0, Math.Min(pageHeight - clone.HeightMm, source.YMm + offsetYmm));
+            clones.Add(clone);
+        }
+
+        if (clones.Count == 0)
+            return;
 
         Execute(new DuplicateElementsCommand(Template, Selection, clones));
         ViewChanged?.Invoke();
@@ -1028,6 +1144,26 @@ public sealed class EditorKernel
 
             command = TableColumnCommand.Remove(table, index);
         }
+        else if (actionKey.StartsWith(columnsPrefix, StringComparison.Ordinal) && actionKey.EndsWith("].moveUp", StringComparison.Ordinal))
+        {
+            var index = ParseActionIndex(actionKey, columnsPrefix, "].moveUp");
+            if (index >= table.Table.Columns.Count)
+                throw new InvalidOperationException(
+                    $"动作 \"{actionKey}\" 指向的列已不存在（当前 {table.Table.Columns.Count} 列）。" +
+                    "动作清单与描述符一样是快照，面板必须按最新选中重建。");
+
+            command = TableColumnCommand.Move(table, index, index - 1);
+        }
+        else if (actionKey.StartsWith(columnsPrefix, StringComparison.Ordinal) && actionKey.EndsWith("].moveDown", StringComparison.Ordinal))
+        {
+            var index = ParseActionIndex(actionKey, columnsPrefix, "].moveDown");
+            if (index >= table.Table.Columns.Count)
+                throw new InvalidOperationException(
+                    $"动作 \"{actionKey}\" 指向的列已不存在（当前 {table.Table.Columns.Count} 列）。" +
+                    "动作清单与描述符一样是快照，面板必须按最新选中重建。");
+
+            command = TableColumnCommand.Move(table, index, index + 1);
+        }
         else if (actionKey == ElementTypeKeys.Table + ".appendConditional")
         {
             command = TableListItemCommand<TableConditionalStyle>.Append(
@@ -1129,6 +1265,15 @@ public sealed class EditorKernel
     void Execute(EditorCommand command)
     {
         command.Apply();
+
+        // 撤销栈：执行即入栈，容量超限丢最旧的；任何新命令都会作废整条重做链（与主流编辑器一致）。
+        _undoStack.Add(command);
+        while (_undoStack.Count > UndoCapacity)
+            _undoStack.RemoveAt(0);
+        if (_redoStack.Count > 0)
+            _redoStack.Clear();
+        UndoStateChanged?.Invoke();
+
         TemplateChanged?.Invoke();
         CommandExecuted?.Invoke(command);
     }

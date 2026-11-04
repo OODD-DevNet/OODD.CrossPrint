@@ -103,6 +103,23 @@ public static class TemplateJson
         writer.WritePropertyName("margins");
         WriteMargins(writer, t.Margins);
 
+        writer.WritePropertyName("watermark");
+        JsonSerializer.Serialize(writer, t.Watermark, PayloadOptions);
+
+        if (t.PaperNumberEnabled)
+        {
+            writer.WritePropertyName("paperNumber");
+            writer.WriteStartObject();
+            writer.WriteBoolean("enabled", true);
+            if (!string.IsNullOrWhiteSpace(t.PaperNumberFormat))
+                writer.WriteString("format", t.PaperNumberFormat);
+            if (t.PaperNumberXMm is { } x)
+                writer.WriteNumber("xMm", x);
+            if (t.PaperNumberYMm is { } y)
+                writer.WriteNumber("yMm", y);
+            writer.WriteEndObject();
+        }
+
         // 写出前先按 Add 的规则把空/重复 id 补齐：写出去的文件必须严格模式读得回来。
         var styleIds = UniqueIds(t.Styles.Select(s => s.Id).ToList(), "st-");
         var elementIds = UniqueIds(t.Elements.Select(e => e.Id).ToList(), "el-");
@@ -224,6 +241,19 @@ public static class TemplateJson
         w.WriteNumber("rotationDegrees", e.RotationDegrees);
         w.WriteNumber("opacity", e.Opacity);
 
+        // 分页语义（仅非默认值写出，旧模板零噪音）
+        if (e.Fixed)
+            w.WriteBoolean("fixed", true);
+        if (e.PageBreakAfter)
+            w.WriteBoolean("pageBreakAfter", true);
+        if (!string.IsNullOrWhiteSpace(e.ShowInPages))
+            w.WriteString("showInPages", e.ShowInPages);
+        if (!string.IsNullOrWhiteSpace(e.UnShowInPages))
+            w.WriteString("unShowInPages", e.UnShowInPages);
+
+        if (!string.IsNullOrEmpty(e.Binding))
+            w.WriteString("binding", e.Binding);
+
         if (!string.IsNullOrEmpty(e.TestData))
             w.WriteString("testData", e.TestData);
 
@@ -249,6 +279,9 @@ public static class TemplateJson
                 break;
             case EllipseElement x:
                 WritePayload(w, "ellipse", x.Ellipse);
+                break;
+            case ShapeElement x:
+                WritePayload(w, "shape", x.Shape);
                 break;
             case ImageElement x:
                 WritePayload(w, "image", x.Image);
@@ -419,6 +452,14 @@ public static class TemplateJson
             if (marginsEl is not null)
                 template.Margins = ReadMargins(marginsEl.Value);
 
+            // watermark（可选，缺失 = 默认水印配置，Enabled=false 零迁移）
+            if (root.TryGetProperty("watermark", out var wmEl) && wmEl.ValueKind == JsonValueKind.Object)
+                template.Watermark = Read<WatermarkOptions>(wmEl.GetRawText(), null, "watermark");
+
+            // paperNumber（可选，缺失 = 不启用自动页码）
+            if (root.TryGetProperty("paperNumber", out var pnEl) && pnEl.ValueKind == JsonValueKind.Object)
+                ReadPaperNumber(pnEl, template);
+
             // designData（可选）：设计态预览用的字段值
             if (root.TryGetProperty("designData", out var designEl) && designEl.ValueKind == JsonValueKind.Object)
                 ReadDesignData(designEl, template.DesignData);
@@ -541,6 +582,34 @@ public static class TemplateJson
         return t;
     }
 
+    static void ReadPaperNumber(JsonElement pn, PrintTemplate template)
+    {
+        foreach (var prop in pn.EnumerateObject())
+        {
+            switch (prop.Name)
+            {
+                case "enabled":
+                    if (prop.Value.ValueKind == JsonValueKind.True || prop.Value.ValueKind == JsonValueKind.False)
+                        template.PaperNumberEnabled = prop.Value.GetBoolean();
+                    break;
+                case "format":
+                    if (prop.Value.ValueKind == JsonValueKind.String)
+                        template.PaperNumberFormat = prop.Value.GetString();
+                    break;
+                case "xMm":
+                    if (prop.Value.ValueKind == JsonValueKind.Number)
+                        template.PaperNumberXMm = prop.Value.GetDouble();
+                    break;
+                case "yMm":
+                    if (prop.Value.ValueKind == JsonValueKind.Number)
+                        template.PaperNumberYMm = prop.Value.GetDouble();
+                    break;
+                default:
+                    break; // 未知字段忽略，向前兼容
+            }
+        }
+    }
+
     static void ReadDesignData(JsonElement el, Dictionary<string, string> target)
     {
         foreach (var prop in el.EnumerateObject())
@@ -616,10 +685,21 @@ public static class TemplateJson
         element.BorderDashPatternMm = ReadOptionalDash(el, "borderDashPatternMm", id);
         element.RotationDegrees = ReadOptionalDouble(el, "rotationDegrees", element.RotationDegrees);
         element.Opacity = ReadOptionalDouble(el, "opacity", element.Opacity);
+        element.Binding = ReadOptionalString(el, "binding");
         element.TestData = ReadOptionalString(el, "testData");
         element.StyleId = ReadOptionalString(el, "styleId");
         element.Formatter = ReadOptionalString(el, "formatter");
         element.Styler = ReadOptionalString(el, "styler");
+
+        // 分页语义（缺失 = 默认：不重复、不分页、所有页显示）
+        if (el.TryGetProperty("fixed", out var fixedEl)
+            && (fixedEl.ValueKind == JsonValueKind.True || fixedEl.ValueKind == JsonValueKind.False))
+            element.Fixed = fixedEl.GetBoolean();
+        if (el.TryGetProperty("pageBreakAfter", out var pbEl)
+            && (pbEl.ValueKind == JsonValueKind.True || pbEl.ValueKind == JsonValueKind.False))
+            element.PageBreakAfter = pbEl.GetBoolean();
+        element.ShowInPages = ReadOptionalString(el, "showInPages");
+        element.UnShowInPages = ReadOptionalString(el, "unShowInPages");
 
         if (element.WidthMm < 0 || element.HeightMm < 0)
             throw new TemplateValidationException(id, "widthMm/heightMm", "宽高不能为负。");
@@ -714,6 +794,9 @@ public static class TemplateJson
                 break;
             case EllipseElement e:
                 e.Ellipse = Read<ShapeOptions>(text, e.Id, ElementTypeKeys.Ellipse);
+                break;
+            case ShapeElement e:
+                e.Shape = Read<PolygonOptions>(text, e.Id, ElementTypeKeys.Shape);
                 break;
             case ImageElement e:
                 e.Image = Read<ImageOptions>(text, e.Id, ElementTypeKeys.Image);
@@ -834,6 +917,7 @@ public static class ElementFactory
         [ElementTypeKeys.Line] = static () => new LineElement(),
         [ElementTypeKeys.Rectangle] = static () => new RectangleElement(),
         [ElementTypeKeys.Ellipse] = static () => new EllipseElement(),
+        [ElementTypeKeys.Shape] = static () => new ShapeElement(),
         [ElementTypeKeys.Image] = static () => new ImageElement(),
         [ElementTypeKeys.QrCode] = static () => new QrCodeElement(),
         [ElementTypeKeys.Barcode] = static () => new BarcodeElement(),

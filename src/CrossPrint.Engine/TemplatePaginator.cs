@@ -73,15 +73,23 @@ public static class TemplatePaginator
         if (template is null) throw new ArgumentNullException(nameof(template));
         if (options is null) throw new ArgumentNullException(nameof(options));
 
-        if (!options.AllowTablePagination || template.Paper.PageHeightMm <= 0)
+        if (template.Paper.PageHeightMm <= 0)
             return [SinglePage(template)];
 
-        var measureReport = new RenderReport();
-        var measureContext = new RenderContext(options, measureReport, fontResolver, images, data);
-        // 样式库与正式渲染同一口径：列/表格样式会影响行高测量，不注入会算错分页窗口
-        measureContext.Styles = TemplateRenderer.BuildStyleMap(template);
-        // 列 formatter/styler 会改变单元格文本与字体形态，同样影响行高测量
-        measureContext.Scripts = ScriptRunner.HasScripts(template) ? new ScriptRunner() : null;
+        // 长文本续页度量（只对带 ContinueOnOverflow 的文本做，且必须真的溢出才算"要分页"）。
+        var longTexts = options.AllowGeneralPagination
+            ? MeasureLongTexts(template, options, data, fontResolver, images)
+            : [];
+
+        // 通用分页（手动翻页类：pageBreak/fixed/showInPage/unShowInPage/paperNumber，以及长文本溢出续排）
+        // 优先于表格溢出分页。
+        if (options.AllowGeneralPagination && NeedsGeneralPagination(template, longTexts))
+            return PlanGeneralPages(template, options, data, fontResolver, images, longTexts);
+
+        if (!options.AllowTablePagination)
+            return [SinglePage(template)];
+
+        var measureContext = CreateMeasureContext(template, options, data, fontResolver, images);
 
         TableElement? driver = null;
         var fixedHeight = 0d;
@@ -205,6 +213,322 @@ public static class TemplatePaginator
     static PaginationPage SinglePage(PrintTemplate template) => new(string.Empty, template, default, 0, 0);
 
     /// <summary>
+    /// 分页度量上下文：与正式渲染同一口径（样式库 + 脚本执行器都注入）。
+    /// 表格行高与长文本折行都依赖级联后的字体/内边距，少注入一样就会把窗口算错。
+    /// 规划期的告警一律进一次性报告并丢弃，正式渲染会重新绑定一遍。
+    /// </summary>
+    static RenderContext CreateMeasureContext(
+        PrintTemplate template,
+        RenderOptions options,
+        object? data,
+        IFontResolver? fontResolver,
+        IImageResolver? images)
+    {
+        var context = new RenderContext(options, new RenderReport(), fontResolver, images, data);
+        context.Styles = TemplateRenderer.BuildStyleMap(template);
+        context.Scripts = ScriptRunner.HasScripts(template) ? new ScriptRunner() : null;
+        return context;
+    }
+
+    /// <summary>
+    /// 长文本续页的度量结果：折行后的完整行集合 + 首页能装下的行数。
+    /// 元素框高度扣掉上下内边距就是首页可排高度；续页用"整页内容区高度扣除同一份内边距"。
+    /// </summary>
+    sealed class LongTextFlow
+    {
+        /// <summary>源元素（同一个实例作为字典键，引用相等）。</summary>
+        public required TextElement Element { get; init; }
+
+        /// <summary>绑定 + 折行后的完整行集合。</summary>
+        public required List<string> Lines { get; init; }
+
+        /// <summary>单行行高（mm）。</summary>
+        public required double LineHeight { get; init; }
+
+        /// <summary>首页可排高度（mm，已扣上下内边距）。</summary>
+        public required double InnerHeight { get; init; }
+
+        /// <summary>元素框高度（mm），用于反推"上下内边距一共占了多少"。</summary>
+        public required double BoxHeight { get; init; }
+
+        /// <summary>首页能装下的行数（至少 1）。</summary>
+        public required int FirstCapacity { get; init; }
+
+        /// <summary>续页能装下的行数，规划时按内容区高度算出。</summary>
+        public int ContinuationCapacity { get; set; }
+
+        /// <summary>这个元素一共占几页（1 表示没溢出，不参与切片）。</summary>
+        public int Pages { get; set; } = 1;
+
+        /// <summary>首页页码（0 起）。</summary>
+        public int StartPage { get; set; }
+
+        /// <summary>是否真的溢出（装得下就不该改变分页语义）。</summary>
+        public bool Overflows => Lines.Count > FirstCapacity;
+    }
+
+    /// <summary>
+    /// 度量所有"内容溢出自动续页"的文本元素。装得下的也返回（调用方按 <see cref="LongTextFlow.Overflows"/> 过滤），
+    /// 这样"是否要启用通用分页"与"每页切多少行"用的是同一次测量。
+    /// </summary>
+    static List<LongTextFlow> MeasureLongTexts(
+        PrintTemplate template,
+        RenderOptions options,
+        object? data,
+        IFontResolver? fontResolver,
+        IImageResolver? images)
+    {
+        List<LongTextFlow>? flows = null;
+        RenderContext? context = null;
+        foreach (var element in template.Elements)
+        {
+            if (element is not TextElement text || !text.Text.ContinueOnOverflow || text.HeightMm <= 0)
+                continue;
+
+            context ??= CreateMeasureContext(template, options, data, fontResolver, images);
+            using var block = TextRenderer.BuildBlock(text, context);
+            if (block is null)
+                continue;
+
+            flows ??= [];
+            flows.Add(new LongTextFlow
+            {
+                Element = text,
+                Lines = block.Lines,
+                LineHeight = block.LineHeight,
+                InnerHeight = block.InnerHeight,
+                BoxHeight = text.HeightMm,
+                FirstCapacity = Capacity(block.InnerHeight, block.LineHeight),
+            });
+        }
+
+        return flows ?? [];
+    }
+
+    /// <summary>给定可排高度与行高，能排几行（至少 1 行，避免除零把分页卡死）。</summary>
+    static int Capacity(double heightMm, double lineHeightMm)
+        => lineHeightMm <= 0 ? int.MaxValue : Math.Max(1, (int)Math.Floor(heightMm / lineHeightMm + 1e-9));
+
+    /// <summary>
+    /// 通用分页（手动翻页类）：把模板当作一张「逻辑长页」按页面高度切片成多页。
+    /// 元素按 Y 坐标落入第 <c>floor((Y - 上留白) / 页高)</c> 页；<c>pageBreak</c> 强制其后元素另起一页；
+    /// <c>fixed</c> 元素与绑定页码占位符的文本元素每页重复；<c>showInPage</c>/<c>unShowInPage</c>
+    /// 按 1 起页号过滤；<c>paperNumber</c> 为每页追加页码脚注。
+    /// 落在第 k 页的流元素整体向下平移 k×页高，使每页视口内坐标一致。
+    /// </summary>
+    static IReadOnlyList<PaginationPage> PlanGeneralPages(
+        PrintTemplate template,
+        RenderOptions options,
+        object? data,
+        IFontResolver? fontResolver,
+        IImageResolver? images,
+        IReadOnlyList<LongTextFlow> longTexts)
+    {
+        var contentTop = Math.Max(0, template.Margins.Top);
+        var contentBottom = Math.Max(contentTop, template.Paper.PageHeightMm - Math.Max(0, template.Margins.Bottom));
+        var pageHeight = contentBottom - contentTop;
+        if (pageHeight <= 0)
+            return [SinglePage(template)];
+
+        // 常驻每页的元素：fixed，以及绑定了页码占位符的文本（这两类从流元素里排除，避免重复）
+        var pageNumberEls = template.Elements
+            .OfType<TextElement>()
+            .Where(t => BindsPageNumber(t.Text.Content))
+            .Cast<PaperElement>()
+            .ToList();
+        var pageNumberIds = new HashSet<string>(pageNumberEls.Select(e => e.Id));
+
+        var fixedEls = template.Elements
+            .Where(e => e.Fixed && !pageNumberIds.Contains(e.Id))
+            .ToList();
+        var flowEls = template.Elements
+            .Where(e => !e.Fixed && !pageNumberIds.Contains(e.Id))
+            .OrderBy(e => e.YMm)
+            .ThenBy(e => e.XMm)
+            .ToList();
+
+        // 长文本续页：只对"真的溢出"且属于流元素的文本切片（fixed 元素每页重复，续页语义冲突，不切片）
+        var flows = longTexts
+            .Where(f => f.Overflows && !f.Element.Fixed && !pageNumberIds.Contains(f.Element.Id))
+            .ToList();
+        var flowByEl = new Dictionary<PaperElement, LongTextFlow>();
+        foreach (var flow in flows)
+        {
+            // 续页用整页内容区高度，扣掉与首页相同的上下内边距占位（BoxHeight - InnerHeight）
+            var padding = Math.Max(0, flow.BoxHeight - flow.InnerHeight);
+            flow.ContinuationCapacity = Capacity(pageHeight - padding, flow.LineHeight);
+            flowByEl[flow.Element] = flow;
+        }
+
+        // 切片 + 强制分页：元素的自然页号由 Y 决定，pageBreak 把后续元素推到下一页起，
+        // 长文本把后续元素推到它续排结束的下一页起（与 hiprint 的 longText 顺延语义一致）
+        var pageOf = new Dictionary<PaperElement, int>();
+        var forcedMin = 0;
+        foreach (var el in flowEls)
+        {
+            var natural = (int)Math.Floor((el.YMm - contentTop) / pageHeight);
+            if (natural < 0) natural = 0;
+            var pg = Math.Max(natural, forcedMin);
+            pageOf[el] = pg;
+
+            if (flowByEl.TryGetValue(el, out var flow))
+            {
+                var capacity = Math.Max(1, flow.ContinuationCapacity);
+                var remaining = flow.Lines.Count - flow.FirstCapacity;
+                flow.Pages = 1 + (remaining > 0 ? (remaining + capacity - 1) / capacity : 0);
+                flow.StartPage = pg;
+                forcedMin = Math.Max(forcedMin, pg + flow.Pages);
+            }
+
+            if (el.PageBreakAfter)
+                forcedMin = Math.Max(forcedMin, pg + 1);
+        }
+
+        var maxPage = pageOf.Count > 0 ? pageOf.Values.Max() : 0;
+        foreach (var flow in flows)
+            maxPage = Math.Max(maxPage, flow.StartPage + flow.Pages - 1);
+        var total = maxPage + 1;
+
+        var pages = new List<PaginationPage>(total);
+        for (var p = 0; p < total; p++)
+        {
+            var displayPage = p + 1;
+            var elements = new List<PaperElement>();
+
+            foreach (var el in flowEls)
+            {
+                if (!IsVisibleOnPage(el, displayPage))
+                    continue;
+
+                if (flowByEl.TryGetValue(el, out var flow))
+                {
+                    var slicePage = p - flow.StartPage;
+                    if (slicePage < 0 || slicePage >= flow.Pages)
+                        continue;
+                    var slice = BuildLongTextSlice(flow, slicePage, p, contentTop, contentBottom, pageHeight);
+                    if (slice is not null)
+                        elements.Add(slice);
+                    continue;
+                }
+
+                if (pageOf[el] != p)
+                    continue;
+                var clone = (PaperElement)el.CloneDeep();
+                clone.YMm = el.YMm - p * pageHeight;
+                elements.Add(clone);
+            }
+
+            foreach (var el in fixedEls)
+                elements.Add((PaperElement)el.CloneDeep());
+
+            foreach (var el in pageNumberEls)
+                elements.Add((PaperElement)el.CloneDeep());
+
+            if (template.PaperNumberEnabled)
+            {
+                var footer = BuildPaperNumberFooter(template, contentTop, contentBottom);
+                if (footer is not null)
+                    elements.Add(footer);
+            }
+
+            pages.Add(new PaginationPage(string.Empty, ShallowWithElements(template, elements), default, displayPage, total));
+        }
+
+        return pages;
+    }
+
+    /// <summary>
+    /// 元素在指定显示页（1 起）是否可见：unShowInPage 优先排除，其次 showInPage 限定。
+    /// 解析口径统一交给 <see cref="PageRangeSpec"/>——设计器面板写进来的规格与这里读的是同一份。
+    /// </summary>
+    internal static bool IsVisibleOnPage(PaperElement el, int displayPage)
+        => PageRangeSpec.IsVisibleOn(el.ShowInPages, el.UnShowInPages, displayPage);
+
+    /// <summary>为每页构造页码脚注文本元素（内容绑定 <c>{{pageNo}}/{{pageCount}}</c>）。</summary>
+    static PaperElement? BuildPaperNumberFooter(PrintTemplate template, double contentTop, double contentBottom)
+    {
+        var format = template.PaperNumberFormat ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(format))
+            format = "第 {{pageNo}} / {{pageCount}} 页";
+
+        var text = new TextElement
+        {
+            Id = template.NextElementId(),
+            Text = new TextOptions { Content = format, HorizontalAlign = HorizontalAlign.Center },
+            WidthMm = Math.Max(10, template.Paper.WidthMm - template.Margins.Left - template.Margins.Right),
+            HeightMm = 6,
+            ZIndex = int.MaxValue,
+        };
+
+        text.XMm = template.PaperNumberXMm
+            ?? (template.Margins.Left + (template.Paper.WidthMm - template.Margins.Left - template.Margins.Right - text.WidthMm) / 2);
+        text.YMm = template.PaperNumberYMm
+            ?? Math.Max(contentTop, contentBottom - 6);
+
+        return text;
+    }
+
+    /// <summary>
+    /// 模板是否触发通用分页：含任意分页元素标志、启用了自动页码，或有真的溢出需要续页的长文本。
+    /// 长文本装得下时<b>不算</b>（否则仅带标记就会把模板切成按 Y 切片的通用分页，凭空多出页）。
+    /// </summary>
+    static bool NeedsGeneralPagination(PrintTemplate template, IReadOnlyList<LongTextFlow> longTexts)
+    {
+        if (template.PaperNumberEnabled)
+            return true;
+        if (longTexts.Any(f => f.Overflows && !f.Element.Fixed))
+            return true;
+        foreach (var el in template.Elements)
+        {
+            if (el.PageBreakAfter || el.Fixed
+                || !string.IsNullOrWhiteSpace(el.ShowInPages)
+                || !string.IsNullOrWhiteSpace(el.UnShowInPages))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 截取长文本元素在某一页要显示的行，生成该页的元素副本。
+    /// 首页沿用元素原框与原 Y（只把视口按页平移掉）；续页贴内容区顶端、占满整页内容区、顶端对齐。
+    /// </summary>
+    static TextElement? BuildLongTextSlice(
+        LongTextFlow flow,
+        int slicePage,
+        int pageIndex,
+        double contentTop,
+        double contentBottom,
+        double pageHeight)
+    {
+        var capacity = Math.Max(1, flow.ContinuationCapacity);
+        var start = slicePage == 0 ? 0 : flow.FirstCapacity + (slicePage - 1) * capacity;
+        if (start >= flow.Lines.Count)
+            return null;
+
+        var count = Math.Min(slicePage == 0 ? flow.FirstCapacity : capacity, flow.Lines.Count - start);
+        var clone = (TextElement)flow.Element.CloneDeep();
+        clone.Text.Content = string.Join("\n", flow.Lines.Skip(start).Take(count));
+        // 这些行已经是最终折行结果：关掉二次折行与省略号，避免渲染期在同一个宽度上再断一次行
+        clone.Text.Wrap = false;
+        clone.Text.Ellipsis = false;
+        clone.Text.ContinueOnOverflow = false;
+
+        if (slicePage == 0)
+        {
+            clone.YMm = flow.Element.YMm - pageIndex * pageHeight;
+        }
+        else
+        {
+            clone.YMm = contentTop;
+            clone.HeightMm = Math.Max(0, contentBottom - contentTop);
+            clone.Text.VerticalAlign = VerticalAlign.Top;
+        }
+
+        return clone;
+    }
+
+    /// <summary>
     /// 首页变体：完整布局（信头照画、落款区让位），表格克隆体原地撑到内容区底——
     /// 后面还有数据时，表格元素框下方的空白没有保留价值。原模板不被改动。
     /// </summary>
@@ -236,6 +560,9 @@ public static class TemplatePaginator
         double tableHeightMm)
     {
         var table = (TableElement)driver.CloneDeep();
+        // 续页仅在 RepeatHeaderOnEachPage 为假时隐藏表头；首页保留原始 ShowHeader。
+        if (!table.Table.RepeatHeaderOnEachPage)
+            table.Table.ShowHeader = false;
         table.YMm = contentTopMm;
         table.HeightMm = Math.Max(0, tableHeightMm);
 

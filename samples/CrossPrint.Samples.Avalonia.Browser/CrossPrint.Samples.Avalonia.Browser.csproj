@@ -26,6 +26,8 @@
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Browser" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
+    <!-- 共享源码（属性面板/水印设置）用到 ColorPicker 控件：基础控件包（浏览器端用 Fluent 默认样式）。 -->
+    <PackageReference Include="Avalonia.Controls.ColorPicker" />
   </ItemGroup>
 
   <ItemGroup>

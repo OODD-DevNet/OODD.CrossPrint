@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Threading;
 using CrossPrint.Core;
 using CrossPrint.Designer;
 using CrossPrint.Engine;
@@ -140,26 +141,57 @@ public sealed class PreviewControl : Control
     /// <inheritdoc />
     public override void Render(DrawingContext context)
     {
-        context.Custom(new SkiaDrawOperation(new Rect(Bounds.Size), DrawFrame));
+        // 同 DesignerControl：缩放经 TopLevel 读取，只能在 UI 线程读一次后快照带走。
+        context.Custom(new SkiaDrawOperation(new Rect(Bounds.Size), RenderScaling, DrawFrame));
     }
 
-    void OnKernelChanged() => InvalidateVisual();
-
-    void DrawFrame(SKCanvas canvas, Rect bounds)
+    void OnKernelChanged()
     {
+        // 内核可能在渲染线程被改：统一切回 UI 线程再重绘（同 DesignerControl）。
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(InvalidateVisual);
+            return;
+        }
+
+        InvalidateVisual();
+    }
+
+    /// <inheritdoc />
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        var size = base.ArrangeOverride(finalSize);
+
+        // 自动适配会触发内核回调 → InvalidateVisual，只能在 UI 线程（布局阶段）做。
+        SyncViewport(finalSize);
+        return size;
+    }
+
+    /// <summary>首次拿到真实尺寸时做一次整页适配（UI 线程）。</summary>
+    /// <param name="size">控件尺寸（DIP）。</param>
+    void SyncViewport(Size size)
+    {
+        if (_autoFitDone)
+            return;
+
         var scaling = RenderScaling;
+        var width = size.Width * scaling;
+        var height = size.Height * scaling;
+        if (width < 1 || height < 1)
+            return;
+
+        _autoFitDone = true;
+        _kernel.Viewport.FitToPage(Template.Paper.PageWidthMm, _kernel.PageHeightMm, width, height, 96.0 * scaling);
+    }
+
+    void DrawFrame(SKCanvas canvas, Rect bounds, double scaling)
+    {
         var width = bounds.Width * scaling;
         var height = bounds.Height * scaling;
         if (width < 1 || height < 1)
             return;
 
         var dpi = 96.0 * scaling;
-
-        if (!_autoFitDone)
-        {
-            _autoFitDone = true;
-            _kernel.Viewport.FitToPage(Template.Paper.PageWidthMm, _kernel.PageHeightMm, width, height, dpi);
-        }
 
         var save = canvas.Save();
         canvas.Scale(1f / (float)scaling);

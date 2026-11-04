@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using CrossPrint.Core;
 using FluentAssertions;
+using SkiaSharp;
 using Xunit;
 
 namespace CrossPrint.Engine.Tests;
@@ -461,6 +462,71 @@ public class DataBinderTests
 
         DataBinder.BindText("{{name}}", root, report, "e").Should().BeEmpty();
         report.Issues.Should().ContainSingle(i => i.Kind == RenderIssueKind.BindingMissingField);
+    }
+
+    // ---------------- 元素内容绑定（binding，hiprint field 语义） ----------------
+
+    [Fact]
+    public void 内容绑定_字段有值时优先于原内容_纯路径与表达式等价()
+    {
+        var report = new RenderReport();
+        DataBinder.BindContent("原内容", "customer.name", Sample, report, "e").Should().Be("Ada Lovelace");
+        DataBinder.BindContent("原内容", "{{customer.name}}", Sample, report, "e")
+            .Should().Be("Ada Lovelace", "纯路径与 {{}} 表达式两种写法等价");
+        report.Issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void 内容绑定_设计态测试数据优先_打印态缺字段印空并告警()
+    {
+        var design = new RenderReport();
+        DataBinder.BindContent("原内容", "customer.name", Sample, design, "e", missingFallback: "测试值", preferTestData: true)
+            .Should().Be("测试值", "设计画布：用户输入的测试数据说了算");
+
+        var print = new RenderReport();
+        DataBinder.BindContent("原内容", "no.such.field", Sample, print, "e")
+            .Should().BeEmpty("字段解析不到与占位符口径一致：印空 + 告警，不回落原内容");
+        print.Issues.Should().ContainSingle(i => i.Kind == RenderIssueKind.BindingMissingField);
+    }
+
+    [Fact]
+    public void 内容绑定_未绑定走原占位符解析()
+    {
+        var report = new RenderReport();
+        DataBinder.BindContent("单号 {{orderNo}}", null, Sample, report, "e")
+            .Should().Be("单号 CP-2026-0001");
+        report.Issues.Should().BeEmpty();
+    }
+
+    /// <summary>端到端：binding 让空内容元素印出绑定值；机制关掉（binding 不消费）时零墨。
+    /// 正对照（无 binding 的同形状元素）保证墨不是别的东西出的。</summary>
+    [Fact]
+    public void 渲染端到端_空内容加字段绑定_印出绑定值()
+    {
+        const double dpi = 150;
+        var window = new SKRect(10, 10, 70, 18);
+
+        var bound = Fixture.RenderElement(
+            new TextElement
+            {
+                Id = "t",
+                XMm = 10, YMm = 10, WidthMm = 60, HeightMm = 8,
+                Binding = "name",
+                Text = new TextOptions { Content = string.Empty, FontFamily = "Arial", FontSizePt = 12 },
+            },
+            dpi: dpi, data: new { name = "BOUND-VALUE" });
+
+        var empty = Fixture.RenderElement(
+            new TextElement
+            {
+                Id = "t",
+                XMm = 10, YMm = 10, WidthMm = 60, HeightMm = 8,
+                Text = new TextOptions { Content = string.Empty, FontFamily = "Arial", FontSizePt = 12 },
+            },
+            dpi: dpi, data: new { name = "BOUND-VALUE" });
+
+        Ink.NonWhitePixelCountInMm(bound, dpi, window).Should().BeGreaterThan(0, "绑定值应被印出来");
+        Ink.NonWhitePixelCountInMm(empty, dpi, window).Should().Be(0, "正对照：没有 binding 的空内容不该有墨");
     }
 
     sealed record Customer(string Name, string? City);

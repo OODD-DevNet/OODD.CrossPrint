@@ -8,10 +8,12 @@ using CrossPrint.Core;
 namespace CrossPrint.Samples.Avalonia;
 
 /// <summary>
-/// 自定义纸张对话框：纸宽必填，纸高留空表示连续纸（长度随内容自适应）。
+/// 自定义纸张对话框内容：纸宽必填，纸高留空表示连续纸（长度随内容自适应）。
 /// 单位一律 mm，与模板存储口径一致；非法值留在对话框里提示，不会把半截状态写进模板。
+/// 是 UserControl 而非 Window：由 <see cref="ModalDialog"/> 决定桌面包窗口还是浏览器挂 overlay
+/// （浏览器单视图没有 WindowingPlatform，Window 一实例化就抛）。
 /// </summary>
-public sealed class PaperSizeDialog : Window
+public sealed class PaperSizeDialog : UserControl
 {
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -29,13 +31,6 @@ public sealed class PaperSizeDialog : Window
     public PaperSizeDialog(PaperSpec current)
     {
         ArgumentNullException.ThrowIfNull(current);
-
-        Title = "自定义纸张";
-        Width = 400;
-        Height = 280;
-        CanResize = false;
-        ShowInTaskbar = false;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         _width.Text = current.WidthMm.ToString("0.##", Inv);
         _height.Text = current.HeightMm > 0 ? current.HeightMm.ToString("0.##", Inv) : string.Empty;
@@ -69,7 +64,6 @@ public sealed class PaperSizeDialog : Window
         {
             Content = "确定",
             MinWidth = 76,
-            IsDefault = true,
         };
         ok.Click += (_, _) => Commit();
 
@@ -77,9 +71,8 @@ public sealed class PaperSizeDialog : Window
         {
             Content = "取消",
             MinWidth = 76,
-            IsCancel = true,
         };
-        cancel.Click += (_, _) => Close();
+        cancel.Click += (_, _) => ModalDialog.CloseHost(this);
 
         var buttons = new StackPanel
         {
@@ -150,7 +143,7 @@ public sealed class PaperSizeDialog : Window
         WidthMm = width;
         HeightMm = height;
         Confirmed = true;
-        Close();
+        ModalDialog.CloseHost(this);
     }
 
     void Warn(string message, TextBox focus)

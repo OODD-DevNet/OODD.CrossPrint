@@ -37,9 +37,13 @@ public class ElementPropertiesTests
     [
         "id", "xMm", "yMm", "widthMm", "heightMm", "zIndex",
         "backgroundColor", "borderColor", "borderWidthMm", "borderDashPatternMm", "borderSides", "rotationDegrees", "opacity",
+        "binding",
         "styleId",
         "formatter", "styler",
         "testData",
+        // 分页语义（PaperElement 公共字段）：每页重复 / 强制分页 / 显示页区间 / 隐藏页区间。
+        // 这四项曾被模型支持但通道缺失，宿主面板编辑不到，只能改 JSON。
+        "fixed", "pageBreakAfter", "showInPages", "unShowInPages",
     ];
 
     // ---------------- 1. 完备性门 ----------------
@@ -396,7 +400,7 @@ public class ElementPropertiesTests
         element.As<TableElement>().Table.Columns[0].Title.Should().Be("规格");
 
         var columnCount = props.Descriptors.Count(d => d.Key.StartsWith("table.columns[", StringComparison.Ordinal));
-        columnCount.Should().Be(element.As<TableElement>().Table.Columns.Count * 13, "每列 13 个可写字段（含样式引用、同值合并开关、格式化/样式脚本）");
+        columnCount.Should().Be(element.As<TableElement>().Table.Columns.Count * 17, "每列 17 个可写字段（含样式引用、同值合并开关、格式化/样式脚本、单元格渲染/码制/纠错等级/可读文本）");
     }
 
     [Fact]
@@ -429,7 +433,7 @@ public class ElementPropertiesTests
         element.As<TableElement>().Table.HeaderRows[0].Title.Should().Be("订单信息");
 
         var cellCount = props.Descriptors.Count(d => d.Key.StartsWith("table.headerRows[", StringComparison.Ordinal));
-        cellCount.Should().Be(element.As<TableElement>().Table.HeaderRows.Count * 8, "每个表头单元格 8 个可写字段（含样式引用）");
+        cellCount.Should().Be(element.As<TableElement>().Table.HeaderRows.Count * 9, "每个表头单元格 9 个可写字段（含样式引用、分组标题）");
 
         // 删掉表头行（清空后 0 号键指向的单元格已不存在）：读不炸面板，写不下哑巴亏。
         element.As<TableElement>().Table.HeaderRows.Clear();
@@ -725,6 +729,23 @@ public class ElementPropertiesTests
             PropertyKind.StyleRef => Equals(current, "st-sample") ? "st-other" : "st-sample",
             _ => throw new NotSupportedException($"未覆盖的描述符种类 {descriptor.Kind}"),
         };
+    }
+
+    /// <summary>分页区间是六宿主共用的数据驱动通道，输入规范化必须真的落到模型上。</summary>
+    [Fact]
+    public void 分页区间_经属性通道提交时统一规范化()
+    {
+        var element = NewElement(ElementTypeKeys.Text);
+        var props = ElementProperties.For(element);
+
+        props.Find("showInPages")!.SetValue(element, " 1， 5-3 ，1, 08 ");
+        element.ShowInPages.Should().Be("1,3-5,8", "面板写进来的规格要变成稳定写法，引擎与 JSON 才不会各读一套");
+
+        props.Find("unShowInPages")!.SetValue(element, " 7 - 8 ， 7 - 8 ");
+        element.UnShowInPages.Should().Be("7-8", "区间翻正 + 全角逗号 + 完全相同的段去重");
+
+        props.Find("showInPages")!.SetValue(element, "   ");
+        element.ShowInPages.Should().BeNull("留空 = 所有页显示");
     }
 
     static string Join(IEnumerable<string> values) => string.Join(", ", values);

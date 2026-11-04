@@ -25,10 +25,16 @@ public sealed class App : Application
 
     public override void Initialize()
     {
+        // 样例外壳固定浅色调色板：主窗口/弹窗/菜单浮层统一亮色。
+        // 之前只把 MainWindow 锁了 Light，弹出的新 Window 跟随系统（暗色系统下全变黑底）。
+        RequestedThemeVariant = global::Avalonia.Styling.ThemeVariant.Light;
+
 #if !BROWSER
         // 桌面端：Semi Design 主题（圆角按钮、阴影输入框、Ant Design 蓝主色调）
         // Semi.Avalonia 是主题不是控件库——原生 Button/TextBox/ComboBox/DataGrid 自动套用 Semi 风格
         Styles.Add(new SemiTheme());
+        // 取色面板（ColorView/ColorPicker 控件族）的 Semi 皮肤：属性面板颜色行的弹层取色器要靠它才有样式
+        Styles.Add(new Semi.Avalonia.ColorPicker.ColorPickerSemiTheme());
 #else
         // 浏览器 WASM：Semi 未经过 WASM 验证，保持 FluentTheme
         Styles.Add(new FluentTheme());

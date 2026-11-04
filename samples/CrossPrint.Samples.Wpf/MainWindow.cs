@@ -165,10 +165,6 @@ internal sealed class MainWindow : Window
         importItem.Click += (_, _) => ImportHiprintDialog();
         fileMenu.Items.Add(importItem);
 
-        var loadComplexItem = new MenuItem { Header = Localizer.T("Menu.File.LoadComplex") };
-        loadComplexItem.Click += (_, _) => LoadComplexSampleTemplate();
-        fileMenu.Items.Add(loadComplexItem);
-
         var stylesItem = new MenuItem { Header = Localizer.T("Menu.File.StyleLibrary") };
         stylesItem.Click += (_, _) => OpenStyleLibrary();
         stylesItem.ToolTip = Localizer.T("Menu.File.StyleLibraryTip");
@@ -1065,35 +1061,6 @@ internal sealed class MainWindow : Window
         var skipped = result.Issues.Count(i => i.Severity == HiprintImportSeverity.Error);
         return $"已导入 {sourceName}：{elements} 个元素，{result.Issues.Count} 条导入告警（{skipped} 条跳过）{designData}。"
             + string.Join("；", result.Issues.Take(3));
-    }
-
-    /// <summary>读取输出目录下的复杂小票模板（80mm 连续纸长小票），替换当前设计器模板。</summary>
-    void LoadComplexSampleTemplate()
-    {
-        var path = Path.Combine(AppContext.BaseDirectory, "complex-receipt.template.json");
-        if (!File.Exists(path))
-        {
-            SetStatus(Localizer.T("Status.ComplexNotFound"), error: true);
-            return;
-        }
-
-        try
-        {
-            var result = TemplateJson.Load(File.ReadAllText(path), TemplateJsonLoadOptions.Tolerant);
-            var note = Localizer.T("Status.ComplexLoadedInfo", result.Template.Elements.Count);
-            if (result.Warnings.Count > 0)
-                note += "；" + string.Join("；", result.Warnings);
-
-            // LoadTemplate 会换内核：属性面板、纸张同步和 JSON 面板都要接到新内核上（同 hiprint 导入）。
-            _designer.LoadTemplate(result.Template);
-            BindKernel(note);
-            SetStatus(note);
-            FocusDesigner();
-        }
-        catch (Exception ex)
-        {
-            SetStatus(Localizer.T("Status.ComplexLoadFailed", ex.Message), error: true);
-        }
     }
 
     void ExportPdf()

@@ -74,6 +74,25 @@ public sealed class TextOptions
     /// <summary>是否绘制删除线。</summary>
     public bool Strikethrough { get; set; }
 
+    /// <summary>是否绘制上划线（文本顶部线）。</summary>
+    public bool Overline { get; set; }
+
+    /// <summary>整段左缩进（mm）；同时缩小换行可用宽度。</summary>
+    public double IndentMm { get; set; }
+
+    /// <summary>首行额外左缩进（mm），叠加在 <see cref="IndentMm"/> 之上。</summary>
+    public double FirstLineIndentMm { get; set; }
+
+    /// <summary>
+    /// 内容超出元素框时自动续到下一页（hiprint <c>longText</c>）：排版后剩下的行接着排在
+    /// 下一页内容区顶端，直到排完；它后面（Y 更大）的流元素顺延到续排结束的下一页。
+    /// </summary>
+    /// <remarks>
+    /// 只有定高纸 + 开启 <see cref="RenderOptions.AllowGeneralPagination"/> 时生效。
+    /// 内容装得下时零行为差异（不会因为带这个标记就多出空白页）。
+    /// </remarks>
+    public bool ContinueOnOverflow { get; set; }
+
     internal TextOptions Clone() => new()
     {
         Content = Content,
@@ -95,6 +114,10 @@ public sealed class TextOptions
         Ellipsis = Ellipsis,
         Underline = Underline,
         Strikethrough = Strikethrough,
+        Overline = Overline,
+        IndentMm = IndentMm,
+        FirstLineIndentMm = FirstLineIndentMm,
+        ContinueOnOverflow = ContinueOnOverflow,
     };
 }
 
@@ -184,6 +207,13 @@ public sealed class ShapeOptions
     /// <summary>圆角半径（mm），仅矩形生效，渲染时夹取到短边一半。</summary>
     public double CornerRadiusMm { get; set; }
 
+    /// <summary>
+    /// 逐角圆角半径（mm），逗号序「左上,右上,左下,右下」；null/空 = 全部沿用 <see cref="CornerRadiusMm"/>，
+    /// 长度不足时缺省角重复最后一个给定值（只填一个值＝四角相同）。
+    /// 渲染时逐角夹取到相邻半边长。椭圆两字段都不生效。
+    /// </summary>
+    public double[]? CornerRadiiMm { get; set; }
+
     /// <summary>虚线段长（mm）循环，null 为实线。</summary>
     public double[]? DashPatternMm { get; set; }
 
@@ -194,6 +224,7 @@ public sealed class ShapeOptions
         StrokeWidthMm = StrokeWidthMm,
         FillColor = FillColor,
         CornerRadiusMm = CornerRadiusMm,
+        CornerRadiiMm = CornerRadiiMm is null ? null : (double[])CornerRadiiMm.Clone(),
         DashPatternMm = DashPatternMm is null ? null : (double[])DashPatternMm.Clone(),
     };
 }
@@ -234,6 +265,127 @@ public sealed class EllipseElement : PaperElement
     }
 }
 
+/// <summary>形状种类（Office「插入形状」常用集）。渲染为元素矩形内的归一化多边形。</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ShapeKind
+{
+    /// <summary>矩形/正方形（四角直角；逐角圆角可用 <see cref="PolygonOptions.CornerRadiiMm"/>）。</summary>
+    Rectangle,
+
+    /// <summary>圆角矩形（<see cref="PolygonOptions.CornerRadiusMm"/> 生效）。</summary>
+    RoundRect,
+
+    /// <summary>等腰三角形（顶边中点朝上）。</summary>
+    Triangle,
+
+    /// <summary>直角三角形（直角在左下）。</summary>
+    RightTriangle,
+
+    /// <summary>菱形。</summary>
+    Diamond,
+
+    /// <summary>平行四边形（斜边朝右）。</summary>
+    Parallelogram,
+
+    /// <summary>等腰梯形（短边朝上）。</summary>
+    Trapezoid,
+
+    /// <summary>正五边形。</summary>
+    Pentagon,
+
+    /// <summary>正六边形（平顶朝上）。</summary>
+    Hexagon,
+
+    /// <summary>正八边形。</summary>
+    Octagon,
+
+    /// <summary>五角星。</summary>
+    Star5,
+
+    /// <summary>右向箭头。</summary>
+    ArrowRight,
+
+    /// <summary>左向箭头。</summary>
+    ArrowLeft,
+
+    /// <summary>上向箭头。</summary>
+    ArrowUp,
+
+    /// <summary>下向箭头。</summary>
+    ArrowDown,
+
+    /// <summary>十字（加号）。</summary>
+    Plus,
+
+    /// <summary>圆柱（储罐/数据库符号）。</summary>
+    Cylinder,
+}
+
+/// <summary>形状元素载荷：种类 + 描边/填充（字段集与 <see cref="ShapeOptions"/> 同构、独立成类，源生成 JSON 按具体类型注册）。</summary>
+public sealed class PolygonOptions
+{
+    /// <summary>形状种类。</summary>
+    public ShapeKind Kind { get; set; } = ShapeKind.Rectangle;
+
+    /// <summary>引用模板样式库的命名样式 id：样式里的边框族映射描边、底色映射填充。</summary>
+    public string? StyleId { get; set; }
+
+    /// <summary>描边色，null 表示不描边（描边与填充都为 null 时按默认黑描边画，保证可见）。</summary>
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
+    public SKColor? StrokeColor { get; set; } = SKColors.Black;
+
+    /// <summary>描边宽（mm）。</summary>
+    public double StrokeWidthMm { get; set; } = 0.2;
+
+    /// <summary>填充色，null 表示不填充。</summary>
+    [JsonConverter(typeof(SkColorNullableJsonConverter))]
+    public SKColor? FillColor { get; set; }
+
+    /// <summary>圆角半径（mm），仅 <see cref="ShapeKind.RoundRect"/> 生效，渲染时夹取到短边一半。</summary>
+    public double CornerRadiusMm { get; set; }
+
+    /// <summary>
+    /// 逐角圆角半径（mm）：矩形/圆角矩形按「左上,右上,左下,右下」，三角形按顶点序「上,右下,左下」，
+    /// 其余种类按形状顶点表顺序。
+    /// null/空 = 不逐角（RoundRect 沿用 <see cref="CornerRadiusMm"/>，其余种类本来就不圆角）；
+    /// 长度不足时缺省顶点重复最后一个给定值（只填一个值＝全部相同）。渲染时逐顶点夹取到相邻半边长。
+    /// </summary>
+    public double[]? CornerRadiiMm { get; set; }
+
+    /// <summary>虚线段长（mm）循环，null 为实线。</summary>
+    public double[]? DashPatternMm { get; set; }
+
+    internal PolygonOptions Clone() => new()
+    {
+        Kind = Kind,
+        StyleId = StyleId,
+        StrokeColor = StrokeColor,
+        StrokeWidthMm = StrokeWidthMm,
+        FillColor = FillColor,
+        CornerRadiusMm = CornerRadiusMm,
+        CornerRadiiMm = CornerRadiiMm is null ? null : (double[])CornerRadiiMm.Clone(),
+        DashPatternMm = DashPatternMm is null ? null : (double[])DashPatternMm.Clone(),
+    };
+}
+
+/// <summary>形状元素：内切于元素矩形的参数化多边形（Office「插入形状」语义）。</summary>
+public sealed class ShapeElement : PaperElement
+{
+    /// <inheritdoc/>
+    public override string TypeKey => ElementTypeKeys.Shape;
+
+    /// <summary>形状载荷。</summary>
+    public PolygonOptions Shape { get; set; } = new();
+
+    /// <inheritdoc/>
+    public override PaperElement CloneDeep()
+    {
+        var clone = new ShapeElement { Shape = Shape.Clone() };
+        clone.CopyCommonFrom(this);
+        return clone;
+    }
+}
+
 /// <summary>图片样式与数据。</summary>
 public sealed class ImageOptions
 {
@@ -241,11 +393,21 @@ public sealed class ImageOptions
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public ImageSourceType SourceType { get; set; } = ImageSourceType.EmbeddedBase64;
 
-    /// <summary>Base64 图片数据（<see cref="SourceType"/> 为 EmbeddedBase64 时有效）。</summary>
+    /// <summary>
+    /// 内嵌图片数据（<see cref="SourceType"/> 为 EmbeddedBase64 时有效）。
+    /// 允许三种写法：<c>data:image/png;base64,xxx</c> 完整 data URI、仅 base64 载荷、以及
+    /// <c>data:image/svg+xml,&lt;svg…/&gt;</c> 这种非 base64 的百分号编码 data URI。
+    /// </summary>
     public string? Data { get; set; }
 
     /// <summary>资源键（<see cref="SourceType"/> 为 ResolverKey 时由宿主解析器解释）。</summary>
     public string? ResolverKey { get; set; }
+
+    /// <summary>
+    /// 引擎自取定位符（<see cref="SourceType"/> 为 Url 时有效）：<c>http/https</c> 地址、
+    /// <c>data:</c> URI 或裸 base64。网络地址在渲染期下载并按 URL 缓存。
+    /// </summary>
+    public string? Url { get; set; }
 
     /// <summary>适配方式。</summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -254,13 +416,23 @@ public sealed class ImageOptions
     /// <summary>圆角半径（mm），0 为直角。</summary>
     public double CornerRadiusMm { get; set; }
 
+    /// <summary>
+    /// 字段绑定：非空时渲染期把该字段（数据路径，如 <c>product.image</c>）解析成图片源定位符
+    /// （http/https 地址、<c>data:</c> URI 或裸 base64）。与 <see cref="SourceType"/> 各来源互斥——
+    /// 绑定优先，解析不到时才退回 <see cref="Data"/>/<see cref="Url"/>/<see cref="ResolverKey"/>。
+    /// 这是"商品图/用户头像随打印数据变化"的常用能力。
+    /// </summary>
+    public string? Field { get; set; }
+
     internal ImageOptions Clone() => new()
     {
         SourceType = SourceType,
         Data = Data,
         ResolverKey = ResolverKey,
+        Url = Url,
         FitMode = FitMode,
         CornerRadiusMm = CornerRadiusMm,
+        Field = Field,
     };
 }
 
@@ -283,6 +455,18 @@ public sealed class ImageElement : PaperElement
 }
 
 /// <summary>二维码样式与内容。</summary>
+/// <summary>二维码中心 Logo 的适配方式。</summary>
+public enum QrLogoFit
+{
+    /// <summary>等比缩放并完整容纳进中心方框（默认）。</summary>
+    Contain,
+    /// <summary>拉伸填满中心方框（可能变形）。</summary>
+    Fill,
+    /// <summary>按原始像素尺寸绘制（超出则等比缩小到方框内）。</summary>
+    Original,
+}
+
+/// <summary>二维码样式。</summary>
 public sealed class QrCodeOptions
 {
     /// <summary>引用模板样式库的命名样式 id：字色映射前景与标题色、底色映射背景、字体族映射标题字体。</summary>
@@ -305,6 +489,12 @@ public sealed class QrCodeOptions
 
     /// <summary>静区宽度（mm）。规范建议不小于模块尺寸的 4 倍。</summary>
     public double QuietZoneMm { get; set; } = 1;
+
+    /// <summary>
+    /// 固定模块宽度（mm）。&gt;0 时二维码不再拉伸到元素宽度，而是用固定模块宽并居中，
+    /// 适合需要严格按规格出码的 scene；0 表示等比拉伸到元素宽度。
+    /// </summary>
+    public double ModuleWidthMm { get; set; }
 
     /// <summary>码下标题文本，可含 <c>{{占位符}}</c>；仅 <see cref="ShowCaption"/> 为 true 时绘制。</summary>
     public string Caption { get; set; } = string.Empty;
@@ -329,6 +519,16 @@ public sealed class QrCodeOptions
     /// <summary>标题行距倍数。</summary>
     public double CaptionLineSpacing { get; set; } = 1.2;
 
+    /// <summary>中心 Logo 图片（base64 或 data URI），留空不绘制。</summary>
+    public string? LogoData { get; set; }
+
+    /// <summary>中心 Logo 绑定字段，优先于 <see cref="LogoData"/>。</summary>
+    public string? LogoField { get; set; }
+
+    /// <summary>中心 Logo 适配方式。</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public QrLogoFit LogoFit { get; set; } = QrLogoFit.Contain;
+
     internal QrCodeOptions Clone() => new()
     {
         StyleId = StyleId,
@@ -337,6 +537,7 @@ public sealed class QrCodeOptions
         ForegroundColor = ForegroundColor,
         BackgroundColor = BackgroundColor,
         QuietZoneMm = QuietZoneMm,
+        ModuleWidthMm = ModuleWidthMm,
         Caption = Caption,
         ShowCaption = ShowCaption,
         CaptionFontSizePt = CaptionFontSizePt,
@@ -344,6 +545,9 @@ public sealed class QrCodeOptions
         CaptionColor = CaptionColor,
         CaptionAlign = CaptionAlign,
         CaptionLineSpacing = CaptionLineSpacing,
+        LogoData = LogoData,
+        LogoField = LogoField,
+        LogoFit = LogoFit,
     };
 }
 
@@ -402,6 +606,35 @@ public sealed class BarcodeOptions
     /// </summary>
     public double QuietZoneMm { get; set; } = 2.5;
 
+    /// <summary>
+    /// 固定模块宽度（mm）。&gt;0 时条码不再拉伸到元素宽度，而是用固定模块宽并居中，
+    /// 适合需要严格按规格（如 0.33mm 窄条）出码的 scene；0 表示等比拉伸到元素宽度。
+    /// </summary>
+    public double ModuleWidthMm { get; set; }
+
+    /// <summary>码上/码下标题文本，可含 <c>{{占位符}}</c>；仅 <see cref="ShowCaption"/> 为 true 时绘制。</summary>
+    public string Caption { get; set; } = string.Empty;
+
+    /// <summary>是否绘制标题。</summary>
+    public bool ShowCaption { get; set; }
+
+    /// <summary>标题字号（磅）。</summary>
+    public double CaptionFontSizePt { get; set; } = 10.5;
+
+    /// <summary>标题字体族。</summary>
+    public string CaptionFontFamily { get; set; } = "Microsoft YaHei";
+
+    /// <summary>标题颜色。</summary>
+    [JsonConverter(typeof(SkColorJsonConverter))]
+    public SKColor CaptionColor { get; set; } = SKColors.Black;
+
+    /// <summary>标题水平对齐。</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public HorizontalAlign CaptionAlign { get; set; } = HorizontalAlign.Center;
+
+    /// <summary>标题行距倍数。</summary>
+    public double CaptionLineSpacing { get; set; } = 1.2;
+
     internal BarcodeOptions Clone() => new()
     {
         StyleId = StyleId,
@@ -413,6 +646,14 @@ public sealed class BarcodeOptions
         FontSizePt = FontSizePt,
         FontFamily = FontFamily,
         QuietZoneMm = QuietZoneMm,
+        ModuleWidthMm = ModuleWidthMm,
+        Caption = Caption,
+        ShowCaption = ShowCaption,
+        CaptionFontSizePt = CaptionFontSizePt,
+        CaptionFontFamily = CaptionFontFamily,
+        CaptionColor = CaptionColor,
+        CaptionAlign = CaptionAlign,
+        CaptionLineSpacing = CaptionLineSpacing,
     };
 }
 
@@ -432,6 +673,19 @@ public sealed class BarcodeElement : PaperElement
         clone.CopyCommonFrom(this);
         return clone;
     }
+}
+
+/// <summary>表格单元格的渲染方式：文本（默认）、按单元格值生成一维码、或生成二维码。</summary>
+public enum TableCellRender
+{
+    /// <summary>按文本显示绑定的字段值。</summary>
+    Text,
+
+    /// <summary>把绑定的字段值编码成一维条码（Code128 等）绘入单元格。</summary>
+    Barcode,
+
+    /// <summary>把绑定的字段值编码成二维码绘入单元格。</summary>
+    QrCode,
 }
 
 /// <summary>表格列定义。</summary>
@@ -490,6 +744,24 @@ public sealed class TableColumn
     /// </summary>
     public string? Styler { get; set; }
 
+    /// <summary>
+    /// 单元格渲染方式（hiprint 列的 <c>tableTextType: barcode/qrcode</c>）：默认 <see cref="TableCellRender.Text"/>。
+    /// 非文本时，本列每一行的绑定值被编码成码绘入单元格——常用于面单上"每行一个物流码/追溯码"。
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public TableCellRender CellRender { get; set; } = TableCellRender.Text;
+
+    /// <summary>单元格一维码的码制（<see cref="CellRender"/> 为 <see cref="TableCellRender.Barcode"/> 时生效）。</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public BarcodeSymbology CellSymbology { get; set; } = BarcodeSymbology.Code128;
+
+    /// <summary>单元格二维码的纠错等级（<see cref="CellRender"/> 为 <see cref="TableCellRender.QrCode"/> 时生效）。</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public QrErrorCorrection CellErrorCorrection { get; set; } = QrErrorCorrection.M;
+
+    /// <summary>单元格一维码是否在码下方绘制可读文本（<see cref="CellRender"/> 为 <see cref="TableCellRender.Barcode"/> 时生效）。</summary>
+    public bool CellShowText { get; set; }
+
     internal TableColumn Clone() => new()
     {
         StyleId = StyleId,
@@ -505,6 +777,10 @@ public sealed class TableColumn
         MergeSameValue = MergeSameValue,
         Formatter = Formatter,
         Styler = Styler,
+        CellRender = CellRender,
+        CellSymbology = CellSymbology,
+        CellErrorCorrection = CellErrorCorrection,
+        CellShowText = CellShowText,
     };
 }
 
@@ -526,6 +802,13 @@ public sealed class TableHeaderCell
     /// <summary>标题文本。</summary>
     public string Title { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 分组表头标题：当本列属于某个分组（如「基本信息」下含姓名/年龄两列）时，
+    /// 该字段保存所属分组的标题，渲染器会在表头最上方额外画一行合并标题。
+    /// 空字符串表示不属于任何分组。
+    /// </summary>
+    public string GroupTitle { get; set; } = string.Empty;
+
     /// <summary>横向跨列数。</summary>
     public int ColSpan { get; set; } = 1;
 
@@ -545,6 +828,7 @@ public sealed class TableHeaderCell
         Row = Row,
         Column = Column,
         Title = Title,
+        GroupTitle = GroupTitle,
         ColSpan = ColSpan,
         RowSpan = RowSpan,
         Align = Align,
@@ -761,6 +1045,9 @@ public sealed class TableOptions
     /// <summary>是否绘制表头行。</summary>
     public bool ShowHeader { get; set; } = true;
 
+    /// <summary>跨页时是否在每页顶部重复绘制表头（默认 true）。首页面始终绘制表头。</summary>
+    public bool RepeatHeaderOnEachPage { get; set; } = true;
+
     /// <summary>表头背景色。</summary>
     [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? HeaderFillColor { get; set; } = new SKColor(238, 238, 238);
@@ -807,6 +1094,13 @@ public sealed class TableOptions
     [JsonConverter(typeof(SkColorNullableJsonConverter))]
     public SKColor? TextColor { get; set; }
 
+    /// <summary>
+    /// 表格级 formatter：对表体每个单元格统一格式化（优先级低于列级 formatter）。
+    /// 脚本签名同列级：<c>function(value, row, index, options)</c>，返回值替换单元格文本。
+    /// 列级没有 formatter 时才回落到本字段。
+    /// </summary>
+    public string? Formatter { get; set; }
+
     /// <summary>深拷贝。渲染引擎用它在渲染期构建「样式解析后」的副本，不允许改到原模板。</summary>
     public TableOptions Clone() => new()
     {
@@ -821,6 +1115,7 @@ public sealed class TableOptions
         GridWidthMm = GridWidthMm,
         ShowBorder = ShowBorder,
         ShowHeader = ShowHeader,
+        RepeatHeaderOnEachPage = RepeatHeaderOnEachPage,
         HeaderFillColor = HeaderFillColor,
         HeaderBold = HeaderBold,
         StripeColor = StripeColor,
@@ -833,6 +1128,7 @@ public sealed class TableOptions
         CellPaddingMm = CellPaddingMm,
         LineSpacing = LineSpacing,
         TextColor = TextColor,
+        Formatter = Formatter,
     };
 }
 
@@ -881,8 +1177,11 @@ public static class ElementTypeKeys
     /// <summary>表格。</summary>
     public const string Table = "table";
 
+    /// <summary>形状（Office「插入形状」语义的参数化多边形）。</summary>
+    public const string Shape = "shape";
+
     /// <summary>全部内置类型键，顺序与工具箱默认展示一致。</summary>
-    public static IReadOnlyList<string> All { get; } = [Text, Line, Rectangle, Ellipse, Image, QrCode, Barcode, Table];
+    public static IReadOnlyList<string> All { get; } = [Text, Line, Rectangle, Ellipse, Shape, Image, QrCode, Barcode, Table];
 }
 
 /// <summary>
@@ -917,6 +1216,15 @@ public sealed class NamedStyle
 
     /// <summary>删除线；null 不设置。</summary>
     public bool? Strikethrough { get; set; }
+
+    /// <summary>上划线；null 不设置。</summary>
+    public bool? Overline { get; set; }
+
+    /// <summary>整段左缩进（mm）；null 不设置。</summary>
+    public double? IndentMm { get; set; }
+
+    /// <summary>首行额外左缩进（mm）；null 不设置。</summary>
+    public double? FirstLineIndentMm { get; set; }
 
     /// <summary>字间距（磅）；null 不设置。</summary>
     public double? LetterSpacingPt { get; set; }
@@ -981,6 +1289,9 @@ public sealed class NamedStyle
         Italic = Italic,
         Underline = Underline,
         Strikethrough = Strikethrough,
+        Overline = Overline,
+        IndentMm = IndentMm,
+        FirstLineIndentMm = FirstLineIndentMm,
         LetterSpacingPt = LetterSpacingPt,
         LineSpacing = LineSpacing,
         TextColor = TextColor,

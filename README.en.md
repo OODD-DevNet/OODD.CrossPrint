@@ -421,7 +421,7 @@ That last row is important. If your script has a syntax error or throws at runti
 
 The short version first: **90% of hiprint templates drop in and work**. Geometry (pt → mm auto-conversion), element types, data binding, formatter/styler scripts, two-dimensional table headers, barcodes, QR codes — all supported.
 
-The remaining 10% is documented below. **Unsupported features are never silently dropped** — the importer produces an issue list telling you exactly what happened ("this element had a watermark; CrossPrint can't draw watermarks"). It will never quietly eat an element you spent an afternoon on.
+The remaining 10% is documented below. **Unsupported features are never silently dropped** — the importer produces an issue list telling you exactly what happened ("this element was HTML; CrossPrint drew a placeholder box"). It will never quietly eat an element you spent an afternoon on.
 
 ### Supported hiprint element types and properties
 
@@ -461,22 +461,20 @@ The remaining 10% is documented below. **Unsupported features are never silently
 | `tableSummary` / `tableSummaryTitle` / `tableSummaryText` / `tableSummaryNumFormat` / `tableSummaryColspan` | All supported — footer aggregation |
 | `checked: false` | Hidden column; ignored on import |
 | `tableTextType` | Kept as-is |
+| **Watermark** `watermarkOptions` | Image watermark → full-page bottom-layer ImageElement; text watermark → bottom-layer gray centered TextElement. CrossPrint also has a native tiled text watermark (template field `watermark`, configurable in the designer paper panel) |
+| **Page numbers** `paperNumber*` | Auto page-number footer enabled (template field `paperNumber`, "page X / Y" per page; coexists with text elements bound to `{{pageNo}}/{{pageCount}}`) |
+| **Long-text auto-pagination** `longText` | Overflowing lines continue on the next page; following elements flow down |
+| **Forced page break** `pageBreak` | General pagination: force a page break after the element |
+| **Show on specific pages** `showInPage` / `unShowInPage` | General pagination: per-page visibility filter |
+| **Repeat per page** `fixed` | General pagination: repeated on every page (headers / footers / persistent watermark) |
 
 ### Unsupported hiprint features (warnings are emitted on import)
 
 | hiprint feature | What happens | Severity | Workaround |
 |---|---|---|---|
-| **Watermark** `watermarkOptions` | Ignored | ⚠️ Warning | Use a background ImageElement (bottom layer) or custom drawing |
-| **Page numbers** `paperNumber*` | Ignored | ⚠️ Warning | Not implemented yet — if demand grows we'll add it |
 | **Panel print offset** `leftOffset/topOffset` | Ignored | ⚠️ Warning | CrossPrint doesn't support whole-page offset |
 | **HTML elements** | Dashed gray placeholder | ⚠️ Warning | Rebuild with Text + Image + Table |
-| **Custom plugin elements** | Skipped (element disappears) | ⚠️ Warning | Redraw with built-in elements |
-| **Long-text auto-pagination** `longText` | Clipped to element box — no auto page-break | ⚠️ Warning | No auto-pagination yet |
-| **Date/boolean formatting** `dataType` / `format` | Printed as raw value | ⚠️ Warning | Use a formatter script |
-| **Chinese amount-to-words** `upperCase` | Printed as raw value | ⚠️ Warning | Write a formatter for it |
-| **Forced page break** `pageBreak` | Ignored | ⚠️ Warning | No manual pagination yet |
-| **Show on specific pages** `showInPage` / `unShowInPage` | Ignored | ⚠️ Warning | —— |
-| **Repeat per page** `fixed` | Printed once only | ⚠️ Warning | —— |
+| **Custom plugin elements** | Skipped (element disappears) | ⚠️ Warning | Redraw with built-in elements (or register a converter via `HiprintCustomElementRegistry`) |
 | **Barcode fixed module width** `barWidth` | Scaled to element width (still scannable) | ℹ️ Info | —— |
 | **External image URLs** (non-data:) | Requires `IImageResolver`; placeholder otherwise | ℹ️ Info | Convert to base64 or implement resolver |
 | **Table-level formatter/styler** | Dropped (only column-level kept) | ℹ️ Info | Use column-level scripts |
@@ -619,9 +617,8 @@ The repo ships a GitHub Actions workflow ([`.github/workflows/pages-demo.yml`](.
 ## Known limitations (read this before filing an issue)
 
 - **QR quiet zone** drawn at 4 modules. Extremely strict scanners might complain — most phones are fine.
-- **No manual pagination** — the template renders as one long page. If it's taller than paper, the bottom is clipped. For multi-page layouts, use multiple templates (one per page).
-- **No watermark** — hiprint's `watermarkOptions` can't be drawn. Workaround: use a background ImageElement (bottom layer, semi-transparent).
-- **No page numbers** — `paperNumberFormat` and friends aren't recognized. Let us know if you actually need this.
+- **Table pagination and long-text continuation are automatic; plain elements are not** — table data rows that overflow one page are split into seamless windows, and `longText` overflow continues on the next page. But ordinary elements (rectangles, images…) placed below the paper edge are simply clipped; there is no generic "push whole elements onto the next page" layout engine.
+- **The native watermark is tiled text** — template field `watermark` (configurable in the designer paper panel). There is no native image watermark; use a full-page bottom-layer ImageElement instead.
 - **WASM sample** has no file dialogs (browser sandbox). Importing hiprint templates goes through the template JSON panel at the bottom.
 - **Complex scripts (Arabic / Devanagari / Tibetan) may need an extra native package on Linux** — the engine uses HarfBuzz for ligatures and positional forms (initial / medial / final), and the `HarfBuzzSharp` managed package only declares its Win32 and macOS natives as dependencies. Avalonia hosts are covered (`Avalonia.Skia` pulls it in transitively); **library-only consumers** (console, WPF/WinForms/Eto/WinUI/Uno/MAUI) on Linux must add one line to the host app: `<PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" />`. **Nothing throws when it is missing** — Arabic just falls back to "every letter in its isolated form", which looks broken but stays silent. See [`docs/rendering-spec.md`](docs/rendering-spec.md) §3.3 for the four placement rules and how they were measured.
 - **.NET Framework 4.x is supported in the core layer only** — Core / Engine / Designer / Printing / I18n ship `net461` targets (Jint 3.1.6 and System.Text.Json 6.0.9 both provide netstandard2.0 targets), but all seven host adapters require .NET 8 (Avalonia 11 / WinUI 3 / MAUI 8 do not support net461). The `net461` target is compile-compatible only; tests and CI cover `net8.0`.

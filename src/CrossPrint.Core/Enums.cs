@@ -96,6 +96,13 @@ public enum ImageSourceType
 
     /// <summary>由宿主注入的 <c>IImageResolver</c> 按 key 取字节；宿主没提供解析器时降级为占位框。</summary>
     ResolverKey,
+
+    /// <summary>
+    /// 引擎自行获取的定位符：<c>http/https</c> 地址（渲染期下载并缓存），
+    /// 也接受 <c>data:</c> URI 或裸 base64（与 <see cref="EmbeddedBase64"/> 同义，便于模板把「外链」和「内嵌」统一表达）。
+    /// 不受宿主解析器缺失影响；<see cref="RenderOptions.AllowRemoteImages"/> 关闭时网络地址降级为占位框。
+    /// </summary>
+    Url,
 }
 
 /// <summary>二维码纠错等级，等级越高可修复比例越大、密度越高。</summary>

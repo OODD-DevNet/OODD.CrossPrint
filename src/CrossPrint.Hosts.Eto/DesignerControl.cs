@@ -385,14 +385,22 @@ public sealed class DesignerControl : Drawable
         if (surface is not null)
         {
             using (surface)
-                return DrawFrame(surface.Canvas, width, height, dpi);
+            {
+                var drawn = DrawFrame(surface.Canvas, width, height, dpi);
+                // 直写宿主位图内存：光栅后端可能延迟提交，解锁/贴屏前必须 Flush（与 WinForms 宿主同口径）。
+                surface.Canvas.Flush();
+                return drawn;
+            }
         }
 
         var premultiplied = new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul);
         using var bitmap = new SKBitmap(premultiplied);
         RenderReport report;
         using (var canvas = new SKCanvas(bitmap))
+        {
             report = DrawFrame(canvas, width, height, dpi);
+            canvas.Flush();
+        }
 
         CopyRows(bitmap, data, info);
         return report;

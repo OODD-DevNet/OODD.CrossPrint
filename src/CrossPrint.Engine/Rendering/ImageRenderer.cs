@@ -281,9 +281,21 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
     protected override void Draw(SKCanvas canvas, ImageElement element, RenderContext context)
     {
         var o = element.Image;
+        // 字段绑定优先：把字段值解析成图片源定位符（http/https 地址、data: URI 或裸 base64）。
+        // 公共 binding（hiprint field 语义，属性面板暴露）优先于图片载荷自带的 Field——两者语义相同。
+        string? fieldSrc = null;
+        var fieldPath = !string.IsNullOrWhiteSpace(element.Binding) ? element.Binding.Trim() : o.Field;
+        if (!string.IsNullOrWhiteSpace(fieldPath))
+        {
+            var bound = DataBinder.BindText("{{" + fieldPath + "}}", context.Data, context.Report, element.Id, context: context);
+            if (string.IsNullOrWhiteSpace(bound))
+                context.Report.Add(element.Id, RenderIssueKind.ImageMissing, $"图片字段绑定（{fieldPath}）未解析到数据。");
+            else
+                fieldSrc = bound.Trim();
+        }
         // formatter 返回值替换图片源：EmbeddedBase64 → base64 数据（允许 data URI）；ResolverKey → 新资源键
         var scriptSrc = ScriptSupport.FormatterResult(context, element) as string;
-        var lease = Resolve(element, o, context, scriptSrc);
+        var lease = Resolve(element, o, context, scriptSrc, fieldSrc);
         if (lease is null)
         {
             DrawPlaceholder(canvas, element);
@@ -329,8 +341,34 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
         canvas.DrawImage(image, dst, paint);
     }
 
-    ImageCache.Lease? Resolve(ImageElement element, ImageOptions o, RenderContext context, string? scriptSrc)
+    ImageCache.Lease? Resolve(ImageElement element, ImageOptions o, RenderContext context, string? scriptSrc, string? fieldSrc)
     {
+        // 字段绑定优先：字段值当作资源键交给宿主解析器（与 ResolverKey 同源）；
+        // 若值本身就是定位符（data URI/外链/裸 base64），则引擎自取，支持「字段既能写内嵌也能写外链」。
+        if (!string.IsNullOrWhiteSpace(fieldSrc))
+        {
+            var resolver = context.Images;
+            if (resolver is not null)
+            {
+                var lease = ImageCache.Shared.GetOrAdd("key:" + fieldSrc, () =>
+                {
+                    var bytes = resolver.Resolve(fieldSrc!);
+                    return bytes is null or { Length: 0 } ? null : DecodeBytes(bytes, element, context);
+                });
+                if (lease is not null)
+                    return lease;
+            }
+
+            if (ImageAcquisition.Classify(fieldSrc) is ImageLocatorKind.DataUri or ImageLocatorKind.Remote or ImageLocatorKind.Base64)
+                return FromLocator(element, fieldSrc!, context, "字段绑定");
+
+            context.Report.Add(element.Id, RenderIssueKind.ImageMissing,
+                resolver is null
+                    ? $"图片字段绑定解析为 '{fieldSrc}'，但宿主未提供 IImageResolver，无法取图。"
+                    : $"IImageResolver 未返回字段绑定键 '{fieldSrc}' 的图片数据。");
+            return null;
+        }
+
         switch (o.SourceType)
         {
             case ImageSourceType.EmbeddedBase64:
@@ -343,72 +381,58 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
                     return null;
                 }
 
-                if (data.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                return FromLocator(element, data!, context, "data 字段", embedded: true);
+            }
+
+            case ImageSourceType.Url:
+            {
+                var url = scriptSrc is { Length: > 0 } ? scriptSrc.Trim() : (o.Url ?? o.Data)?.Trim();
+                if (string.IsNullOrWhiteSpace(url))
                 {
-                    context.Report.Add(element.Id, RenderIssueKind.ImageMissing,
-                        "图片源是网络地址，当前只支持 base64 内嵌数据；请用 ResolverKey 由宿主解析或让 formatter 返回 base64。");
+                    context.Report.Add(element.Id, RenderIssueKind.ImageMissing, "图片来源为 Url，但 url 字段为空。");
                     return null;
                 }
 
-                // data URI 前缀剥离：data:image/png;base64,xxxx
-                if (data.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                {
-                    var comma = data.IndexOf(',');
-                    if (comma < 0 || data.Substring(0, comma).IndexOf("base64", StringComparison.OrdinalIgnoreCase) < 0)
-                    {
-                        context.Report.Add(element.Id, RenderIssueKind.ImageDecodeFailed, "data URI 缺少 base64 载荷。");
-                        return null;
-                    }
-
-                    data = data[(comma + 1)..];
-                }
-
-                byte[] bytes;
-                try
-                {
-                    bytes = System.Convert.FromBase64String(data);
-                }
-                catch (FormatException)
-                {
-                    context.Report.Add(element.Id, RenderIssueKind.ImageDecodeFailed, "data 字段不是合法 Base64。");
-                    return null;
-                }
-
-                return ImageCache.Shared.GetOrAdd("b64:" + CacheKeyOf(data), () => Decode(bytes, element, context));
+                return FromLocator(element, url!, context, "url 字段");
             }
 
             case ImageSourceType.ResolverKey:
             {
                 // formatter 返回值替换资源键（脚本按数据挑图）
-                var key = scriptSrc is { Length: > 0 } ? scriptSrc.Trim() : o.ResolverKey;
+                var key = scriptSrc is { Length: > 0 } ? scriptSrc.Trim() : o.ResolverKey?.Trim();
                 if (string.IsNullOrWhiteSpace(key))
                 {
                     context.Report.Add(element.Id, RenderIssueKind.ImageMissing, "图片来源为 ResolverKey，但 resolverKey 字段为空。");
                     return null;
                 }
 
-                if (context.Images is null)
-                {
-                    context.Report.Add(element.Id, RenderIssueKind.ImageMissing,
-                        $"宿主未提供 IImageResolver，无法解析 resolverKey '{key}'。");
-                    return null;
-                }
-
                 var resolver = context.Images;
 
-                // 缓存命中时连宿主都不该再问：宿主实现里往往是读盘或查库，
-                // 批量导出 1000 张面单就是 1000 次同样的 IO。
-                return ImageCache.Shared.GetOrAdd("key:" + key, () =>
+                // 宿主优先：读盘/查库/白名单都在宿主侧，引擎不越权。
+                // 缓存命中时连宿主都不该再问——宿主实现往往是读盘或查库，批量导出 1000 张面单就是 1000 次同样的 IO。
+                if (resolver is not null)
                 {
-                    var resolved = resolver.Resolve(key);
-                    if (resolved is null or { Length: 0 })
+                    var lease = ImageCache.Shared.GetOrAdd("key:" + key, () =>
                     {
-                        context.Report.Add(element.Id, RenderIssueKind.ImageMissing, $"IImageResolver 未返回键 '{key}' 的图片数据。");
-                        return null;
-                    }
+                        var bytes = resolver.Resolve(key!);
+                        return bytes is null or { Length: 0 } ? null : DecodeBytes(bytes, element, context);
+                    });
 
-                    return Decode(resolved, element, context);
-                });
+                    if (lease is not null)
+                        return lease;
+                }
+
+                // 宿主没配、或配了但没有这个键：如果键本身就是"引擎能自己取的形态"
+                // （历史模板把外链/内嵌图错存成 ResolverKey 的情况非常常见），引擎兜底自己取，
+                // 不要让用户看到一张空框却不知道为什么。
+                if (ImageAcquisition.Classify(key) is ImageLocatorKind.DataUri or ImageLocatorKind.Remote or ImageLocatorKind.Base64)
+                    return FromLocator(element, key!, context, "resolverKey（引擎兜底）");
+
+                context.Report.Add(element.Id, RenderIssueKind.ImageMissing,
+                    resolver is null
+                        ? $"宿主未提供 IImageResolver，无法解析 resolverKey '{key}'。"
+                        : $"IImageResolver 未返回键 '{key}' 的图片数据。");
+                return null;
             }
 
             default:
@@ -418,17 +442,73 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
     }
 
     /// <summary>
-    /// 字节 → <see cref="SKImage"/>。<c>FromEncodedData</c> 对"字节合法但不是图片"只返回 null，不抛异常，
-    /// 所以这里必须自己补一条告警，否则用户只会看到纸上一个莫名其妙的占位框。
+    /// 引擎自取一条定位符（data URI / 裸 base64 / 网络地址）。
     /// </summary>
-    static SKImage? Decode(byte[] bytes, ImageElement element, RenderContext context)
+    /// <remarks>
+    /// 缓存键带目标像素尺寸——SVG 是按尺寸光栅化成位图的，同一条 SVG 用在两个大小不同的元素上
+    /// 必须各自出图，否则小水印被复用成大图会糊成马赛克。
+    /// </remarks>
+    ImageCache.Lease? FromLocator(ImageElement element, string locator, RenderContext context, string field, bool embedded = false)
     {
-        var decoded = SKImage.FromEncodedData(bytes);
-        if (decoded is null)
-            context.Report.Add(element.Id, RenderIssueKind.ImageDecodeFailed, "图片数据不是可解码的图片格式。");
+        var key = "loc:" + CacheKeyOf(locator);
+        if (ImageAcquisition.LooksLikeSvgLocator(locator))
+        {
+            var w = ImageAcquisition.TargetPixels(element.WidthMm, context.UnitsPerMm);
+            var h = ImageAcquisition.TargetPixels(element.HeightMm, context.UnitsPerMm);
+            key += ":" + w + "x" + h;
+        }
 
-        return decoded;
+        return ImageCache.Shared.GetOrAdd(key, () =>
+        {
+            var bytes = ImageAcquisition.Acquire(
+                locator,
+                context.Options.AllowRemoteImages,
+                context.Options.RemoteImageTimeoutMs,
+                out var error);
+
+            // 内嵌源（EmbeddedBase64）的 data 字段本就是数据载体，<see cref="ImageAcquisition.Acquire"/> 把"看不出形态的字符串"
+            // 归为 Other 而返回 null。这里强制再试一次裸 base64 解码，把"数据损坏"和"压根没有来源"区分开：
+            // 前者是解码失败，后者是缺失（占位框原因文案不同，便于排查）。
+            if (bytes is null or { Length: 0 } && embedded && !ImageAcquisition.TryFromBase64(locator, out var direct))
+            {
+                error ??= "图片数据不是合法 Base64。";
+            }
+            else if (bytes is null or { Length: 0 } && embedded && ImageAcquisition.TryFromBase64(locator, out var direct2))
+            {
+                bytes = direct2;
+            }
+
+            if (bytes is null or { Length: 0 })
+            {
+                var kind = embedded ? RenderIssueKind.ImageDecodeFailed : RenderIssueKind.ImageMissing;
+                context.Report.Add(element.Id, kind,
+                    string.IsNullOrEmpty(error) ? $"{field} 无法解析为图片数据：{Shorten(locator)}" : error!);
+                return null;
+            }
+
+            return DecodeBytes(bytes, element, context);
+        });
     }
+
+    /// <summary>
+    /// 字节 → <see cref="SKImage"/>：位图交给 Skia，SVG 走内置光栅器。
+    /// <c>FromEncodedData</c> 对"字节合法但不是图片"只返回 null 不抛异常，所以必须自己补一条告警，
+    /// 否则用户只会看到纸上一个莫名其妙的占位框。
+    /// </summary>
+    static SKImage? DecodeBytes(byte[] bytes, ImageElement element, RenderContext context)
+    {
+        var w = ImageAcquisition.TargetPixels(element.WidthMm, context.UnitsPerMm);
+        var h = ImageAcquisition.TargetPixels(element.HeightMm, context.UnitsPerMm);
+
+        var image = ImageAcquisition.Decode(bytes, w, h, out var error);
+        if (image is null)
+            context.Report.Add(element.Id, RenderIssueKind.ImageDecodeFailed, error ?? "图片数据不是可解码的图片格式。");
+
+        return image;
+    }
+
+    static string Shorten(string value)
+        => value.Length <= 48 ? value : value.Substring(0, 45) + "…";
 
     static string CacheKeyOf(string base64)
     {

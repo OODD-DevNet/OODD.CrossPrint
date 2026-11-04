@@ -132,10 +132,6 @@ internal sealed class MainForm : Form
     {
         var fileMenu = new ButtonMenuItem { Text = Localizer.T("Menu.File") };
 
-        var loadComplexItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.LoadComplex") };
-        loadComplexItem.Click += (_, _) => LoadComplexReceiptTemplate();
-        fileMenu.Items.Add(loadComplexItem);
-
         var importItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.ImportHiprint") };
         importItem.Click += (_, _) => ImportHiprintDialog();
         fileMenu.Items.Add(importItem);
@@ -627,35 +623,6 @@ internal sealed class MainForm : Form
         var (label, key) = ElementButtons[index];
         Run(() => _designer.Kernel.AddElementAtCenter(key));
         SetStatus(Localizer.T("Status.ElementAddedCenter", label));
-    }
-
-    /// <summary>加载 80mm 连续纸长小票复杂模板：写法照抄 kitchen-sink 的 LoadSampleTemplate，失败时状态栏提示。</summary>
-    void LoadComplexReceiptTemplate()
-    {
-        var path = Path.Combine(AppContext.BaseDirectory, "complex-receipt.template.json");
-        if (!File.Exists(path))
-        {
-            SetStatus(Localizer.T("Status.ComplexNotFound"), error: true);
-            return;
-        }
-
-        try
-        {
-            var result = TemplateJson.Load(File.ReadAllText(path), TemplateJsonLoadOptions.Tolerant);
-            // LoadTemplate 会换内核：属性面板、纸张同步和 JSON 面板都要接到新内核上。
-            _designer.LoadTemplate(result.Template);
-            BindKernel(Localizer.T("Status.ComplexLoaded"));
-
-            var status = Localizer.T("Status.ComplexLoadedInfo", result.Template.Elements.Count);
-            if (result.Warnings.Count > 0)
-                status += "；" + string.Join("；", result.Warnings);
-            SetStatus(status);
-            _designer.Focus();
-        }
-        catch (Exception ex)
-        {
-            SetStatus(Localizer.T("Status.ComplexLoadFailed", ex.Message), error: true);
-        }
     }
 
     void ZoomActual()

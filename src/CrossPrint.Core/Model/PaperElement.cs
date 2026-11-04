@@ -34,6 +34,13 @@ public abstract class PaperElement
     public SKColor? BackgroundColor { get; set; }
 
     /// <summary>
+    /// 数据源绑定表达式，形如 <c>{{orderNo}}</c>。设计器支持把左侧「数据源」面板里的字段直接拖到
+    /// 元素上完成绑定；渲染引擎按元素类型消费（图片走 <see cref="ImageOptions.Field"/>，文本/条码/二维码
+    /// 等将表达式作为内容或字段键解析）。空串表示未绑定。
+    /// </summary>
+    public string? Binding { get; set; }
+
+    /// <summary>
     /// 引用模板样式库（<see cref="PrintTemplate.Styles"/>）里的命名样式 id。
     /// 样式为底色/边框族提供默认值：内联字段非 null 时优先（CSS 同款覆盖口径），
     /// 引用的样式不存在时静默忽略（只影响外观，不报错）。
@@ -56,6 +63,30 @@ public abstract class PaperElement
 
     /// <summary>绕元素中心旋转的角度（度，顺时针为正）。0 表示不旋转。</summary>
     public double RotationDegrees { get; set; }
+
+    /// <summary>水平缩放系数（1 为原始大小，负值水平镜像）。与 <see cref="ScaleY"/> 组合实现任意缩放。</summary>
+    public double ScaleX { get; set; } = 1;
+
+    /// <summary>垂直缩放系数（1 为原始大小，负值垂直镜像）。</summary>
+    public double ScaleY { get; set; } = 1;
+
+    /// <summary>绘制前额外平移（mm），叠加在元素坐标之上（常用于 transform 里的 translate）。</summary>
+    public double TranslateMmX { get; set; }
+
+    /// <summary>绘制前额外平移（mm），叠加在元素坐标之上。</summary>
+    public double TranslateMmY { get; set; }
+
+    /// <summary>分页：本元素之后强制分页（hiprint <c>pageBreak</c>）。仅通用分页（AllowGeneralPagination）生效。</summary>
+    public bool PageBreakAfter { get; set; }
+
+    /// <summary>分页：元素每页重复（hiprint <c>fixed</c>），用于页眉/页脚/水印等常驻内容。</summary>
+    public bool Fixed { get; set; }
+
+    /// <summary>分页：只在指定页显示（hiprint <c>showInPage</c>），如 "1,3-5"；空表示不限。</summary>
+    public string? ShowInPages { get; set; }
+
+    /// <summary>分页：在指定页隐藏（hiprint <c>unShowInPage</c>），如 "2,4"；空表示不限。</summary>
+    public string? UnShowInPages { get; set; }
 
     /// <summary>整体不透明度（0..1）；越界值在渲染期夹取，1 表示完全不透明。</summary>
     public double Opacity { get; set; } = 1.0;
@@ -108,6 +139,14 @@ public abstract class PaperElement
         BorderSides = source.BorderSides;
         BorderDashPatternMm = source.BorderDashPatternMm is null ? null : (double[])source.BorderDashPatternMm.Clone();
         RotationDegrees = source.RotationDegrees;
+        ScaleX = source.ScaleX;
+        ScaleY = source.ScaleY;
+        TranslateMmX = source.TranslateMmX;
+        TranslateMmY = source.TranslateMmY;
+        PageBreakAfter = source.PageBreakAfter;
+        Fixed = source.Fixed;
+        ShowInPages = source.ShowInPages;
+        UnShowInPages = source.UnShowInPages;
         Formatter = source.Formatter;
         Styler = source.Styler;
         Opacity = source.Opacity;

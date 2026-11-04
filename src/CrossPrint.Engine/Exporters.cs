@@ -225,12 +225,15 @@ public static class BatchPdfExporter
                         var plan = pages[p];
                         // 按计划自身的语义注入窗口与页码：1 页也可能是分页计划
                         // （内容超元素高但首页撑满后装得下，表格撑满、落款让位）。
-                        var context = plan.TableElementId.Length > 0
-                            ? new RenderContext(opt, report, fontResolver, images, data,
-                                tableWindows: new Dictionary<string, TableWindow> { [plan.TableElementId] = plan.Window },
-                                pageNo: plan.PageNo,
-                                pageTotal: plan.PageTotal)
-                            : new RenderContext(opt, report, fontResolver, images, data);
+                        // pageNo/pageTotal 无论是否表格分页都注入：通用分页（pageBreak/fixed/paperNumber）
+                        // 同样需要「第 X / Y 页」语义。
+                        var tableWindows = plan.TableElementId.Length > 0
+                            ? new Dictionary<string, TableWindow> { [plan.TableElementId] = plan.Window }
+                            : null;
+                        var context = new RenderContext(opt, report, fontResolver, images, data,
+                            tableWindows: tableWindows,
+                            pageNo: plan.PageNo,
+                            pageTotal: plan.PageTotal);
                         leases = ImageLeaseBag.Open(context);
                         r.Render(plan.Template, page, context);
                         merged.AddRange(report);

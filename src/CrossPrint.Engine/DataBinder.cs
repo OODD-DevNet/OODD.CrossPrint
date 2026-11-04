@@ -25,6 +25,24 @@ public static class DataBinder
         new(@"\{\{\s*([^{}]*?)\s*\}\}", System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>
+    /// 元素内容绑定（hiprint field 语义）：元素带 <c>binding</c> 时，内容优先取数据源该字段的值。
+    /// <paramref name="binding"/> 写 <c>order.customer.name</c> 或 <c>{{order.customer.name}}</c> 均可。
+    /// 字段解析不到时**不回落原内容**——与占位符口径一致：印空串 + BindingMissingField 告警；
+    /// 设计态（preferTestData）测试数据非空时优先显示测试值（与 <see cref="BindText"/> 同口径）。
+    /// binding 为空 = 未绑定，内容照常走 <see cref="BindText"/> 占位符解析。
+    /// </summary>
+    public static string BindContent(string? content, string? binding, object? data, RenderReport report, string? elementId, string? missingFallback = null, bool preferTestData = false, RenderContext? context = null)
+    {
+        if (string.IsNullOrWhiteSpace(binding))
+            return BindText(content, data, report, elementId, missingFallback, preferTestData, context);
+
+        var expression = binding.IndexOf("{{", StringComparison.Ordinal) >= 0
+            ? binding
+            : "{{" + binding.Trim() + "}}";
+        return BindText(expression, data, report, elementId, missingFallback, preferTestData, context);
+    }
+
+    /// <summary>
     /// 把文本里的 <c>{{字段}}</c> 换成数据值。没有占位符时原样返回，零开销。
     /// </summary>
     /// <param name="text">可能含占位符的模板文本。</param>

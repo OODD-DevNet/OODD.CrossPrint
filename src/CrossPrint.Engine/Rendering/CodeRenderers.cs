@@ -42,7 +42,7 @@ public sealed class QrCodeRenderer : ElementRenderer<QrCodeElement>
         var captionAlign = StyleCascade.Pick(o.CaptionAlign, HorizontalAlign.Center, named?.HorizontalAlign);
         var captionLineSpacing = StyleCascade.Pick(o.CaptionLineSpacing, 1.2, named?.LineSpacing);
 
-        var content = DataBinder.BindText(o.Content, context.Data, context.Report, element.Id, element.TestData, context.PreferTestData, context);
+        var content = DataBinder.BindContent(o.Content, element.Binding, context.Data, context.Report, element.Id, element.TestData, context.PreferTestData, context);
         // formatter 改编码内容（返回值即最终编码内容）
         content = ScriptSupport.FormatContent(context, element, o.Content, content);
         if (string.IsNullOrWhiteSpace(content))
@@ -86,7 +86,7 @@ public sealed class QrCodeRenderer : ElementRenderer<QrCodeElement>
         var modules = grid.Width;
         var quiet = Math.Max(0, o.QuietZoneMm);
         var side = Math.Min(element.WidthMm, codeHeight);
-        var moduleMm = (side - 2 * quiet) / modules;
+        var moduleMm = o.ModuleWidthMm > 0 ? o.ModuleWidthMm : (side - 2 * quiet) / modules;
         if (moduleMm <= 0)
         {
             context.Report.Add(element.Id, RenderIssueKind.QrCodeFailed,
@@ -107,6 +107,27 @@ public sealed class QrCodeRenderer : ElementRenderer<QrCodeElement>
 
         CodePainter.Paint(canvas, grid, left + quiet, top + quiet, moduleMm, fgColor);
 
+        // 中心 Logo（白底衬垫，保证仍可扫描）
+        var logoSrc = string.IsNullOrWhiteSpace(o.LogoField)
+            ? o.LogoData
+            : DataBinder.BindText(o.LogoField, context.Data, context.Report, element.Id, element.TestData, context.PreferTestData, context);
+        if (!string.IsNullOrWhiteSpace(logoSrc))
+        {
+            using var logo = TryDecodeImage(logoSrc);
+            if (logo is not null)
+            {
+                var box = total * 0.28;
+                var cx = left + total / 2;
+                var cy = top + total / 2;
+                using var pad = Paints.Fill(SKColors.White, antialias: false);
+                canvas.DrawRect(new SKRect((float)(cx - box / 2), (float)(cy - box / 2), (float)(cx + box / 2), (float)(cy + box / 2)), pad);
+                var (dw, dh) = FitLogo(logo.Width, logo.Height, box, o.LogoFit);
+                var dx = (float)(cx - dw / 2);
+                var dy = (float)(cy - dh / 2);
+                canvas.DrawBitmap(logo, new SKRect(dx, dy, dx + (float)dw, dy + (float)dh));
+            }
+        }
+
         if (captionStyle is not null)
         {
             var lineHeight = captionStyle.LineHeight(captionLineSpacing);
@@ -119,6 +140,30 @@ public sealed class QrCodeRenderer : ElementRenderer<QrCodeElement>
                 captionStyle.DrawLine(canvas, captionLines[i], x, baseline, captionColor);
             }
         }
+    }
+
+    static SKBitmap? TryDecodeImage(string? data)
+    {
+        if (string.IsNullOrWhiteSpace(data))
+            return null;
+        string? payload = data;
+        if (payload.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            var comma = payload.IndexOf(',');
+            if (comma >= 0) payload = payload.Substring(comma + 1);
+        }
+        if (!ImageAcquisition.TryFromBase64(payload, out var bytes) || bytes is null)
+            return null;
+        try { return SKBitmap.Decode(bytes); }
+        catch { return null; }
+    }
+
+    static (double, double) FitLogo(int w, int h, double box, QrLogoFit fit)
+    {
+        if (fit == QrLogoFit.Fill)
+            return (box, box);
+        var s = Math.Min(box / Math.Max(1, w), box / Math.Max(1, h));
+        return (w * s, h * s);
     }
 
     internal static ErrorCorrectionLevel ToLevel(QrErrorCorrection level) => level switch
@@ -147,8 +192,13 @@ public sealed class BarcodeRenderer : ElementRenderer<BarcodeElement>
         var bgColor = script?.BackgroundColor ?? StyleCascade.PickNullable(o.BackgroundColor, SKColors.White, named?.BackgroundColor);
         var fontFamily = StyleCascade.Pick(o.FontFamily, "Microsoft YaHei", named?.FontFamily);
         var fontSizePt = StyleCascade.Pick(o.FontSizePt, 7, named?.FontSizePt);
+        var captionFamily = StyleCascade.Pick(o.CaptionFontFamily, "Microsoft YaHei", named?.FontFamily);
+        var captionPt = StyleCascade.Pick(o.CaptionFontSizePt, 10.5, named?.FontSizePt);
+        var captionColor = script?.Color ?? StyleCascade.Pick(o.CaptionColor, SKColors.Black, named?.TextColor);
+        var captionAlign = StyleCascade.Pick(o.CaptionAlign, HorizontalAlign.Center, named?.HorizontalAlign);
+        var captionLineSpacing = StyleCascade.Pick(o.CaptionLineSpacing, 1.2, named?.LineSpacing);
 
-        var content = DataBinder.BindText(o.Content, context.Data, context.Report, element.Id, element.TestData, context.PreferTestData, context);
+        var content = DataBinder.BindContent(o.Content, element.Binding, context.Data, context.Report, element.Id, element.TestData, context.PreferTestData, context);
         // formatter 改编码内容（返回值即最终编码内容）
         content = ScriptSupport.FormatContent(context, element, o.Content, content);
 
@@ -184,7 +234,7 @@ public sealed class BarcodeRenderer : ElementRenderer<BarcodeElement>
         }
 
         var quiet = Math.Max(0, o.QuietZoneMm);
-        var barWidthMm = (element.WidthMm - 2 * quiet) / pattern.Length;
+        var barWidthMm = o.ModuleWidthMm > 0 ? o.ModuleWidthMm : (element.WidthMm - 2 * quiet) / pattern.Length;
         if (barWidthMm <= 0)
         {
             context.Report.Add(element.Id, RenderIssueKind.BarcodeFailed,
@@ -196,11 +246,21 @@ public sealed class BarcodeRenderer : ElementRenderer<BarcodeElement>
             ? new TextStyle(context, fontFamily, fontSizePt, bold: false, italic: false, content, element.Id)
             : null;
 
+        // 标题占顶部一行、可读文本占底部一行，其余给条
+        var captionText = o.ShowCaption ? DataBinder.BindText(o.Caption, context.Data, context.Report, element.Id, element.TestData, context.PreferTestData, context) : string.Empty;
+        using var captionStyle = captionText.Length > 0
+            ? new TextStyle(context, captionFamily, captionPt, bold: false, italic: false, captionText, element.Id)
+            : null;
+        var captionLines = captionStyle is null ? [] : captionStyle.Wrap(captionText, element.WidthMm, wrap: false);
+        var captionHeight = captionStyle is null ? 0 : captionLines.Count * captionStyle.LineHeight(captionLineSpacing);
+
         // 可读文本占掉底部一行行高，剩下的全部给条；文本关掉时条占满元素高
         var textLineHeight = style?.LineHeight(1.2) ?? 0;
-        var barsHeight = Math.Max(0, element.HeightMm - textLineHeight);
-        var left = element.XMm + quiet;
-        var barTop = element.YMm;
+        var barsHeight = Math.Max(0, element.HeightMm - textLineHeight - captionHeight);
+        var left = o.ModuleWidthMm > 0
+            ? element.XMm + (element.WidthMm - (barWidthMm * pattern.Length + 2 * quiet)) / 2
+            : element.XMm + quiet;
+        var barTop = element.YMm + captionHeight;
 
         // EAN/UPC 家族的护栏条按 ISO/IEC 15420 比数据条长 5 个模块宽，扫描枪靠它判定符号起止。
         // 增量取模块宽（不是固定毫米）：条码拉宽/缩窄时护栏的视觉比例才跟着变；
@@ -255,6 +315,19 @@ public sealed class BarcodeRenderer : ElementRenderer<BarcodeElement>
             var x = style.AlignedX(element.XMm, element.WidthMm, content, HorizontalAlign.Center);
             style.DrawLine(canvas, content, x, baseline, barColor);
         }
+
+        if (captionStyle is not null)
+        {
+            var lineHeight = captionStyle.LineHeight(captionLineSpacing);
+            var captionTop = element.YMm + (captionHeight - captionLines.Count * lineHeight) / 2;
+            var baselineOffset = captionStyle.BaselineOffset(lineHeight);
+            for (var i = 0; i < captionLines.Count; i++)
+            {
+                var baseline = captionTop + i * lineHeight + baselineOffset;
+                var x = captionStyle.AlignedX(element.XMm, element.WidthMm, captionLines[i], captionAlign);
+                captionStyle.DrawLine(canvas, captionLines[i], x, baseline, captionColor);
+            }
+        }
     }
 
     /// <summary>
@@ -263,7 +336,7 @@ public sealed class BarcodeRenderer : ElementRenderer<BarcodeElement>
     /// EAN-8 67 = 3+28+5+28+3；UPC-E 51 = 3+42+6，终止护栏是 6 模块的 <c>010101</c>。
     /// 其余码制（Code128/Code39/ITF 等）没有独立护栏，返回空。
     /// </summary>
-    static IReadOnlyList<(int Start, int Length)> GuardRanges(int modules) => modules switch
+    internal static IReadOnlyList<(int Start, int Length)> GuardRanges(int modules) => modules switch
     {
         95 => [(0, 3), (45, 5), (92, 3)],
         67 => [(0, 3), (31, 5), (64, 3)],
@@ -271,7 +344,7 @@ public sealed class BarcodeRenderer : ElementRenderer<BarcodeElement>
         _ => [],
     };
 
-    static void DrawBar(SKPaint paint, SKCanvas canvas, double x, double width, double top, double height)
+    internal static void DrawBar(SKPaint paint, SKCanvas canvas, double x, double width, double top, double height)
         => canvas.DrawRect(new SKRect((float)x, (float)top, (float)(x + width), (float)(top + height)), paint);
 
     internal static OneDimensionalCodeWriter NewWriter(BarcodeSymbology symbology) => symbology switch
@@ -286,6 +359,142 @@ public sealed class BarcodeRenderer : ElementRenderer<BarcodeElement>
         BarcodeSymbology.Code93 => new Code93Writer(),
         BarcodeSymbology.Msi => new MSIWriter(),
         _ => new Code128Writer(),
+    };
+}
+
+/// <summary>
+/// 把二维码/一维码绘入任意矩形（不取自 <see cref="PaperElement"/> 的几何），供表格单元格逐行出码复用。
+/// 与 <see cref="QrCodeRenderer"/>/<see cref="BarcodeRenderer"/> 共用同一套 ZXing 编码与 <see cref="CodePainter"/> 矩阵绘制，
+/// 仅把"定位到元素坐标"换成"定位到传入矩形"，并自动留静区。
+/// </summary>
+internal static class CellCodePainter
+{
+    /// <summary>把 <paramref name="content"/> 编码成二维码绘入 <paramref name="rect"/>（短边缩放、居中、留 1 模块静区）。</summary>
+    public static void PaintQr(SKCanvas canvas, SKRect rect, string content, SKColor fg, SKColor? bg, QrErrorCorrection level)
+    {
+        if (string.IsNullOrWhiteSpace(content) || rect.Width <= 0 || rect.Height <= 0)
+            return;
+
+        BitMatrix grid;
+        try
+        {
+            var qr = new QRCodeWriter();
+            var hints = new Dictionary<EncodeHintType, object>
+            {
+                [EncodeHintType.CHARACTER_SET] = "UTF-8",
+                [EncodeHintType.ERROR_CORRECTION] = Map(level),
+                [EncodeHintType.MARGIN] = 0,
+            };
+            grid = qr.encode(content, BarcodeFormat.QR_CODE, 1, 1, hints);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        var modules = grid.Width;
+        if (modules <= 0)
+            return;
+
+        const int quiet = 1;
+        var side = Math.Min(rect.Width, rect.Height);
+        var moduleMm = side / (modules + 2 * quiet);
+        var total = moduleMm * (modules + 2 * quiet);
+        var left = rect.Left + (rect.Width - total) / 2;
+        var top = rect.Top + (rect.Height - total) / 2;
+
+        if (bg is { } b)
+        {
+            using var p = Paints.Fill(b, antialias: false);
+            canvas.DrawRect(rect, p);
+        }
+
+        CodePainter.Paint(canvas, grid, left + moduleMm, top + moduleMm, moduleMm, fg);
+    }
+
+    /// <summary>把 <paramref name="content"/> 编码成一维码绘入 <paramref name="rect"/>（居中、留 2 模块静区，可选码下可读文本）。</summary>
+    public static void PaintBarcode(SKCanvas canvas, SKRect rect, string content, SKColor bar, SKColor? bg,
+        BarcodeSymbology symbology, bool showText, RenderContext? context)
+    {
+        if (string.IsNullOrWhiteSpace(content) || rect.Width <= 0 || rect.Height <= 0)
+            return;
+
+        bool[] pattern;
+        try
+        {
+            pattern = BarcodeRenderer.NewWriter(symbology).encode(content);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        var count = pattern.Length;
+        if (count <= 0)
+            return;
+
+        const int quietMods = 2;
+        var textLine = (showText && context is not null) ? Math.Min(3.5, rect.Height * 0.35) : 0.0;
+        var barWidthMm = rect.Width / (count + 2 * quietMods);
+        var totalW = barWidthMm * (count + 2 * quietMods);
+        var left = rect.Left + (rect.Width - totalW) / 2;
+        var barsHeight = rect.Height - textLine;
+        var barTop = rect.Top;
+
+        var guards = BarcodeRenderer.GuardRanges(count);
+        var guardExtra = guards.Count == 0 ? 0 : Math.Min(5 * barWidthMm, barsHeight * 0.25);
+        var dataHeight = barsHeight - guardExtra;
+
+        if (bg is { } b)
+        {
+            using var p = Paints.Fill(b, antialias: false);
+            canvas.DrawRect(rect, p);
+        }
+
+        using (var barPaint = Paints.Fill(bar, antialias: false))
+        {
+            var runStart = 0;
+            for (var i = 0; i < count; i++)
+            {
+                if (pattern[i] == pattern[runStart])
+                    continue;
+
+                if (pattern[runStart])
+                    BarcodeRenderer.DrawBar(barPaint, canvas, left + barWidthMm * runStart, barWidthMm * (i - runStart), barTop, dataHeight);
+
+                runStart = i;
+            }
+
+            if (pattern[^1])
+                BarcodeRenderer.DrawBar(barPaint, canvas, left + barWidthMm * runStart, barWidthMm * (count - runStart), barTop, dataHeight);
+
+            if (guardExtra > 0)
+            {
+                foreach (var (start, length) in guards)
+                {
+                    for (var m = start; m < start + length && m < count; m++)
+                    {
+                        if (pattern[m])
+                            BarcodeRenderer.DrawBar(barPaint, canvas, left + barWidthMm * m, barWidthMm, barTop + dataHeight, guardExtra);
+                    }
+                }
+            }
+        }
+
+        if (showText && textLine > 0 && context is not null)
+        {
+            using var style = new TextStyle(context, "Microsoft YaHei", (float)Math.Min(6, textLine * 2.2), bold: false, italic: false, content, null);
+            var x = style.AlignedX(rect.Left, rect.Width, content, HorizontalAlign.Center);
+            style.DrawLine(canvas, content, x, barTop + barsHeight + textLine * 0.7, bar);
+        }
+    }
+
+    static ErrorCorrectionLevel Map(QrErrorCorrection level) => level switch
+    {
+        QrErrorCorrection.L => ErrorCorrectionLevel.L,
+        QrErrorCorrection.M => ErrorCorrectionLevel.M,
+        QrErrorCorrection.Q => ErrorCorrectionLevel.Q,
+        _ => ErrorCorrectionLevel.H,
     };
 }
 

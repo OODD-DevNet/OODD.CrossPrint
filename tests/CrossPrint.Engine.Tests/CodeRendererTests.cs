@@ -498,4 +498,72 @@ public class CodeRendererTests
 
         return luma;
     }
+
+    [Fact]
+    public void 二维码中心Logo被绘制()
+    {
+        var element = Qr("https://example.com", QrErrorCorrection.M, 40, 2);
+        element.QrCode.LogoData = SolidPng(255, 0, 0);
+
+        var bitmap = Fixture.RenderElement(element, 300, pageWidthMm: 60, pageHeightMm: 60);
+        using (bitmap)
+        {
+            var cx = (int)Ink.MmToPx(element.XMm + element.WidthMm / 2, 300);
+            var cy = (int)Ink.MmToPx(element.YMm + element.HeightMm / 2, 300);
+
+            var red = false;
+            for (var dx = -2; dx <= 2; dx++)
+            for (var dy = -2; dy <= 2; dy++)
+            {
+                var c = bitmap.GetPixel(cx + dx, cy + dy);
+                if (c.Red > 200 && c.Green < 80 && c.Blue < 80)
+                    red = true;
+            }
+
+            red.Should().BeTrue("中心 Logo 应被绘制为红色");
+        }
+    }
+
+    [Fact]
+    public void 二维码Logo解码失败时不崩溃且跳过绘制()
+    {
+        var element = Qr("https://example.com", QrErrorCorrection.M, 40, 2);
+        element.QrCode.LogoData = "not-a-real-image";
+
+        var report = new RenderReport();
+        var bitmap = Fixture.RenderElement(element, 300, pageWidthMm: 60, pageHeightMm: 60, report: report);
+        using (bitmap)
+        {
+            report.Issues.Where(i => i.Kind != RenderIssueKind.FontFallback).Should().BeEmpty();
+            var cx = (int)Ink.MmToPx(element.XMm + element.WidthMm / 2, 300);
+            var cy = (int)Ink.MmToPx(element.YMm + element.HeightMm / 2, 300);
+            var c = bitmap.GetPixel(cx, cy);
+            (c.Red > 200 && c.Green < 80 && c.Blue < 80).Should().BeFalse("非法 Logo 不应被绘制");
+        }
+    }
+
+    [Fact]
+    public void 条形码标题被绘制且不破坏可读性()
+    {
+        var withCap = Barcode("HELLO-123", BarcodeSymbology.Code128, 10, 10, 90, 24, quietMm: 3, showText: false);
+        withCap.Barcode.ShowCaption = true;
+        withCap.Barcode.Caption = "批次号";
+
+        var report = new RenderReport();
+        var bitmap = Fixture.RenderElement(withCap, 300, pageWidthMm: 110, pageHeightMm: 50, report: report);
+        using (bitmap)
+        {
+            report.Issues.Where(i => i.Kind != RenderIssueKind.FontFallback).Should().BeEmpty();
+            Decode1D(bitmap).Should().Be("HELLO-123", "标题不应破坏条码可读性");
+        }
+    }
+
+    static string SolidPng(byte r, byte g, byte b)
+    {
+        using var bmp = new SKBitmap(12, 12);
+        bmp.Erase(new SKColor(r, g, b));
+        using var img = SKImage.FromBitmap(bmp);
+        using var data = img.Encode(SKEncodedImageFormat.Png, 100);
+        return "data:image/png;base64," + Convert.ToBase64String(data.ToArray());
+    }
 }

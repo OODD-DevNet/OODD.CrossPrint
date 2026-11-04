@@ -185,27 +185,74 @@ public static class HiprintTemplateImporter
             && watermark.ValueKind == JsonValueKind.Object
             && watermark.EnumerateObject().Any())
         {
-            ctx.Issue(
-                HiprintImportSeverity.Warning,
-                "hiprint.watermark-unsupported",
-                "hiprint 水印（watermarkOptions）没有对应能力，已忽略；如需水印请在打印前用背景图/自定义绘制实现。");
+            var wmId = ctx.Template.NextElementId();
+            var wmSrc = (Str(watermark, "src") ?? Str(watermark, "image") ?? "").Trim();
+            if (wmSrc.Length > 0)
+            {
+                // 水印用「最底层图片元素」实现：覆盖整页、置于所有元素之后。
+                var wm = ApplyCommon<ImageElement>(ctx, new ImageElement(), watermark, "watermarkOptions", "watermark", wmId);
+                wm.XMm = 0;
+                wm.YMm = 0;
+                wm.WidthMm = ctx.Template.Paper.WidthMm;
+                wm.HeightMm = ctx.Template.Paper.HeightMm;
+                wm.ZIndex = int.MinValue;
+
+                var img = wm.Image;
+                ApplyImageSource(ctx, img, wmSrc, "panel.watermarkOptions", wmId, "水印");
+
+                ctx.Template.Elements.Add(wm);
+            }
+            else
+            {
+                var wmText = (Str(watermark, "text") ?? "").Trim();
+                if (wmText.Length > 0)
+                {
+                    // 文字水印用「最底层低灰度文本元素」实现：覆盖整页、居中、置于所有元素之后。
+                    var wm = ApplyCommon<TextElement>(ctx, new TextElement(), watermark, "watermarkOptions", "watermark", wmId);
+                    wm.XMm = 0;
+                    wm.YMm = 0;
+                    wm.WidthMm = ctx.Template.Paper.WidthMm;
+                    wm.HeightMm = ctx.Template.Paper.HeightMm;
+                    wm.ZIndex = int.MinValue;
+
+                    var t = wm.Text;
+                    t.Content = wmText;
+                    t.FontSizePt = Positive(Dbl(watermark, "fontSize")) ?? 60;
+                    t.HorizontalAlign = HorizontalAlign.Center;
+                    t.VerticalAlign = VerticalAlign.Middle;
+                    t.Color = SKColor.Parse("#BBBBBB");
+
+                    ctx.Template.Elements.Add(wm);
+                }
+                else
+                {
+                    ctx.Issue(HiprintImportSeverity.Info, "hiprint.watermark-no-image",
+                        "水印（watermarkOptions）既无图片 src 也无文字 text，已忽略。", wmId, "panel.watermarkOptions");
+                }
+            }
         }
 
-        if (Has(panel, "paperNumberLeft") || Has(panel, "paperNumberTop") || Has(panel, "paperNumberFormat")
-            || Has(panel, "paperNumberContinue") || Has(panel, "paperNumberDisabled"))
+        // hiprint 页码（paperNumber*）：启用每页自动页码脚注；paperNumberDisabled 显式关闭。
+        if (Bool(panel, "paperNumberDisabled") != true
+            && (Has(panel, "paperNumberLeft") || Has(panel, "paperNumberTop") || Has(panel, "paperNumberFormat")
+                || Has(panel, "paperNumberContinue")))
         {
-            ctx.Issue(
-                HiprintImportSeverity.Warning,
-                "hiprint.page-number-unsupported",
-                "hiprint 页码（paperNumber*）没有对应能力，已忽略。");
+            ctx.Template.PaperNumberEnabled = true;
+            var fmt = Str(panel, "paperNumberFormat");
+            if (!string.IsNullOrWhiteSpace(fmt))
+                ctx.Template.PaperNumberFormat = ConvertPageNumberFormat(fmt);
+            if (Dbl(panel, "paperNumberLeft") is { } lx)
+                ctx.Template.PaperNumberXMm = Pt(lx);
+            if (Dbl(panel, "paperNumberTop") is { } ty)
+                ctx.Template.PaperNumberYMm = Pt(ty);
         }
 
-        if (Has(panel, "leftOffset") || Has(panel, "topOffset"))
+        var leftOffsetPt = Dbl(panel, "leftOffset") ?? 0;
+        var topOffsetPt = Dbl(panel, "topOffset") ?? 0;
+        if (leftOffsetPt != 0 || topOffsetPt != 0)
         {
-            ctx.Issue(
-                HiprintImportSeverity.Warning,
-                "hiprint.panel-offset",
-                "面板打印偏移（leftOffset/topOffset）没有对应能力，已忽略。");
+            ctx.Template.LeftOffsetMm = Pt(leftOffsetPt);
+            ctx.Template.TopOffsetMm = Pt(topOffsetPt);
         }
 
         if (panel.TryGetProperty("panelLayoutOptions", out var layout)
@@ -237,12 +284,15 @@ public static class HiprintTemplateImporter
             }
 
             var id = ctx.Template.NextElementId();
-            var element = BuildElement(ctx, printElement, path, id);
-            if (element is null)
-                continue;
-
-            element.Id = id;
-            ctx.Template.Add(element);
+            var built = BuildElements(ctx, printElement, path, id);
+            for (var k = 0; k < built.Count; k++)
+            {
+                // 首个沿用已分配的 id；拆出来的兄弟元素交给 Add 续号（NextElementId 是按已有元素扫描的，
+                // 一次性先把号取完会拿到同一个号 → "元素 id 重复"）
+                if (k > 0)
+                    built[k].Id = string.Empty;
+                ctx.Template.Add(built[k]);
+            }
         }
     }
 
@@ -286,18 +336,23 @@ public static class HiprintTemplateImporter
 
     // ---------------- 元素 ----------------
 
-    static PaperElement? BuildElement(ImportContext ctx, JsonElement printElement, string path, string id)
+    /// <summary>
+    /// 把一个 hiprint <c>printElements</c> 条目转成一组内置元素：绝大多数类型正好 1 个，
+    /// <c>html</c> 会按内容拆成容器框 + 文本/图片/表格子元素，
+    /// 插件自定义类型走 <see cref="HiprintCustomElementRegistry"/> 或退化成占位框（不会被丢弃）。
+    /// </summary>
+    static List<PaperElement> BuildElements(ImportContext ctx, JsonElement printElement, string path, string id)
     {
         if (!printElement.TryGetProperty("printElementType", out var typeElement) || typeElement.ValueKind != JsonValueKind.Object)
         {
             ctx.Issue(HiprintImportSeverity.Warning, "hiprint.element-malformed", "元素缺少 printElementType，已跳过。", id, path);
-            return null;
+            return [];
         }
 
         if (!printElement.TryGetProperty("options", out var options) || options.ValueKind != JsonValueKind.Object)
         {
             ctx.Issue(HiprintImportSeverity.Warning, "hiprint.element-malformed", "元素缺少 options 对象，已跳过。", id, path);
-            return null;
+            return [];
         }
 
         var type = (Str(typeElement, "type") ?? "").Trim().ToLowerInvariant();
@@ -305,16 +360,33 @@ public static class HiprintTemplateImporter
 
         CaptureDesignData(ctx, options);
 
-        return type switch
+        List<PaperElement> elements;
+        if (type == "html")
+        {
+            elements = BuildHtmlElements(ctx, options, path, id);
+        }
+        else
+        {
+            var single = BuildSingle(ctx, type, textType, options, path, id);
+            elements = single is not null ? [single] : BuildCustomElements(ctx, type, options, path, id);
+        }
+
+        return elements;
+    }
+
+    /// <summary>内置类型的单元素构建；未知/插件类型返回 null（交给自定义元素分支）。</summary>
+    static PaperElement? BuildSingle(ImportContext ctx, string type, string textType, JsonElement options, string path, string id)
+        => type switch
         {
             "text" when textType == "barcode" => BuildBarcode(ctx, options, path, id),
             "text" when textType == "qrcode" => BuildQrCode(ctx, options, path, id),
             "text" => BuildText(ctx, options, path, id, longText: false),
             "longtext" => BuildText(ctx, options, path, id, longText: true),
             "image" => BuildImage(ctx, options, path, id),
+            "bigimage" => BuildImage(ctx, options, path, id),
+            "signature" => BuildImage(ctx, options, path, id),
             "table" => BuildTable(ctx, options, path, id),
             "tablecustom" => BuildLegacyTable(ctx, options, path, id),
-            "html" => BuildHtml(ctx, options, path, id),
             "hline" => BuildLine(ctx, options, path, id, horizontal: true),
             "vline" => BuildLine(ctx, options, path, id, horizontal: false),
             "rect" => BuildShape(ctx, options, path, id, oval: false),
@@ -323,9 +395,8 @@ public static class HiprintTemplateImporter
             "qrcode" => BuildQrCode(ctx, options, path, id),
             "" when textType == "barcode" => BuildBarcode(ctx, options, path, id),
             "" when textType == "qrcode" => BuildQrCode(ctx, options, path, id),
-            _ => UnknownElement(ctx, type, options, path, id),
+            _ => null,
         };
-    }
 
     /// <summary>
     /// hiprint 旧版的 <c>tableCustom</c> 元素。新版已并入 <c>table</c>（设计器会提示替换），
@@ -361,20 +432,80 @@ public static class HiprintTemplateImporter
             ctx.Template.DesignData[field] = testData!;
     }
 
-    static PaperElement? UnknownElement(ImportContext ctx, string type, JsonElement options, string path, string id)
+    /// <summary>
+    /// 未知/插件自定义元素（hiprint 插件注册的 <c>printElementType</c>）：
+    /// 先问 <see cref="HiprintCustomElementRegistry"/> 有没有注册转换器；没有就"重绘"成
+    /// 虚线占位框 + 居中标签文本，而不是像以前那样直接丢弃——用户在版面上看得见、选得中、改得了。
+    /// </summary>
+    static List<PaperElement> BuildCustomElements(ImportContext ctx, string type, JsonElement options, string path, string id)
     {
         var label = type.Length == 0 ? "(空)" : type;
+        var displayName = HiprintCustomElementRegistry.DisplayNameOf(type);
+
+        if (options.ValueKind == JsonValueKind.Object)
+        {
+            var args = new HiprintCustomElementArgs
+            {
+                Type = type,
+                ElementId = id,
+                Path = path,
+                XMm = Pt(Dbl(options, "left") ?? 0),
+                YMm = Pt(Dbl(options, "top") ?? 0),
+                WidthMm = Math.Max(0, Pt(Dbl(options, "width") ?? DefaultsFor("html").WidthPt)),
+                HeightMm = Math.Max(0, Pt(Dbl(options, "height") ?? DefaultsFor("html").HeightPt)),
+                Options = options.Clone(),
+            };
+
+            if (HiprintCustomElementRegistry.TryCreate(args, out var converted) && converted is not null)
+            {
+                ctx.Issue(
+                    HiprintImportSeverity.Info,
+                    "hiprint.custom-element-converted",
+                    $"插件自定义元素 '{label}'{(displayName is null ? "" : $"（{displayName}）")} 已按注册的转换器导入为 {converted.TypeKey}。",
+                    id,
+                    path);
+                return [converted];
+            }
+        }
+
+        // 未注册（或工厂放弃）：占位框 + 标签，保留元素框尺寸与通用分页/脚本字段
+        var placeholder = ApplyCommon(ctx, new RectangleElement(), options, path, "html", id);
+        placeholder.Rectangle.StrokeColor = new SKColor(176, 176, 176);
+        placeholder.Rectangle.StrokeWidthMm = 0.25;
+        placeholder.Rectangle.DashPatternMm = [2, 1];
+        placeholder.Rectangle.FillColor = null;
+
+        var title = Str(options, "title") ?? Str(options, "text") ?? displayName;
+        var field = (Str(options, "field") ?? "").Trim();
+        var content = field.Length > 0
+            ? (string.IsNullOrEmpty(title) ? "" : title + "：") + "{{" + field + "}}"
+            : title ?? "[" + label + "]";
+
+        var text = new TextElement
+        {
+            XMm = placeholder.XMm,
+            YMm = placeholder.YMm,
+            WidthMm = placeholder.WidthMm,
+            HeightMm = placeholder.HeightMm,
+            ZIndex = placeholder.ZIndex,
+        };
+        text.Text.Content = content;
+        text.Text.FontSizePt = Positive(Dbl(options, "fontSize")) ?? 9;
+        text.Text.HorizontalAlign = HorizontalAlign.Center;
+        text.Text.VerticalAlign = VerticalAlign.Middle;
+        text.Text.Wrap = true;
+        text.Text.Color = new SKColor(120, 120, 120);
+
         ctx.Issue(
             HiprintImportSeverity.Warning,
             "hiprint.unknown-element-type",
-            $"未知或自定义元素类型 '{label}'（通常来自 hiprint 插件），已跳过。可用内置类型：text/longText/image/table/html/hline/vline/rect/oval/barcode/qrcode。",
+            $"未知或自定义元素类型 '{label}'（通常来自 hiprint 插件）：已重绘为占位框＋标签，"
+            + $"可用 HiprintCustomElementRegistry.Register(\"{label}\", args => …) 注册转换器换成真正的内置元素。"
+            + "内置类型：text/longText/image/table/html/hline/vline/rect/oval/barcode/qrcode。",
             id,
             path);
 
-        if (options.ValueKind != JsonValueKind.Object)
-            return null;
-
-        return null;
+        return [placeholder, text];
     }
 
     static T ApplyCommon<T>(ImportContext ctx, T element, JsonElement options, string path, string typeKey, string id)
@@ -393,9 +524,18 @@ public static class HiprintTemplateImporter
         if (Dbl(options, "zIndex") is { } z)
             element.ZIndex = (int)Math.Round(z);
 
-        element.RotationDegrees = ParseRotation(ctx, options, path, id);
+        ParseTransform(ctx, options, path, id, element);
         element.Formatter = ScriptOrNull(Str(options, "formatter"));
         element.Styler = ScriptOrNull(Str(options, "styler"));
+
+        // 通用分页标志（任意元素类型通用）：pageBreak 强制分页 / fixed 每页重复 /
+        // showInPage / unShowInPage 按页过滤。由 TemplatePaginator 在通用分页模式下消费。
+        element.PageBreakAfter = Bool(options, "pageBreak") == true;
+        element.Fixed = Bool(options, "fixed") == true;
+        var showIn = Str(options, "showInPage");
+        var unshowIn = Str(options, "unShowInPage");
+        element.ShowInPages = string.IsNullOrWhiteSpace(showIn) ? null : showIn.Trim();
+        element.UnShowInPages = string.IsNullOrWhiteSpace(unshowIn) ? null : unshowIn.Trim();
         return element;
     }
 
@@ -440,36 +580,75 @@ public static class HiprintTemplateImporter
         @"rotate\(\s*(-?\d+(?:\.\d+)?)\s*deg\s*\)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    static double ParseRotation(ImportContext ctx, JsonElement options, string path, string id)
+    static readonly Regex _scale = new(
+        @"scale\(\s*(-?\d+(?:\.\d+)?)(?:\s*,\s*(-?\d+(?:\.\d+)?))?\s*\)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    static readonly Regex _translate = new(
+        @"translate\(\s*(-?\d+(?:\.\d+)?)(?:px|pt|mm)?(?:\s*,\s*(-?\d+(?:\.\d+)?)(?:px|pt|mm)?)?\s*\)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// 解析 CSS 风格 transform：支持 <c>rotate(Ndeg)</c> / <c>scale(s)</c> / <c>scale(sx, sy)</c> /
+    /// <c>translate(x, y)</c>（单位 px/pt/mm 皆按 1mm 处理，hiprint 里 translate 通常只是微调）。
+    /// 三种可任意组合、顺序无关；无法识别的部分忽略并告警。
+    /// </summary>
+    static void ParseTransform(ImportContext ctx, JsonElement options, string path, string id, PaperElement element)
     {
         var transform = Str(options, "transform");
         if (string.IsNullOrWhiteSpace(transform))
-            return 0;
+            return;
 
-        var match = _rotation.Match(transform);
-        if (!match.Success)
+        var rotation = 0d;
+        var scaleX = 1d;
+        var scaleY = 1d;
+        var translateX = 0d;
+        var translateY = 0d;
+        var unknown = transform;
+
+        var rMatch = _rotation.Match(transform);
+        if (rMatch.Success)
         {
-            ctx.Issue(
-                HiprintImportSeverity.Warning,
-                "hiprint.transform-unsupported",
-                $"transform '{transform}' 不是 rotate(Ndeg)，已忽略。",
-                id,
-                path);
-            return 0;
+            rotation = double.Parse(rMatch.Groups[1].Value, CultureInfo.InvariantCulture);
+            unknown = _rotation.Replace(unknown, " ").Trim();
         }
 
-        var residual = _rotation.Replace(transform, "").Trim().Trim(';', ' ');
-        if (residual.Length > 0)
+        var sMatch = _scale.Match(transform);
+        if (sMatch.Success)
+        {
+            scaleX = double.Parse(sMatch.Groups[1].Value, CultureInfo.InvariantCulture);
+            scaleY = sMatch.Groups[2].Success
+                ? double.Parse(sMatch.Groups[2].Value, CultureInfo.InvariantCulture)
+                : scaleX;
+            unknown = _scale.Replace(unknown, " ").Trim();
+        }
+
+        var tMatch = _translate.Match(transform);
+        if (tMatch.Success)
+        {
+            translateX = double.Parse(tMatch.Groups[1].Value, CultureInfo.InvariantCulture);
+            translateY = tMatch.Groups[2].Success
+                ? double.Parse(tMatch.Groups[2].Value, CultureInfo.InvariantCulture)
+                : 0;
+            unknown = _translate.Replace(unknown, " ").Trim();
+        }
+
+        unknown = unknown.Trim().Trim(';', ' ');
+        if (unknown.Length > 0)
         {
             ctx.Issue(
-                HiprintImportSeverity.Warning,
+                HiprintImportSeverity.Info,
                 "hiprint.transform-partial",
-                $"transform '{transform}' 里除旋转外的部分已忽略。",
+                $"transform '{transform}' 里除 rotate/scale/translate 外的部分已忽略。",
                 id,
                 path);
         }
 
-        return double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+        element.RotationDegrees = rotation;
+        element.ScaleX = scaleX;
+        element.ScaleY = scaleY;
+        element.TranslateMmX = translateX;
+        element.TranslateMmY = translateY;
     }
 
     // ---------------- 文本 ----------------
@@ -523,16 +702,13 @@ public static class HiprintTemplateImporter
         ApplyPadding(options, text);
         ApplyDecoration(ctx, options, text, path, id);
         WarnTextFeatures(ctx, options, path, id);
+        ApplyValueFormatting(ctx, options, element, path, id);
         ApplyBoxBorder(ctx, element, options, path, id, defaultWidthPt: 0);
 
         if (longText)
         {
-            ctx.Issue(
-                HiprintImportSeverity.Warning,
-                "hiprint.long-text-pagination",
-                "hiprint longText 会按页自动续排；CrossPrint 在元素框内渲染并由元素边界裁切，超长内容不会自动分页。",
-                id,
-                path);
+            // longText 的"超出元素框继续排到下一页"由排版器实现（TextOptions.ContinueOnOverflow）。
+            text.ContinueOnOverflow = true;
 
             if (Positive(Dbl(options, "longTextIndent")) is not null)
                 ctx.Issue(HiprintImportSeverity.Warning, "hiprint.long-text-indent", "longTextIndent 无对应属性，已忽略。", id, path);
@@ -586,21 +762,37 @@ public static class HiprintTemplateImporter
 
     static void WarnTextFeatures(ImportContext ctx, JsonElement options, string path, string id)
     {
-        // formatter/styler 已在 ApplyCommon 保留入库（CrossPrint 内嵌 Jint 执行，语义与 hiprint 兼容），不再告警
-        if (!string.IsNullOrWhiteSpace(Str(options, "dataType")) || !string.IsNullOrWhiteSpace(Str(options, "format")))
-            ctx.Issue(HiprintImportSeverity.Warning, "hiprint.data-format", "dataType/format 的日期、布尔格式化未实现，已按原始值打印。", id, path);
+        // formatter/styler 已在 ApplyCommon 保留入库（CrossPrint 内嵌 Jint 执行，语义与 hiprint 兼容）；
+        // dataType/format 与 upperCase 也通过注入 formatter 脚本实现（见 ApplyValueFormatting），不再告警。
+        // pageBreak/fixed/showInPage/unShowInPage 已在 ApplyCommon 解析并由通用分页器消费，不再告警。
+        // overline 由文本装饰解析器单独提示，这里无需重复。
+    }
 
-        if (Str(options, "upperCase") is { Length: > 0 } upper && upper != "0" && upper != "false")
-            ctx.Issue(HiprintImportSeverity.Warning, "hiprint.upper-case", "upperCase（中文金额大写等）未实现，已按原值打印。", id, path);
+    /// <summary>
+    /// 把 hiprint 的 <c>dataType/format</c> 与 <c>upperCase</c> 翻译成调用内置 <c>fmt</c> / <c>rmbUpper</c> 的 formatter 脚本，
+    /// 复用引擎已有的 Jint formatter 机制（脚本全局函数由 ScriptRunner 注入）。
+    /// 仅对文本类元素调用；若用户已写 hiprint 原生 formatter 则不覆盖。
+    /// </summary>
+    static void ApplyValueFormatting(ImportContext ctx, JsonElement options, PaperElement element, string path, string id)
+    {
+        var dataType = (Str(options, "dataType") ?? "").Trim().ToLowerInvariant();
+        var format = (Str(options, "format") ?? "").Trim();
+        var upper = Str(options, "upperCase");
 
-        if (Bool(options, "pageBreak") == true)
-            ctx.Issue(HiprintImportSeverity.Warning, "hiprint.page-break", "pageBreak（随后续元素强制分页）未实现。", id, path);
+        if (string.IsNullOrWhiteSpace(element.Formatter))
+        {
+            if (upper is { Length: > 0 } u && u != "0" && u != "false")
+            {
+                element.Formatter = "function(value){ return rmbUpper(value); }";
+                return;
+            }
 
-        if (!string.IsNullOrWhiteSpace(Str(options, "showInPage")) || !string.IsNullOrWhiteSpace(Str(options, "unShowInPage")))
-            ctx.Issue(HiprintImportSeverity.Warning, "hiprint.page-filter", "showInPage/unShowInPage（按页选择性打印）未实现。", id, path);
-
-        if (Bool(options, "fixed") == true)
-            ctx.Issue(HiprintImportSeverity.Warning, "hiprint.fixed-repeat", "fixed（每页重复打印该元素）未实现；元素只会出现一次。", id, path);
+            if (dataType.Length > 0 || format.Length > 0)
+            {
+                var safeFormat = format.Replace("\\", "\\\\").Replace("'", "\\'");
+                element.Formatter = $"function(value){{ return fmt(value, '{dataType}', '{safeFormat}'); }}";
+            }
+        }
     }
 
     // ---------------- 图片 ----------------
@@ -614,41 +806,143 @@ public static class HiprintTemplateImporter
         var image = element.Image;
         var source = (Str(options, "src") ?? Str(options, "image") ?? "").Trim();
 
-        if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-        {
-            var comma = source.IndexOf(',');
-            if (comma > 0 && source[..comma].IndexOf("base64", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                image.SourceType = ImageSourceType.EmbeddedBase64;
-                image.Data = source[(comma + 1)..].Trim();
-            }
-            else
-            {
-                ctx.Issue(HiprintImportSeverity.Warning, "hiprint.image-data-url", "图片 data URL 不是 base64 形式，无法内嵌，渲染为占位框。", id, path);
-            }
-        }
-        else if (source.Length > 0)
-        {
-            image.SourceType = ImageSourceType.ResolverKey;
-            image.ResolverKey = source;
-            ctx.Issue(
-                HiprintImportSeverity.Info,
-                "hiprint.image-url",
-                $"图片使用外链地址 '{Shorten(source)}'，需要宿主提供 IImageResolver 才能打印；否则渲染占位框。",
-                id,
-                path);
-        }
-        else
-        {
+        if (source.Length == 0)
             ctx.Issue(HiprintImportSeverity.Warning, "hiprint.image-missing", "图片元素没有 src，渲染为占位框。", id, path);
-        }
+        else
+            ApplyImageSource(ctx, image, source, path, id, "图片");
 
-        if ((Str(options, "field") ?? "").Trim().Length > 0)
-            ctx.Issue(HiprintImportSeverity.Warning, "hiprint.image-field", "图片字段绑定（field）无对应数据通道，已忽略 field。", id, path);
+        var imageField = (Str(options, "field") ?? "").Trim();
+        if (imageField.Length > 0)
+            image.Field = imageField;
 
         image.FitMode = ParseFit(ctx, Str(options, "fit"), path, id);
         image.CornerRadiusMm = Math.Max(0, Pt(Dbl(options, "borderRadius") ?? 0));
         return element;
+    }
+
+    /// <summary>
+    /// 把 hiprint 的图片源分四类落库：完整 data URI（内嵌，可能是 SVG）、裸 base64 载荷、
+    /// <c>http/https</c> 外链、其余（本地路径/业务键，交宿主解析器）。
+    /// </summary>
+    /// <remarks>
+    /// 早期实现只认 base64，把外链一律塞进 ResolverKey，渲染期没有解析器就是一张空框——
+    /// 这就是"图片元素解析不出来"的主因。现在外链归 <see cref="ImageSourceType.Url"/> 由引擎自己下载，
+    /// 且完整 data URI 原样保留（mime 里带 svg 时引擎要走矢量光栅器，非 base64 的百分号编码 SVG 也靠它识别）。
+    /// </remarks>
+    static void ApplyImageSource(
+        ImportContext ctx,
+        ImageOptions image,
+        string source,
+        string path,
+        string id,
+        string what)
+    {
+        if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            image.SourceType = ImageSourceType.EmbeddedBase64;
+            image.Data = source;
+
+            var comma = source.IndexOf(',');
+            var header = comma > 0 ? source.Substring(0, comma) : source;
+            var isBase64 = header.IndexOf("base64", StringComparison.OrdinalIgnoreCase) >= 0;
+            var isSvg = header.IndexOf("svg", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!isBase64 && !isSvg)
+            {
+                ctx.Issue(
+                    HiprintImportSeverity.Warning,
+                    "hiprint.image-data-url",
+                    $"{what}的 data URI 既不是 base64 也不是 SVG，可能无法解码，渲染为占位框。",
+                    id,
+                    path);
+            }
+
+            return;
+        }
+
+        if (source.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || source.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            image.SourceType = ImageSourceType.Url;
+            image.Url = source;
+            ctx.Issue(
+                HiprintImportSeverity.Info,
+                "hiprint.image-url",
+                $"{what}使用外链地址 '{Shorten(source)}'，渲染时由引擎下载（同一地址只下载一次）；如需离线打印请改为内嵌 base64。",
+                id,
+                path);
+            return;
+        }
+
+        if (LooksLikeBase64Payload(source))
+        {
+            image.SourceType = ImageSourceType.EmbeddedBase64;
+            image.Data = source;
+            return;
+        }
+
+        image.SourceType = ImageSourceType.ResolverKey;
+        image.ResolverKey = source;
+        ctx.Issue(
+            HiprintImportSeverity.Info,
+            "hiprint.image-resolver-key",
+            $"{what}源 '{Shorten(source)}' 需要宿主提供 IImageResolver 才能解析（本地路径/业务键），否则渲染占位框。",
+            id,
+            path);
+    }
+
+    /// <summary>
+    /// 判断是不是"裸 base64 载荷"：先过字符集与长度，再真解一次看头部魔数。
+    /// 只看字符集不够——64 位十六进制的业务键同样是合法 base64，会被误判成图片数据。
+    /// </summary>
+    static bool LooksLikeBase64Payload(string source)
+    {
+        if (source.Length < 64 || source.Length % 4 != 0)
+            return false;
+
+        foreach (var c in source)
+        {
+            if (!(c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '+' or '/' or '='))
+                return false;
+        }
+
+        try
+        {
+            var bytes = Convert.FromBase64String(source);
+            return LooksLikeImageMagic(bytes);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>图片字节头嗅探：位图魔数或 SVG 文本头。</summary>
+    static bool LooksLikeImageMagic(byte[] bytes)
+    {
+        if (bytes.Length < 4)
+            return false;
+
+        if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) // PNG
+            return true;
+        if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) // JPEG
+            return true;
+        if (bytes[0] == (byte)'G' && bytes[1] == (byte)'I' && bytes[2] == (byte)'F') // GIF
+            return true;
+        if (bytes[0] == (byte)'B' && bytes[1] == (byte)'M') // BMP
+            return true;
+        if (bytes.Length >= 12
+            && bytes[0] == (byte)'R' && bytes[1] == (byte)'I' && bytes[2] == (byte)'F' && bytes[3] == (byte)'F'
+            && bytes[8] == (byte)'W' && bytes[9] == (byte)'E' && bytes[10] == (byte)'B' && bytes[11] == (byte)'P') // WEBP
+            return true;
+
+        // SVG / XML：跳过 UTF-8 BOM 与空白看首个有效字符
+        var i = 0;
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            i = 3;
+        while (i < bytes.Length && (bytes[i] == (byte)' ' || bytes[i] == (byte)'\r' || bytes[i] == (byte)'\n' || bytes[i] == (byte)'\t'))
+            i++;
+
+        return i < bytes.Length && bytes[i] == (byte)'<';
     }
 
     static ImageFitMode ParseFit(ImportContext ctx, string? raw, string path, string id)
@@ -702,16 +996,16 @@ public static class HiprintTemplateImporter
         if (oval)
         {
             var ellipse = ApplyCommon(ctx, new EllipseElement(), options, path, "oval", id);
-            FillShape(ctx, options, ellipse.Ellipse, path, id, oval: true);
+            FillShape(ctx, options, ellipse.Ellipse, ellipse, path, id, oval: true);
             return ellipse;
         }
 
         var rectangle = ApplyCommon(ctx, new RectangleElement(), options, path, "rect", id);
-        FillShape(ctx, options, rectangle.Rectangle, path, id, oval: false);
+        FillShape(ctx, options, rectangle.Rectangle, rectangle, path, id, oval: false);
         return rectangle;
     }
 
-    static void FillShape(ImportContext ctx, JsonElement options, ShapeOptions shape, string path, string id, bool oval)
+    static void FillShape(ImportContext ctx, JsonElement options, ShapeOptions shape, PaperElement element, string path, string id, bool oval)
     {
         var style = (Str(options, "borderStyle") ?? "solid").Trim().ToLowerInvariant();
         var widthPt = Dbl(options, "borderWidth") ?? 0.75;
@@ -723,26 +1017,248 @@ public static class HiprintTemplateImporter
         shape.FillColor = OptionalColor(ctx, options, "backgroundColor", path, id);
         shape.CornerRadiusMm = oval ? 0 : Math.Max(0, Pt(Dbl(options, "borderRadius") ?? 0));
 
-        if (Has(options, "borderLeft") || Has(options, "borderTop") || Has(options, "borderRight") || Has(options, "borderBottom"))
-            ctx.Issue(HiprintImportSeverity.Warning, "hiprint.border-sides", "矩形/椭圆不支持分边线型，已按统一样式绘制。", id, path);
+        // 分边线型：borderLeft/borderTop/borderRight/borderBottom 映射到 element.BorderSides，
+        // 渲染器逐边绘制；四边都未单独声明时按统一样式画四边。
+        var hasSide = Has(options, "borderLeft") || Has(options, "borderTop")
+            || Has(options, "borderRight") || Has(options, "borderBottom");
+        var sides = BorderSide.All;
+        if (hasSide)
+        {
+            sides = BorderSide.None;
+            if (Bool(options, "borderTop") == true)
+                sides |= BorderSide.Top;
+            if (Bool(options, "borderRight") == true)
+                sides |= BorderSide.Right;
+            if (Bool(options, "borderBottom") == true)
+                sides |= BorderSide.Bottom;
+            if (Bool(options, "borderLeft") == true)
+                sides |= BorderSide.Left;
+        }
+
+        element.BorderSides = visible ? sides : BorderSide.None;
     }
 
-    static RectangleElement BuildHtml(ImportContext ctx, JsonElement options, string path, string id)
+    /// <summary>
+    /// hiprint <c>html</c> 元素：把 HTML 子集拆成"文本 / 图片 / 表格"子元素，自上而下码放在元素框内。
+    /// 容器框只在有边框/底色时落地（否则只是一个看不见的空矩形）。
+    /// </summary>
+    /// <remarks>
+    /// CrossPrint 没有浏览器内核，文本按字号估算行数定高——不追求与浏览器逐像素一致，
+    /// 但保证内容不丢、可编辑、可打印。真正装不下时按块丢弃并记 <c>hiprint.html-overflow</c>。
+    /// </remarks>
+    static List<PaperElement> BuildHtmlElements(ImportContext ctx, JsonElement options, string path, string id)
     {
-        var element = ApplyCommon(ctx, new RectangleElement(), options, path, "html", id);
-        element.Rectangle.StrokeColor = new SKColor(176, 176, 176);
-        element.Rectangle.StrokeWidthMm = 0.25;
-        element.Rectangle.DashPatternMm = [2, 1];
-        element.Rectangle.FillColor = null;
+        var box = ApplyCommon(ctx, new RectangleElement(), options, path, "html", id);
+        var pieces = HiprintHtmlConverter.Convert(ReadHtmlSource(options));
+
+        if (pieces.Count == 0)
+        {
+            // 空内容 / 只有脚本样式：退回虚线占位框，至少让用户看见这里原本有东西
+            box.Rectangle.StrokeColor = new SKColor(176, 176, 176);
+            box.Rectangle.StrokeWidthMm = 0.25;
+            box.Rectangle.DashPatternMm = [2, 1];
+            box.Rectangle.FillColor = null;
+
+            ctx.Issue(
+                HiprintImportSeverity.Warning,
+                "hiprint.html-unsupported",
+                "hiprint 的 html 元素内容为空或只有脚本/样式，没有可转换的文本/图片/表格，已用虚线占位框代替。",
+                id,
+                path);
+
+            return [box];
+        }
+
+        var hasLegacy = options.TryGetProperty("contentPadding", out var legacy) && legacy.ValueKind == JsonValueKind.Object;
+        var padLeft = PaddingMm(options, hasLegacy ? legacy : null, "contentPaddingLeft", "left");
+        var padTop = PaddingMm(options, hasLegacy ? legacy : null, "contentPaddingTop", "top");
+        var padRight = PaddingMm(options, hasLegacy ? legacy : null, "contentPaddingRight", "right");
+        var padBottom = PaddingMm(options, hasLegacy ? legacy : null, "contentPaddingBottom", "bottom");
+
+        var width = Math.Max(1, box.WidthMm - padLeft - padRight);
+        var cursor = box.YMm + padTop;
+        var bottom = box.YMm + Math.Max(0, box.HeightMm - padBottom);
+
+        var children = new List<PaperElement>();
+        var dropped = 0;
+        foreach (var piece in pieces)
+        {
+            if (cursor >= bottom)
+            {
+                dropped++;
+                continue;
+            }
+
+            switch (piece.Kind)
+            {
+                case HiprintHtmlPieceKind.Text:
+                    children.Add(BuildHtmlTextPiece(piece, box.XMm + padLeft, cursor, width, bottom - cursor));
+                    cursor += children[^1].HeightMm;
+                    break;
+
+                case HiprintHtmlPieceKind.Image:
+                    children.Add(BuildHtmlImagePiece(ctx, piece, box.XMm + padLeft, cursor, width, path));
+                    cursor += children[^1].HeightMm;
+                    break;
+
+                case HiprintHtmlPieceKind.Table:
+                    children.Add(BuildHtmlTablePiece(piece, box.XMm + padLeft, cursor, width, bottom - cursor));
+                    cursor += children[^1].HeightMm;
+                    break;
+            }
+
+            // 块间距：浏览器默认段落外边距的一半左右，够区分又不至于把版面撑散
+            cursor += Math.Min(1.2, box.HeightMm * 0.02);
+        }
+
+        if (dropped > 0)
+        {
+            ctx.Issue(
+                HiprintImportSeverity.Warning,
+                "hiprint.html-overflow",
+                $"html 内容超出元素框高度（{box.HeightMm.ToString("0.##", CultureInfo.InvariantCulture)}mm），"
+                + $"{dropped} 个块未落地；请调高元素高度或拆分内容。",
+                id,
+                path);
+        }
 
         ctx.Issue(
-            HiprintImportSeverity.Warning,
-            "hiprint.html-unsupported",
-            "hiprint 的 html 元素依赖浏览器渲染 HTML/CSS，CrossPrint 用虚线占位框代替；请改用文本/图片/表格元素。",
+            HiprintImportSeverity.Info,
+            "hiprint.html-converted",
+            $"html 已转换为 {children.Count} 个内置元素（文本/图片/表格）；浏览器级 CSS 布局按字号估算，不保证逐像素一致。",
             id,
             path);
 
+        var containerVisible = box.BorderSides != BorderSide.None || box.Rectangle.FillColor is not null;
+        return containerVisible ? [box, ..children] : children;
+    }
+
+    /// <summary>读 html 元素的标记来源：<c>html</c> 优先，兼容把标记写在 <c>text</c>/<c>title</c> 里的老模板。</summary>
+    static string? ReadHtmlSource(JsonElement options)
+        => Str(options, "html") ?? Str(options, "text") ?? Str(options, "title");
+
+    /// <summary>HTML 文本块 → 文本元素（按字号估算行数定高）。</summary>
+    static TextElement BuildHtmlTextPiece(HiprintHtmlPiece piece, double x, double y, double width, double availableHeight)
+    {
+        var fontSizePt = piece.FontSizePt > 0 ? piece.FontSizePt : 12;
+        var lineSpacing = 1.2;
+        var lines = EstimateLineCount(piece.Text, fontSizePt, width);
+        var lineHeightMm = fontSizePt * PtPerPt * lineSpacing;
+        var height = Math.Min(availableHeight, Math.Max(lineHeightMm, lines * lineHeightMm));
+
+        var element = new TextElement { XMm = x, YMm = y, WidthMm = width, HeightMm = height };
+        element.Text.Content = piece.Text;
+        element.Text.FontSizePt = fontSizePt;
+        element.Text.Bold = piece.Bold;
+        element.Text.Italic = piece.Italic;
+        element.Text.Underline = piece.Underline;
+        element.Text.LineSpacing = lineSpacing;
+        element.Text.HorizontalAlign = piece.TextAlign switch
+        {
+            "center" => HorizontalAlign.Center,
+            "right" => HorizontalAlign.Right,
+            "justify" => HorizontalAlign.Justify,
+            _ => HorizontalAlign.Left,
+        };
+        element.Text.Color = CssColor(piece.Color) ?? SKColors.Black;
+        element.Text.Wrap = true;
         return element;
+    }
+
+    /// <summary>HTML 图片块 → 图片元素：data URI 走内嵌、http(s) 走引擎自取、其它按宿主资源键。</summary>
+    static ImageElement BuildHtmlImagePiece(ImportContext ctx, HiprintHtmlPiece piece, double x, double y, double width, string path)
+    {
+        var src = piece.Src?.Trim() ?? "";
+        var widthMm = piece.WidthPt is { } wpt && wpt > 0 ? Pt(wpt) : Math.Min(width, 60);
+        widthMm = Math.Min(Math.Max(1, widthMm), Math.Max(1, width));
+
+        var heightMm = piece.HeightPt is { } hpt && hpt > 0
+            ? Pt(hpt)
+            : widthMm; // 高宽都缺时按方形，至少形状可辨
+
+        var element = new ImageElement { XMm = x, YMm = y, WidthMm = widthMm, HeightMm = Math.Max(1, heightMm) };
+
+        if (src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            element.Image.SourceType = ImageSourceType.EmbeddedBase64;
+            element.Image.Data = src;
+        }
+        else if (src.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                 || src.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            element.Image.SourceType = ImageSourceType.Url;
+            element.Image.Url = src;
+        }
+        else
+        {
+            // 相对路径在原站点才有意义：交给宿主解析器按资源键取
+            element.Image.SourceType = ImageSourceType.ResolverKey;
+            element.Image.ResolverKey = src;
+            ctx.Issue(
+                HiprintImportSeverity.Warning,
+                "hiprint.image-relative",
+                $"html 里的图片使用相对路径 '{src}'，需要宿主注册图片解析器才能取到。",
+                element.Id,
+                path);
+        }
+
+        return element;
+    }
+
+    /// <summary>HTML 表格块 → 表格元素：首行（或 <c>th</c> 行）当表头，其余行做静态数据行。</summary>
+    static TableElement BuildHtmlTablePiece(HiprintHtmlPiece piece, double x, double y, double width, double availableHeight)
+    {
+        var rows = piece.Rows;
+        var columns = rows.Count == 0 ? 0 : rows.Max(r => r.Count);
+        columns = Math.Max(1, columns);
+
+        var element = new TableElement { XMm = x, YMm = y, WidthMm = width };
+        element.Table.ShowHeader = piece.FirstRowIsHeader;
+        element.Table.FontSizePt = 9;
+        element.Table.CellPaddingMm = 0.8;
+        element.Table.Columns.Clear();
+
+        for (var c = 0; c < columns; c++)
+        {
+            element.Table.Columns.Add(new TableColumn
+            {
+                Title = piece.FirstRowIsHeader && rows[0].Count > c ? rows[0][c] : "",
+                WidthMm = width / columns,
+                Align = HorizontalAlign.Left,
+            });
+        }
+
+        var dataRows = piece.FirstRowIsHeader ? rows.Skip(1) : rows;
+        foreach (var row in dataRows)
+            element.Table.Rows.Add(row.ToList());
+
+        // 高度按"表头 + 数据行"估算，超出可用高度时由表格自身的跨页逻辑处理
+        var rowHeight = Math.Max(3.5, 9 * PtPerPt * 1.2 + 2 * element.Table.CellPaddingMm);
+        var estimated = element.Table.Rows.Count * rowHeight + (piece.FirstRowIsHeader ? rowHeight : 0);
+        element.HeightMm = Math.Max(1, Math.Min(availableHeight, estimated));
+
+        return element;
+    }
+
+    /// <summary>估算一段文本在给定宽度下的行数（ASCII 半角按 0.55 字宽，CJK 全角按 1 字宽）。</summary>
+    static int EstimateLineCount(string text, double fontSizePt, double widthMm)
+    {
+        var fontSizeMm = fontSizePt * PtPerPt;
+        if (fontSizeMm <= 0 || widthMm <= 0 || text.Length == 0)
+            return 1;
+
+        var perLine = Math.Max(1.0, widthMm / fontSizeMm);
+        var lines = 0;
+        foreach (var paragraph in text.Split('\n'))
+        {
+            var units = 0.0;
+            foreach (var ch in paragraph)
+                units += ch < 0x2E80 ? 0.55 : 1.0;
+
+            lines += Math.Max(1, (int)Math.Ceiling(units / perLine));
+        }
+
+        return Math.Max(1, lines);
     }
 
     // ---------------- 条码 / 二维码 ----------------
@@ -907,6 +1423,7 @@ public static class HiprintTemplateImporter
         public int ColSpan { get; set; } = 1;
         public string Title { get; init; } = string.Empty;
         public string Field { get; init; } = string.Empty;
+        public string GroupTitle { get; set; } = string.Empty;
         public double? WidthPt { get; init; }
         public string? Align { get; init; }
         public string? HAlign { get; init; }
@@ -1017,22 +1534,11 @@ public static class HiprintTemplateImporter
         if (elements.Count > 0 && elements.All(e => e.ValueKind == JsonValueKind.Object && !IsHeaderRow(e)))
         {
             var flat = new List<HeaderCellSource>();
-            var groups = new List<string>();
-            CollectFlatColumns(elements, flat, groups);
+            CollectFlatColumns(elements, flat, new List<string>());
             if (flat.Count == 0)
                 return result;
 
-            if (groups.Count > 0)
-            {
-                var names = string.Join("、", groups.Where(title => title.Length > 0));
-                ctx.Issue(
-                    HiprintImportSeverity.Info,
-                    "hiprint.table-group-header",
-                    $"分组表头{(names.Length > 0 ? $"「{names}」" : string.Empty)}已展开为子列并入同一行，单行表头无法保留分组标题。",
-                    id,
-                    path);
-            }
-
+            // 分组标题现由 BuildHeaderCells 原生保留（HeaderRows 跨列 + GroupTitle），不再记降级项。
             result.Add(flat);
             return result;
         }
@@ -1067,18 +1573,7 @@ public static class HiprintTemplateImporter
             result.Add(row);
         }
 
-        // 整张表只记一条：分组标题是表头结构信息，逐行上报只会让问题清单被同一件事刷屏。
-        if (droppedGroups.Count > 0)
-        {
-            var names = string.Join("、", droppedGroups.Where(title => title.Length > 0));
-            ctx.Issue(
-                HiprintImportSeverity.Info,
-                "hiprint.table-group-header",
-                $"分组表头{(names.Length > 0 ? $"「{names}」" : string.Empty)}已展开为子列并入所在表头行，当前表头模型无法保留分组标题。",
-                id,
-                path);
-        }
-
+        // 分组标题现由 BuildHeaderCells 原生保留（第 0 行跨列标题 + 子列 GroupTitle），不再记降级项。
         return result;
     }
 
@@ -1090,13 +1585,13 @@ public static class HiprintTemplateImporter
     /// 把一段列定义递归展开成一个个单元格：扁平清单的每一列、二维表头行里的每个单元格都走这里。
     /// 分组对象 <c>{title, columns:[…]}</c> 只带子列，分组标题本身无法在现有表头模型里保留，交给调用方降级提示。
     /// </summary>
-    static void CollectFlatColumns(IEnumerable<JsonElement> elements, List<HeaderCellSource> cells, List<string> droppedGroupTitles)
+    static void CollectFlatColumns(IEnumerable<JsonElement> elements, List<HeaderCellSource> cells, List<string> droppedGroupTitles, string inheritedGroup = "")
     {
         foreach (var element in elements)
         {
             if (element.ValueKind == JsonValueKind.Array)
             {
-                CollectFlatColumns(element.EnumerateArray(), cells, droppedGroupTitles);
+                CollectFlatColumns(element.EnumerateArray(), cells, droppedGroupTitles, inheritedGroup);
                 continue;
             }
 
@@ -1105,12 +1600,17 @@ public static class HiprintTemplateImporter
 
             if (element.TryGetProperty("columns", out var nested) && nested.ValueKind == JsonValueKind.Array)
             {
-                droppedGroupTitles.Add((Str(element, "title") ?? string.Empty).Trim());
-                CollectFlatColumns(nested.EnumerateArray(), cells, droppedGroupTitles);
+                // 分组表头 {title, columns:[…]}：保留分组标题（子列继承该标题），不再丢弃。
+                var gt = (Str(element, "title") ?? string.Empty).Trim();
+                var childGroup = gt.Length > 0 ? gt : inheritedGroup;
+                CollectFlatColumns(nested.EnumerateArray(), cells, droppedGroupTitles, childGroup);
                 continue;
             }
 
-            cells.Add(ReadCell(element));
+            var cell = ReadCell(element);
+            if (inheritedGroup.Length > 0)
+                cell.GroupTitle = inheritedGroup;
+            cells.Add(cell);
         }
     }
 
@@ -1254,8 +1754,33 @@ public static class HiprintTemplateImporter
 
             var sequence = string.Equals(leaf?.TextType?.Trim(), "sequence", StringComparison.OrdinalIgnoreCase);
             var textType = (leaf?.TextType ?? string.Empty).Trim().ToLowerInvariant();
-            if (!sequence && textType is "barcode" or "qrcode" or "image")
+            // 单元格条码/二维码：逐行把绑定值编码成码绘入单元格（CrossPrint 原生支持）；
+            // 仅 tableTextType: image 仍无法在单元格内嵌图片，按文本打印并告警。
+            var cellRender = TableCellRender.Text;
+            var cellSymbology = BarcodeSymbology.Code128;
+            var cellError = QrErrorCorrection.M;
+            var cellShowText = false;
+            if (!sequence && textType is "barcode" or "qrcode")
+            {
+                cellRender = textType == "qrcode" ? TableCellRender.QrCode : TableCellRender.Barcode;
+                if (textType == "barcode")
+                {
+                    var el = leaf!.Element;
+                    cellSymbology = ParseSymbology(ctx, Str(el, "barcodeType") ?? Str(el, "barcodeMode"), path, id);
+                    cellShowText = !(Bool(el, "hideTitle") ?? false);
+                }
+                else
+                {
+                    var el = leaf!.Element;
+                    var level = Dbl(el, "qrCodeLevel") ?? Dbl(el, "qrcodeLevel");
+                    WarnQrCodeLevel(ctx, el, level, path, id);
+                    cellError = ParseErrorCorrection(level);
+                }
+            }
+            else if (!sequence && textType == "image")
+            {
                 cellTypes++;
+            }
 
             if (sequence)
                 field = string.Empty;
@@ -1274,6 +1799,10 @@ public static class HiprintTemplateImporter
                 SummaryDecimals = summary.Decimals,
                 Formatter = leaf?.Formatter,
                 Styler = leaf?.Styler,
+                CellRender = cellRender,
+                CellSymbology = cellSymbology,
+                CellErrorCorrection = cellError,
+                CellShowText = cellShowText,
             });
 
             var widthPt = leaf?.WidthPt;
@@ -1294,7 +1823,7 @@ public static class HiprintTemplateImporter
             ctx.Issue(
                 HiprintImportSeverity.Warning,
                 "hiprint.table-cell-code",
-                $"{cellTypes} 个列使用 tableTextType 内嵌条码/二维码/图片，CrossPrint 暂不支持单元格内嵌码，已按文本字段打印。",
+                $"{cellTypes} 个列使用 tableTextType: image，CrossPrint 暂不支持单元格内嵌图片，已按文本字段打印。",
                 id,
                 path);
         }
@@ -1378,19 +1907,53 @@ public static class HiprintTemplateImporter
 
     static void BuildHeaderCells(ImportContext ctx, TableOptions table, List<HeaderCellSource> placed)
     {
+        var hasGroups = placed.Any(c => c.GroupTitle.Length > 0);
+
         foreach (var cell in placed)
         {
             var align = ParseAlign(cell.HAlign, out _) ?? ParseAlign(cell.Align, out _) ?? HorizontalAlign.Center;
+            // 有分组时：列标题整体下移到第 1 行（Row+1），第 0 行留给分组标题。
+            var row = hasGroups ? cell.Row + 1 : cell.Row;
             table.HeaderRows.Add(new TableHeaderCell
             {
-                Row = cell.Row,
+                Row = row,
                 Column = cell.Column,
                 Title = cell.Title,
+                GroupTitle = cell.GroupTitle,
                 ColSpan = cell.ColSpan,
                 RowSpan = cell.RowSpan,
                 Align = align,
                 FontSizePt = cell.FontSizePt,
             });
+        }
+
+        if (hasGroups)
+        {
+            // 第 0 行插入分组标题：连续同组的子列合并成一段，每段一个跨列标题；非相邻/不同组断开。
+            var grouped = placed.Where(c => c.GroupTitle.Length > 0).OrderBy(c => c.Column).ToList();
+            var i = 0;
+            while (i < grouped.Count)
+            {
+                var gt = grouped[i].GroupTitle;
+                var startCol = grouped[i].Column;
+                var endCol = startCol + grouped[i].ColSpan - 1;
+                i++;
+                while (i < grouped.Count && grouped[i].GroupTitle == gt && grouped[i].Column == endCol + 1)
+                {
+                    endCol = grouped[i].Column + grouped[i].ColSpan - 1;
+                    i++;
+                }
+
+                table.HeaderRows.Add(new TableHeaderCell
+                {
+                    Row = 0,
+                    Column = startCol,
+                    Title = gt,
+                    ColSpan = endCol - startCol + 1,
+                    RowSpan = 1,
+                    Align = HorizontalAlign.Center,
+                });
+            }
         }
 
         table.HeaderRows.Sort((a, b) => a.Row != b.Row ? a.Row.CompareTo(b.Row) : a.Column.CompareTo(b.Column));
@@ -1680,7 +2243,25 @@ public static class HiprintTemplateImporter
 
     static double? Positive(double? value) => value is > 0 ? value : null;
 
+    /// <summary>1pt 等于多少 mm（25.4/72）：估算行高/行数时直接相乘，避免反复换算。</summary>
+    const double PtPerPt = 25.4 / 72.0;
+
     static double Pt(double pt) => UnitConverter.PtToMm(pt);
+
+    /// <summary>
+    /// 把 hiprint 页码格式（<c>{pageNo}</c>/<c>{pageCount}</c>/<c>{totalPages}</c>）转成本引擎占位符
+    /// （<c>{{pageNo}}</c>/<c>{{pageCount}}</c>/<c>{{totalPages}}</c>），供渲染期 <c>pageNo/pageCount</c> 回退注入。
+    /// 已是 <c>{{…}}</c> 或不含占位符的文本原样返回。
+    /// </summary>
+    static string ConvertPageNumberFormat(string format)
+    {
+        if (format.Contains("{{"))
+            return format;
+        return format
+            .Replace("{pageNo}", "{{pageNo}}")
+            .Replace("{pageCount}", "{{pageCount}}")
+            .Replace("{totalPages}", "{{totalPages}}");
+    }
 
     // hiprint 的元素内联 font-family: inherit，真正落到页面默认字体；但模板的宽度是按
     // print-lock.css 的 SimSun 量出来的（ASCII 半角、CJK 全角）。实测同一元素框：

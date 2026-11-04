@@ -639,4 +639,41 @@ public class TableRendererTests
 
     SKBitmap Render(TableElement element, RenderReport? report = null)
         => Fixture.RenderElement(element, Dpi, pageWidthMm: 120, pageHeightMm: 80, report: report, data: Data);
+
+    [Fact]
+    public void 单元格条码二维码_render_逐行出码且整页有墨迹()
+    {
+        var element = Table(showHeader: false, grid: true, widthMm: 120);
+        element.WidthMm = 120;
+        element.Table.Columns.Clear();
+        element.Table.Columns.Add(new TableColumn { Title = "名称", WidthMm = 30, Field = "items.name" });
+        element.Table.Columns.Add(new TableColumn
+        {
+            Title = "条码", WidthMm = 45, Field = "items.code",
+            CellRender = TableCellRender.Barcode, CellShowText = true,
+        });
+        element.Table.Columns.Add(new TableColumn
+        {
+            Title = "追溯码", WidthMm = 45, Field = "items.qr",
+            CellRender = TableCellRender.QrCode,
+        });
+
+        var data = new
+        {
+            items = new[]
+            {
+                new { name = "A", code = "123456789", qr = "https://example.com/a" },
+                new { name = "B", code = "987654321", qr = "https://example.com/b" },
+            },
+        };
+
+        var report = new RenderReport();
+        var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 130, pageHeightMm: 90, report: report, data: data);
+        using (bitmap)
+        {
+            report.Issues.Should().BeEmpty("单元格条码/二维码不应触发任何渲染告警");
+            Ink.ColorCountInMm(bitmap, Dpi, new SKRect(0, 0, 130, 90), SKColors.Black)
+                .Should().BeGreaterThan(0, "条码/二维码模块 + 文字 + 网格必须留下墨迹");
+        }
+    }
 }

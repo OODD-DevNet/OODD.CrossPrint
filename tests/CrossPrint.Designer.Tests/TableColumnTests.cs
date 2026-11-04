@@ -373,8 +373,10 @@ public class TableColumnTests
             "table.appendColumn",
             "table.columns[0].insertBefore",
             "table.columns[0].remove",
+            "table.columns[0].moveDown",
             "table.columns[1].insertBefore",
             "table.columns[1].remove",
+            "table.columns[1].moveUp",
             "table.appendConditional",
             "table.appendHighlight",
             "table.appendRowSpan");

@@ -20,6 +20,29 @@ public class PropertyTextTests
     static readonly Regex Cjk = new(@"[\u3000-\u303F\u4E00-\u9FFF\uFF00-\uFFEF]", RegexOptions.CultureInvariant);
 
     [Fact]
+    public void 形状种类下拉选项_中文界面全部有中文显示名()
+    {
+        foreach (var kind in Enum.GetNames<ShapeKind>())
+        {
+            var display = PropertyText.Option("shape.kind", kind);
+            display.Should().NotBe(kind, $"中文界面下 {kind} 必须显示中文（形状下拉曾整列露英文，用户实测）");
+            Cjk.IsMatch(display).Should().BeTrue($"形状种类 {kind} 的中文显示名应含汉字，实际：{display}");
+        }
+    }
+
+    [Fact]
+    public void 形状种类下拉选项_英文界面保留枚举名()
+    {
+        using var _ = new UiCultureScope("en-US");
+        foreach (var kind in Enum.GetNames<ShapeKind>())
+            PropertyText.Option("shape.kind", kind).Should().Be(kind, "英文界面枚举名本身就是英文");
+
+        // 未映射的枚举键原样返回，不把 key 印到面板上。
+        PropertyText.Option("line.direction", "Vertical").Should().Be("Vertical");
+    }
+
+
+    [Fact]
     public void 英文界面下八类元素的描述组动作全部有英文()
     {
         using var _ = new UiCultureScope("en-US");

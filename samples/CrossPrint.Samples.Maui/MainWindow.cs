@@ -131,29 +131,6 @@ internal sealed class MainWindow : Window
             appWindow.Resize(new Windows.Graphics.SizeInt32(InitialWindowWidth, InitialWindowHeight));
     }
 
-    /// <summary>加载输出目录下的 complex-receipt.template.json（80mm 连续纸长小票）并替换当前模板。</summary>
-    void LoadComplexReceipt()
-    {
-        var path = Path.Combine(AppContext.BaseDirectory, "complex-receipt.template.json");
-        try
-        {
-            var result = TemplateJson.Load(File.ReadAllText(path), TemplateJsonLoadOptions.Tolerant);
-            var note = Localizer.T("Status.ComplexLoadedInfo", result.Template.Elements.Count);
-            if (result.Warnings.Count > 0)
-                note += string.Join("；", result.Warnings);
-
-            // LoadTemplate 会换内核：纸张栏、属性面板和 JSON 面板都要换到新内核上。
-            _designer.LoadTemplate(result.Template);
-            BindKernel(note);
-            SetStatus(note);
-            _designer.TakeFocus();
-        }
-        catch (Exception ex)
-        {
-            SetStatus(Localizer.T("Status.ComplexLoadFailed", ex.Message), error: true);
-        }
-    }
-
     Grid BuildRoot()
     {
         var root = new Grid();
@@ -200,7 +177,6 @@ internal sealed class MainWindow : Window
 
         var menu = new VerticalStackLayout { Spacing = 1, MinimumWidthRequest = 180 };
         menu.Add(MakeMenuAction(Localizer.T("Menu.File.ImportHiprint"), true, () => _ = ShowImportHiprint()));
-        menu.Add(MakeMenuAction(Localizer.T("Menu.File.LoadComplex"), true, LoadComplexReceipt));
 
         ShowMenuCard(menu);
     }

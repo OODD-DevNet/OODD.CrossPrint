@@ -266,19 +266,21 @@ public class HiprintImporterTests
 
         string[] expected =
         [
-            "hiprint.page-number-unsupported",
             "hiprint.image-missing",
-            "hiprint.fixed-repeat",
-            "hiprint.long-text-pagination",
             "hiprint.html-unsupported",
         ];
         foreach (var code in expected)
             result.Issues.Should().Contain(i => i.Code == code, $"模板1 必须记录 {code}");
 
         AssertIssue(result, "hiprint.image-missing", "el-4");
-        AssertIssue(result, "hiprint.fixed-repeat", "el-18");
-        AssertIssue(result, "hiprint.long-text-pagination", "el-23");
         AssertIssue(result, "hiprint.html-unsupported", "el-31");
+        // fixed 已是原生能力（element.Fixed 由通用分页器消费），不再记降级项
+
+        // longText 现在是原生能力：不再降级提示，只在元素上打"溢出续页"标记
+        var longText = result.Template.Elements.Single(e => e.Id == "el-23").Should().BeOfType<TextElement>().Subject;
+        longText.Text.ContinueOnOverflow.Should().BeTrue("hiprint longText 由排版器跨页续排");
+        result.Issues.Should().NotContain(i => i.Code == "hiprint.long-text-pagination",
+            "续页已支持，不该再提示不支持");
 
         result.HasErrors.Should().BeFalse("这些都只是降级警告，元素仍然导入了");
         result.Issues.Should().NotContain(i => i.Severity == HiprintImportSeverity.Error);
@@ -320,9 +322,10 @@ public class HiprintImporterTests
         result.Template.Elements.Count(e => e.TypeKey == ElementTypeKeys.Rectangle).Should().Be(1);
         result.Template.Elements.Count(e => e.TypeKey == ElementTypeKeys.QrCode).Should().Be(1, "textType=qrcode 的文本转成二维码元素");
 
-        var issue = result.Issues.Should().ContainSingle().Subject;
-        issue.Code.Should().Be("hiprint.page-number-unsupported");
-        issue.Severity.Should().Be(HiprintImportSeverity.Warning, "页码只是降级，不是错误");
+        // 页码已是原生能力：这份真实发票模板可以完整导入，不应再有任何降级警告
+        result.Template.PaperNumberEnabled.Should().BeTrue("源模板带 paperNumber* 配置");
+        result.Issues.Where(i => i.Severity == HiprintImportSeverity.Warning || i.Severity == HiprintImportSeverity.Error)
+            .Should().BeEmpty("页码/图片/长文本都已原生支持，不该再有降级项");
     }
 
     [Fact]
@@ -442,12 +445,17 @@ public class HiprintImporterTests
     }
 
     [Fact]
-    public void 模板7_水印页码与js格式化回调都留痕()
+    public void 模板7_页码原生支持而文字水印留痕()
     {
         var result = ImportFixture("hiprint-template7.js");
 
-        AssertIssue(result, "hiprint.watermark-unsupported");
-        AssertIssue(result, "hiprint.page-number-unsupported");
+        // paperNumber* 已是原生能力（模板级页脚读数），不再降级
+        result.Template.PaperNumberEnabled.Should().BeTrue();
+        result.Template.PaperNumberXMm.Should().BeApproximately(199.49, 0.01, "paperNumberLeft=565.5pt");
+        result.Template.PaperNumberYMm.Should().BeApproximately(288.92, 0.01, "paperNumberTop=819pt");
+
+        // 水印只有文字没有图片：记信息级提示，不做假渲染
+        AssertIssue(result, "hiprint.watermark-no-image");
         AssertIssue(result, "hiprint.js-formatter", "el-1");
         result.HasErrors.Should().BeFalse("回调无法执行只降级为警告，表格仍要导入");
     }
@@ -489,13 +497,14 @@ public class HiprintImporterTests
     }
 
     [Fact]
-    public void 模板4_渲染回调页码与水印降级并留痕()
+    public void 模板4_渲染回调与文字水印降级并留痕()
     {
         var result = ImportFixture("hiprint-template4.js");
 
         AssertIssue(result, "hiprint.js-formatter", "el-7");
-        AssertIssue(result, "hiprint.page-number-unsupported");
-        AssertIssue(result, "hiprint.watermark-unsupported");
+        AssertIssue(result, "hiprint.watermark-no-image");
+        result.Template.PaperNumberEnabled.Should().BeTrue("paperNumber* 已原生支持");
+        result.Template.PaperNumberXMm.Should().BeApproximately(105.83, 0.01, "paperNumberLeft=300pt");
         result.HasErrors.Should().BeFalse();
     }
 
@@ -547,14 +556,23 @@ public class HiprintImporterTests
     // ---------------- 元素级容错 ----------------
 
     [Fact]
-    public void 未知元素类型被跳过但其余元素仍在()
+    public void 未知元素类型重绘为占位框加标签而不丢弃()
     {
         var result = ImportElements(
             TextElementJson("""{ "left": 10, "top": 10, "title": "保留" }"""),
             """{ "options": { "left": 1, "top": 1, "title": "插件" }, "printElementType": { "type": "plugin-foo" } }""");
 
-        result.Template.Elements.Should().ContainSingle("未知类型不能拖垮整张模板");
+        // 未知类型不再消失：1 个正常元素 + 占位框 + 标签文本
+        result.Template.Elements.Should().HaveCount(3, "未知类型不能拖垮整张模板，也不能凭空消失");
         ((TextElement)result.Template.Elements[0]).Text.Content.Should().Be("保留");
+
+        var placeholder = result.Template.Elements[1].Should().BeOfType<RectangleElement>().Subject;
+        placeholder.Rectangle.DashPatternMm.Should().NotBeNullOrEmpty("占位框用虚线标识");
+
+        var label = result.Template.Elements[2].Should().BeOfType<TextElement>().Subject;
+        label.Text.Content.Should().Be("插件", "没有 title 时退化成类型名标签");
+        label.Text.VerticalAlign.Should().Be(VerticalAlign.Middle);
+
         AssertIssue(result, "hiprint.unknown-element-type", "el-2");
     }
 
@@ -922,7 +940,7 @@ public class HiprintImporterTests
     // ---------------- 图片 ----------------
 
     [Fact]
-    public void 图片_dataURL内嵌为Base64()
+    public void 图片_dataURL原样保留为内嵌源()
     {
         var result = ImportSingleElement(
             """{ "left": 1, "top": 1, "src": "data:image/png;base64,AAAA" }""",
@@ -930,12 +948,12 @@ public class HiprintImporterTests
 
         var image = result.Template.Elements.Single().Should().BeOfType<ImageElement>().Subject;
         image.Image.SourceType.Should().Be(ImageSourceType.EmbeddedBase64);
-        image.Image.Data.Should().Be("AAAA");
+        image.Image.Data.Should().Be("data:image/png;base64,AAAA", "data URI 原样保留，由引擎按前缀自行剥离");
         result.Issues.Should().NotContain(i => i.Code == "hiprint.image-url");
     }
 
     [Fact]
-    public void 图片_外链地址转为ResolverKey并提示宿主解析()
+    public void 图片_外链地址走引擎下载()
     {
         const string src = "https://example.com/logo.png";
         var result = ImportSingleElement(
@@ -943,12 +961,13 @@ public class HiprintImporterTests
             type: "image");
 
         var image = (ImageElement)result.Template.Elements.Single();
-        image.Image.SourceType.Should().Be(ImageSourceType.ResolverKey);
-        image.Image.ResolverKey.Should().Be(src);
+        image.Image.SourceType.Should().Be(ImageSourceType.Url, "http(s) 由引擎下载并缓存，不再依赖宿主解析器");
+        image.Image.Url.Should().Be(src);
         image.Image.Data.Should().BeNull();
+        image.Image.ResolverKey.Should().BeNull();
 
         var issue = result.Issues.Single(i => i.Code == "hiprint.image-url");
-        issue.Severity.Should().Be(HiprintImportSeverity.Info, "外链需要宿主解析，但不是模板错误");
+        issue.Severity.Should().Be(HiprintImportSeverity.Info, "外链需要联网，但不是模板错误");
         issue.ElementId.Should().Be("el-1");
     }
 
@@ -1197,9 +1216,17 @@ public class HiprintImporterTests
         table.Table.Columns.Select(c => c.Title).Should().Equal("甲", "乙", "丙");
         table.Table.Columns.Select(c => c.Field).Should().Equal("a", "b", "c");
 
-        var issue = result.Issues.Single(i => i.Code == "hiprint.table-group-header");
-        issue.Severity.Should().Be(HiprintImportSeverity.Info, "单行表头无法表达分组标题，属可接受的降级");
-        result.Issues.Should().NotContain(i => i.Severity == HiprintImportSeverity.Warning);
+        // 分组标题不再降级：表头里多出一格跨列的"基本信息"，子列挂 GroupTitle
+        var group = table.Table.HeaderRows.Single(h => h.Title == "基本信息");
+        group.ColSpan.Should().Be(2);
+        group.Row.Should().Be(0);
+        table.Table.HeaderRows.Where(h => h.GroupTitle == "基本信息")
+            .Select(h => h.Title).Should().Equal("乙", "丙");
+
+        result.Issues.Should().NotContain(i => i.Code == "hiprint.table-group-header",
+            "分组表头已原生支持，不该再提示降级");
+        result.Issues.Where(i => i.Severity == HiprintImportSeverity.Warning || i.Severity == HiprintImportSeverity.Error)
+            .Should().BeEmpty();
     }
 
     [Fact]
@@ -1327,5 +1354,54 @@ public class HiprintImporterTests
             .Should().Equal(fromGetJson.Issues.Select(i => i.Code), "问题清单不能因输入形态而漂移");
         TemplateJson.Serialize(fromModule.Template)
             .Should().Be(TemplateJson.Serialize(fromGetJson.Template), "两种导出形态必须得到同一份模板");
+    }
+
+    // ---------------- 打印模板常用功能：单元格条码/二维码、图片字段绑定 ----------------
+
+    [Fact]
+    public void 表格列_tableTextType_barcode_与_qrcode_映射为单元格渲染()
+    {
+        var options = "\"columns\": [["
+            + "{\"title\":\"名称\",\"field\":\"name\"},"
+            + "{\"title\":\"物流码\",\"field\":\"barcode\",\"tableTextType\":\"barcode\"},"
+            + "{\"title\":\"追溯码\",\"field\":\"qr\",\"tableTextType\":\"qrcode\"}]]";
+        var result = ImportElements(TableWithOptionsJson(options));
+
+        var table = result.Template.Elements.OfType<TableElement>().Single();
+        table.Table.Columns.Should().HaveCount(3);
+        table.Table.Columns[0].CellRender.Should().Be(TableCellRender.Text);
+        table.Table.Columns[1].CellRender.Should().Be(TableCellRender.Barcode);
+        table.Table.Columns[2].CellRender.Should().Be(TableCellRender.QrCode);
+
+        // 默认码制/纠错等级
+        table.Table.Columns[1].CellSymbology.Should().Be(BarcodeSymbology.Code128);
+        table.Table.Columns[2].CellErrorCorrection.Should().Be(QrErrorCorrection.M);
+
+        // 已原生支持，不再提示降级
+        result.Issues.Should().NotContain(i => i.Code == "hiprint.table-cell-code");
+    }
+
+    [Fact]
+    public void 表格列_tableTextType_image_单元格内嵌图片仍提示不支持()
+    {
+        var options = "\"columns\": [["
+            + "{\"title\":\"名称\",\"field\":\"name\"},"
+            + "{\"title\":\"图\",\"field\":\"pic\",\"tableTextType\":\"image\"}]]";
+        var result = ImportElements(TableWithOptionsJson(options));
+
+        result.Issues.Should().ContainSingle(i => i.Code == "hiprint.table-cell-code");
+    }
+
+    [Fact]
+    public void 图片元素_field_映射为图片字段绑定且不告警()
+    {
+        var result = ImportSingleElement(
+            """{ "left": 1, "top": 1, "width": 40, "height": 30, "src": "", "field": "product.image" }""",
+            type: "image");
+
+        result.Issues.Should().NotContain(i => i.Code == "hiprint.image-field");
+
+        var img = result.Template.Elements.OfType<ImageElement>().Single();
+        img.Image.Field.Should().Be("product.image");
     }
 }

@@ -88,3 +88,9 @@ Desktop.ini
 .screenshots/
 *.cache/
 .trae-doc-*
+
+# 研发过程文档（不进仓库）
+交接文档.md
+
+# 例外：正式 xunit 测试类，被上方 *probe*.cs 规则误伤，必须入库否则测试工程编译不过
+!tests/CrossPrint.Hosts.Avalonia.Tests/WindowResizeProbe.cs

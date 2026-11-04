@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -23,6 +24,8 @@ public static class PropertyText
     static readonly Regex IndexedLabel = new(@"^(列|表头|条件|关键词|合并)(\d+)·(.+)$", RegexOptions.CultureInvariant);
     static readonly Regex InsertBeforeColumn = new(@"^在列(\d+)前插入$", RegexOptions.CultureInvariant);
     static readonly Regex DeleteColumn = new(@"^删除列(\d+)$", RegexOptions.CultureInvariant);
+    static readonly Regex MoveColumnUp = new(@"^上移列(\d+)$", RegexOptions.CultureInvariant);
+    static readonly Regex MoveColumnDown = new(@"^下移列(\d+)$", RegexOptions.CultureInvariant);
     static readonly Regex DeleteConditional = new(@"^删除条件样式(\d+)$", RegexOptions.CultureInvariant);
     static readonly Regex DeleteHighlight = new(@"^删除关键词样式(\d+)$", RegexOptions.CultureInvariant);
     static readonly Regex DeleteMerge = new(@"^删除合并(\d+)$", RegexOptions.CultureInvariant);
@@ -49,6 +52,14 @@ public static class PropertyText
         if (match.Success)
             return $"Delete column {match.Groups[1].Value}";
 
+        match = MoveColumnUp.Match(chineseDisplayName);
+        if (match.Success)
+            return $"Move column {match.Groups[1].Value} up";
+
+        match = MoveColumnDown.Match(chineseDisplayName);
+        if (match.Success)
+            return $"Move column {match.Groups[1].Value} down";
+
         match = DeleteConditional.Match(chineseDisplayName);
         if (match.Success)
             return $"Delete conditional style {match.Groups[1].Value}";
@@ -64,6 +75,45 @@ public static class PropertyText
         return _actions.TryGetValue(chineseDisplayName, out var english) ? english : chineseDisplayName;
     }
 
+    /// <summary>
+    /// 枚举下拉选项的本地化显示名。<paramref name="descriptorKey"/> 定位是哪个枚举，
+    /// <paramref name="option"/> 是枚举 CLR 名（下拉的值语义不变，只是显示翻译）。
+    /// 中文界面查映射表、没有映射的原样返回；英文界面返回英文（枚举名本身就是英文）。
+    /// </summary>
+    public static string Option(string descriptorKey, string option)
+    {
+        if (IsEnglish)
+            return option;
+
+        return descriptorKey switch
+        {
+            "shape.kind" => ShapeKindZh.TryGetValue(option, out var zh) ? zh : option,
+            _ => option,
+        };
+    }
+
+    /// <summary>形状种类下拉的中文显示名（键 = ShapeKind CLR 名）。</summary>
+    static readonly Dictionary<string, string> ShapeKindZh = new(StringComparer.Ordinal)
+    {
+        ["Rectangle"] = "矩形",
+        ["RoundRect"] = "圆角矩形",
+        ["Triangle"] = "等腰三角形",
+        ["RightTriangle"] = "直角三角形",
+        ["Diamond"] = "菱形",
+        ["Parallelogram"] = "平行四边形",
+        ["Trapezoid"] = "梯形",
+        ["Pentagon"] = "五边形",
+        ["Hexagon"] = "六边形",
+        ["Octagon"] = "八边形",
+        ["Star5"] = "五角星",
+        ["ArrowRight"] = "右箭头",
+        ["ArrowLeft"] = "左箭头",
+        ["ArrowUp"] = "上箭头",
+        ["ArrowDown"] = "下箭头",
+        ["Plus"] = "十字",
+        ["Cylinder"] = "圆柱",
+    };
+
     /// <summary>元素类型名（属性面板标题里的「表格」「二维码」等）。</summary>
     public static string ElementType(string typeKey, string chineseDisplayName)
     {
@@ -76,6 +126,7 @@ public static class PropertyText
             "line" => "Line",
             "rectangle" => "Rectangle",
             "ellipse" => "Ellipse",
+            "shape" => "Shape",
             "image" => "Image",
             "qrcode" => "QR Code",
             "barcode" => "Barcode",
@@ -86,6 +137,7 @@ public static class PropertyText
                 "线段" or "线条" => "Line",
                 "矩形" => "Rectangle",
                 "椭圆" => "Ellipse",
+                "形状" => "Shape",
                 "图片" => "Image",
                 "二维码" => "QR Code",
                 "一维码" => "Barcode",
@@ -140,6 +192,7 @@ public static class PropertyText
         ["条件样式"] = "Conditional Styles",
         ["关键词样式"] = "Highlight Styles",
         ["静态行合并"] = "Row Merges",
+        ["分页"] = "Pagination",
     };
 
     static readonly Dictionary<string, string> _actions = new(StringComparer.Ordinal)
@@ -166,6 +219,10 @@ public static class PropertyText
         ["边框边（可多选）"] = "Border sides (multi-select)",
         ["旋转角度 (°)"] = "Rotation (°)",
         ["不透明度 (0–1)"] = "Opacity (0–1)",
+        ["每页重复显示（页眉/页脚/常驻水印打勾后每页都画）"] = "Repeat on every page (headers / footers / persistent watermark)",
+        ["本元素之后强制分页"] = "Force a page break after this element",
+        ["显示页区间（如 1,3-5；留空 = 所有页显示）"] = "Show on pages (e.g. 1,3-5; empty = all pages)",
+        ["隐藏页区间（如 1-3,7-8；优先于显示区间）"] = "Hide on pages (e.g. 1-3,7-8; overrides show range)",
         ["样式引用（模板样式库）"] = "Style reference (template style library)",
         ["样式引用（模板样式库，内联留空处补位）"] =
             "Style reference (template style library; fills inline gaps)",
@@ -195,6 +252,10 @@ public static class PropertyText
         ["行距倍数"] = "Line spacing",
         ["字间距 (pt)"] = "Letter spacing (pt)",
         ["超宽省略号"] = "Ellipsis when overflow",
+        ["上划线"] = "Overline",
+        ["整段左缩进 (mm)"] = "Paragraph indent (mm)",
+        ["首行额外缩进 (mm)"] = "First-line indent (mm)",
+        ["内容超出自动续页"] = "Continue on overflow to next page",
 
         // 线条
         ["线色"] = "Line color",
@@ -207,20 +268,37 @@ public static class PropertyText
         ["描边宽 (mm)"] = "Stroke width (mm)",
         ["圆角半径 (mm)"] = "Corner radius (mm)",
         ["圆角半径 (mm)（椭圆不生效）"] = "Corner radius (mm) (ignored for ellipse)",
+        ["圆角半径 (mm)（仅圆角矩形生效）"] = "Corner radius (mm) (round-rect only)",
+        ["圆角半径（逐角，逗号分隔：左上,右上,左下,右下；只填一个值＝四角相同）"] =
+            "Corner radius per corner (comma-separated: top-left,top-right,bottom-left,bottom-right; a single value applies to all corners)",
+        ["圆角半径（逐角，逗号分隔：左上,右上,左下,右下）（椭圆不生效）"] =
+            "Corner radius per corner (comma-separated: top-left,top-right,bottom-left,bottom-right) (ignored for ellipse)",
+        ["圆角半径（逐顶点，逗号分隔：按顶点序，矩形/圆角矩形=左上,右上,左下,右下，三角形=上,右下,左下；只填一个值＝全部相同）"] =
+            "Corner radius per vertex (comma-separated, vertex order; rectangle/round-rect = top-left,top-right,bottom-left,bottom-right; triangle = top,bottom-right,bottom-left; a single value applies to all vertices)",
+        ["形状种类"] = "Shape kind",
+        ["样式引用（模板样式库）"] = "Style reference (template style library)",
 
         // 图片
         ["图片来源"] = "Image source",
         ["适配方式"] = "Fit mode",
         ["资源键"] = "Resource key",
         ["Base64 图片数据"] = "Base64 image data",
+        ["内嵌图片 (data URI / Base64 / SVG)"] = "Embedded image (data URI / Base64 / SVG)",
+        ["图片地址 (http/https)"] = "Image URL (http/https)",
+        ["字段绑定"] = "Field binding",
+        ["字段绑定 ({{字段}} 或纯字段名，留空 = 不绑定)"] = "Field binding ({{field}} or plain path, empty = none)",
 
         // 二维码 / 一维码
         ["编码内容"] = "Encoded content",
         ["码制"] = "Symbology",
         ["纠错等级"] = "Error correction level",
         ["静区宽 (mm)"] = "Quiet zone (mm)",
+        ["模块宽度 (mm)（0=拉伸到元素宽）"] = "Module width (mm) (0 = stretch to element width)",
+        ["模块宽度 (mm)"] = "Module width (mm)",
         ["前景色"] = "Foreground color",
         ["显示可读文本"] = "Show human-readable text",
+        ["渲染方式"] = "Render mode",
+        ["分组标题"] = "Group title",
         ["条色"] = "Bar color",
         ["可读文本"] = "Human-readable text",
         ["可读文本字体名"] = "Human-readable font family",
@@ -228,6 +306,16 @@ public static class PropertyText
         ["可读文本颜色"] = "Human-readable text color",
         ["可读文本对齐"] = "Human-readable alignment",
         ["可读文本行距倍数"] = "Human-readable line spacing",
+        ["中心 Logo 数据 (data URI / Base64)"] = "Center logo data (data URI / Base64)",
+        ["中心 Logo 字段（{{占位符}}）"] = "Center logo field ({{placeholder}})",
+        ["中心 Logo 适配"] = "Center logo fit",
+        ["条码标题"] = "Barcode caption",
+        ["显示条码标题"] = "Show barcode caption",
+        ["条码标题字号 (pt)"] = "Barcode caption size (pt)",
+        ["条码标题字体名"] = "Barcode caption font family",
+        ["条码标题颜色"] = "Barcode caption color",
+        ["条码标题对齐"] = "Barcode caption alignment",
+        ["条码标题行距倍数"] = "Barcode caption line spacing",
 
         // 表格
         ["绘制表头"] = "Show header",
@@ -250,6 +338,7 @@ public static class PropertyText
         ["右内边距 (mm)"] = "Right padding (mm)",
         ["静态数据行（换行分行、制表符分列）"] = "Static rows (newline = row, tab = column)",
         ["方向"] = "Direction",
+        ["每页重复表头"] = "Repeat header on each page",
 
         // 表格列（前缀「列N·」由 _indexedPrefixes 翻译）
         ["列"] = "Column",

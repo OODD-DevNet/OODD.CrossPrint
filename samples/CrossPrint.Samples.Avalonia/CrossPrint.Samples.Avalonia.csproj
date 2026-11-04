@@ -5,6 +5,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>CrossPrint.Samples.Avalonia</RootNamespace>
     <AssemblyName>CrossPrint.Samples.Avalonia</AssemblyName>
+    <!-- 应用图标：exe 文件/任务栏/窗口默认图标（蓝色圆角方块 + CP 字样，多尺寸 PNG 压缩）。 -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
@@ -13,6 +15,8 @@
     <PackageReference Include="Avalonia.Desktop" />
     <!-- Semi Design 主题：圆角按钮、阴影输入框、Ant Design 风格主色调，原生控件自动套用 -->
     <PackageReference Include="Semi.Avalonia" />
+    <!-- Semi 取色面板主题（含 Avalonia.Controls.ColorPicker 基础控件依赖）：属性面板颜色行的弹层取色器 -->
+    <PackageReference Include="Semi.Avalonia.ColorPicker" />
   </ItemGroup>
 
   <ItemGroup>
@@ -20,6 +24,13 @@
     <ProjectReference Include="..\..\src\CrossPrint.Engine\CrossPrint.Engine.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.Printing\CrossPrint.Printing.csproj" />
     <ProjectReference Include="..\..\src\CrossPrint.I18n\CrossPrint.I18n.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 解决方案持久化（桌面）：SQLite 经 FreeSql。浏览器工程共享源码但不引用这些包，
+         TemplateStore.cs 里桌面实现整段 #if !BROWSER 包裹。 -->
+    <PackageReference Include="FreeSql" />
+    <PackageReference Include="FreeSql.Provider.Sqlite" />
   </ItemGroup>
 
   <ItemGroup>

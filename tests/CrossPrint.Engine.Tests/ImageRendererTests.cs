@@ -225,6 +225,132 @@ public class ImageRendererTests
         }
     }
 
+    /// <summary>
+    /// 用户实报的那种图：内嵌 SVG（Windows 徽标四色方块）。
+    /// 以前 <c>FromEncodedData</c> 解不了矢量，页面上只剩占位框；现在必须四色都真画出来。
+    /// </summary>
+    [Fact]
+    public void 内嵌_SVG_的_data_URI_四个方块都画出来()
+    {
+        var element = new ImageElement
+        {
+            Id = "img",
+            XMm = 10,
+            YMm = 10,
+            WidthMm = 40,
+            HeightMm = 20,
+            Image = new ImageOptions
+            {
+                SourceType = ImageSourceType.EmbeddedBase64,
+                Data = "data:image/svg+xml;base64," + WindowsLogoSvg,
+                FitMode = ImageFitMode.Fill,
+            },
+        };
+
+        var report = new RenderReport();
+        using var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 60, pageHeightMm: 40, report: report);
+
+        report.Issues.Should().BeEmpty();
+
+        // 元素框 (10,10)-(50,30)，四个象限各取中心区域
+        Ink.ColorCountInMm(bitmap, Dpi, new SKRect(12, 12, 28, 19), new SKColor(0xF2, 0x50, 0x22)).Should().BeGreaterThan(0, "左上橙");
+        Ink.ColorCountInMm(bitmap, Dpi, new SKRect(32, 12, 48, 19), new SKColor(0x7F, 0xBA, 0x00)).Should().BeGreaterThan(0, "右上绿");
+        Ink.ColorCountInMm(bitmap, Dpi, new SKRect(12, 21, 28, 28), new SKColor(0x00, 0xA4, 0xEF)).Should().BeGreaterThan(0, "左下蓝");
+        Ink.ColorCountInMm(bitmap, Dpi, new SKRect(32, 21, 48, 28), new SKColor(0xFF, 0xB9, 0x00)).Should().BeGreaterThan(0, "右下黄");
+    }
+
+    /// <summary>
+    /// 历史模板把外链/内嵌图错存成 ResolverKey（用户截图里 SourceType=ResolverKey + https:// 就是这个），
+    /// 宿主又没配解析器。现在引擎在键本身是定位符时兜底自取，而不是直接给空框。
+    /// </summary>
+    [Fact]
+    public void 资源键里存的是_data_URI_时引擎兜底自绘()
+    {
+        var dataUri = "data:image/png;base64," + Convert.ToBase64String(PngBytes(Red, 40, 20));
+        var element = new ImageElement
+        {
+            Id = "img",
+            XMm = 10,
+            YMm = 10,
+            WidthMm = 40,
+            HeightMm = 20,
+            Image = new ImageOptions
+            {
+                SourceType = ImageSourceType.ResolverKey,
+                ResolverKey = dataUri,
+                FitMode = ImageFitMode.Fill,
+            },
+        };
+
+        var report = new RenderReport();
+        using var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 60, pageHeightMm: 40, report: report);
+
+        report.Issues.Should().BeEmpty("定位符形态的键不该再报「缺解析器」");
+        Ink.ColorCountInMm(bitmap, Dpi, new SKRect(15, 15, 45, 25), Red).Should().BeGreaterThan(0);
+    }
+
+    /// <summary>外链在没有宿主解析器且显式禁用网络时：画占位框，并留下一条能读懂的原因。</summary>
+    [Fact]
+    public void 外链在禁用网络时降级为占位框并说明原因()
+    {
+        var element = new ImageElement
+        {
+            Id = "img",
+            XMm = 10,
+            YMm = 10,
+            WidthMm = 40,
+            HeightMm = 20,
+            Image = new ImageOptions
+            {
+                SourceType = ImageSourceType.ResolverKey,
+                ResolverKey = "https://example.com/logo-" + _uniqueKey + ".png",
+            },
+        };
+
+        var report = new RenderReport();
+        using var bitmap = Fixture.RenderElement(
+            element,
+            Dpi,
+            pageWidthMm: 60,
+            pageHeightMm: 40,
+            report: report,
+            options: new RenderOptions { AllowRemoteImages = false });
+
+        report.Issues.Should().ContainSingle(i => i.Kind == RenderIssueKind.ImageMissing)
+            .Which.Message.Should().Contain("AllowRemoteImages");
+        Ink.NonWhitePixelCountInMm(bitmap, Dpi, new SKRect(10, 10, 50, 30)).Should().BeGreaterThan(0, "占位框要画出来，设计者才看得出这里空了");
+    }
+
+    /// <summary>Url 类型接受 data URI（同一字段既能写内嵌也能写外链，方便表单编辑）。</summary>
+    [Fact]
+    public void Url_类型写_data_URI_也能渲染()
+    {
+        var element = new ImageElement
+        {
+            Id = "img",
+            XMm = 10,
+            YMm = 10,
+            WidthMm = 40,
+            HeightMm = 20,
+            Image = new ImageOptions
+            {
+                SourceType = ImageSourceType.Url,
+                Url = "data:image/png;base64," + Convert.ToBase64String(PngBytes(Red, 40, 20)),
+                FitMode = ImageFitMode.Fill,
+            },
+        };
+
+        var report = new RenderReport();
+        using var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 60, pageHeightMm: 40, report: report);
+
+        report.Issues.Should().BeEmpty();
+        Ink.ColorCountInMm(bitmap, Dpi, new SKRect(15, 15, 45, 25), Red).Should().BeGreaterThan(0);
+    }
+
+    /// <summary>四色方块 SVG 的 base64 载荷（与 SvgRasterizerTests 同源）。</summary>
+    const string WindowsLogoSvg =
+        "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyIDIiPjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmMjUwMjIiLz48cmVjdCB4PSIxIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjN2ZiYTAwIi8+PHJlY3QgeT0iMSIgd2lkdGg9IjEiIGhlaWdodD0iMSIgZmlsbD0iIzAwYTRlZiIvPjxyZWN0IHg9IjEiIHk9IjEiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNmZmI5MDAiLz48L3N2Zz4=";
+
     static ImageElement Image(SKColor color, int srcW, int srcH, ImageFitMode mode)
         => new()
         {
@@ -250,6 +376,9 @@ public class ImageRendererTests
         return data.ToArray();
     }
 
+    /// <summary>字段绑定测试用的样例图：纯色块 PNG（<see cref="PngBytes"/> 的语义别名）。</summary>
+    static byte[] SamplePng(int width, int height, SKColor color) => PngBytes(color, width, height);
+
     sealed class CountingResolver(byte[] payload) : IImageResolver
     {
         public int Calls { get; private set; }
@@ -258,6 +387,29 @@ public class ImageRendererTests
         {
             Calls++;
             return payload;
+        }
+    }
+
+    [Fact]
+    public void 图片字段绑定_render_用数据里的图源()
+    {
+        var element = new ImageElement
+        {
+            XMm = 5, YMm = 5, WidthMm = 40, HeightMm = 30,
+            Image = new ImageOptions { Field = "photo" },
+        };
+
+        var resolver = new CountingResolver(SamplePng(40, 30, Red));
+        var report = new RenderReport();
+        var bitmap = Fixture.RenderElement(
+            element, Dpi, pageWidthMm: 60, pageHeightMm: 50, report: report,
+            data: new { photo = "resolver-key" }, images: resolver);
+
+        using (bitmap)
+        {
+            report.Issues.Should().NotContain(i => i.Kind == RenderIssueKind.ImageMissing);
+            resolver.Calls.Should().BeGreaterThan(0, "字段值应作为定位符交给图片解析器");
+            Ink.ColorCountInMm(bitmap, Dpi, new SKRect(5, 5, 45, 35), Red).Should().BeGreaterThan(0);
         }
     }
 }

@@ -37,7 +37,8 @@ public sealed class PropertyDescriptor
         double? min = null,
         double? max = null,
         double? step = null,
-        bool readOnly = false)
+        bool readOnly = false,
+        bool hidden = false)
     {
         Key = key;
         DisplayName = displayName;
@@ -49,6 +50,7 @@ public sealed class PropertyDescriptor
         Max = max;
         Step = step;
         ReadOnly = readOnly;
+        Hidden = hidden;
         Group = PropertyGroups.For(key);
     }
 
@@ -79,6 +81,13 @@ public sealed class PropertyDescriptor
 
     /// <summary>只读（如 <c>id</c>：身份由内核生成，宿主应展示但禁用编辑）。为 true 时 <see cref="SetValue"/> 必抛</summary>
     public bool ReadOnly { get; }
+
+    /// <summary>
+    /// 不进宿主表单（描述符仍必须存在——完备性门要求每个可写载荷属性恰好一条描述符）。
+    /// 用于"模型保留、面板不露"的字段：如圆角标量已被逐角字段取代，但旧模板 JSON 与
+    /// hiprint 导入器仍写标量，渲染端继续消费，只是面板不再给第二个编辑框。
+    /// </summary>
+    public bool Hidden { get; }
 
     /// <summary>读当前值。装箱返回：<see cref="PropertyKind.Number"/> 给 <c>double</c>、
     /// <see cref="PropertyKind.Color"/> 给 <c>SKColor</c>（可空字段可能为 null）、
@@ -120,6 +129,7 @@ internal static class PropertyGroups
     public const string TableConditional = "条件样式";
     public const string TableHighlights = "关键词样式";
     public const string TableRowSpans = "静态行合并";
+    public const string Pagination = "分页";
 
     public static string For(string key) => key switch
     {
@@ -128,6 +138,7 @@ internal static class PropertyGroups
         "zIndex" => Basic,
         "backgroundColor" or "borderColor" or "borderWidthMm" or "borderDashPatternMm" or "borderSides" or "rotationDegrees" or "opacity" => Appearance,
         "styleId" => Appearance,
+        "fixed" or "pageBreakAfter" or "showInPages" or "unShowInPages" => Pagination,
         _ when key.StartsWith("text.", StringComparison.Ordinal) => Text,
         _ when key.StartsWith("line.", StringComparison.Ordinal) => Line,
         _ when key.StartsWith("rectangle.", StringComparison.Ordinal) || key.StartsWith("ellipse.", StringComparison.Ordinal) => Shape,

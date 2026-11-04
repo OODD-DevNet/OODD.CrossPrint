@@ -26,6 +26,7 @@ public static class PlacementDefaults
         [ElementTypeKeys.Line] = new ElementSizeMm(50, 0),
         [ElementTypeKeys.Rectangle] = new ElementSizeMm(40, 20),
         [ElementTypeKeys.Ellipse] = new ElementSizeMm(30, 30),
+        [ElementTypeKeys.Shape] = new ElementSizeMm(25, 25),
         [ElementTypeKeys.Image] = new ElementSizeMm(30, 30),
         [ElementTypeKeys.QrCode] = new ElementSizeMm(30, 30),
         [ElementTypeKeys.Barcode] = new ElementSizeMm(60, 15),

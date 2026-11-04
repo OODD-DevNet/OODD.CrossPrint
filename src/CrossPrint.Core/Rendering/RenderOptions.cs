@@ -59,6 +59,29 @@ public sealed record RenderOptions
     /// </summary>
     public bool AllowTablePagination { get; init; }
 
+    /// <summary>
+    /// 通用分页（手动翻页类）：当模板含 <c>pageBreak</c>/<c>fixed</c>/<c>showInPage</c>/<c>unShowInPage</c>/<c>paperNumber</c>
+    /// 等分页标志时，把元素按页面切片成多页：<c>fixed</c> 每页重复、<c>pageBreak</c> 强制分页、
+    /// <c>showInPage</c>/<c>unShowInPage</c> 按页过滤、<c>paperNumber</c> 追加页码脚注。
+    /// 默认开启；无此类标志的模板维持单页（与旧行为一致）。与 <see cref="AllowTablePagination"/> 互斥优先：
+    /// 命中通用分页时走通用切片，否则回落表格溢出分页。
+    /// </summary>
+    public bool AllowGeneralPagination { get; init; } = true;
+
+    /// <summary>
+    /// 是否允许引擎自行下载 <c>http/https</c> 图片（<see cref="ImageSourceType.Url"/>，以及
+    /// <see cref="ImageSourceType.ResolverKey"/> 里"看着像地址"的键在宿主解析器未命中时的兜底）。
+    /// 默认开启——hiprint 模板里大量图片就是外链，关掉会退化成占位框。
+    /// </summary>
+    /// <remarks>
+    /// 这是渲染期的一次出站网络请求，命中后按 URL 缓存在进程内（同一地址只下载一次）。
+    /// 对"模板来自不可信来源"的场景可以关掉它、改由宿主 <c>IImageResolver</c> 统一管控（下载/校验/白名单都在宿主侧做）。
+    /// </remarks>
+    public bool AllowRemoteImages { get; init; } = true;
+
+    /// <summary>网络图片下载超时（毫秒）；小于等于 0 时用默认 10 秒。</summary>
+    public int RemoteImageTimeoutMs { get; init; } = 10000;
+
     /// <summary>每毫米对应的画布单位数（画布已按 1 单位 = 1/72 英寸或按 Dpi 缩放时由引擎计算）。</summary>
     public double UnitsPerMm => Dpi / UnitConverter.MmPerInch;
 
