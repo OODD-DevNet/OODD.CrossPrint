@@ -671,7 +671,11 @@ public class TableRendererTests
         var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 130, pageHeightMm: 90, report: report, data: data);
         using (bitmap)
         {
-            report.Issues.Should().BeEmpty("单元格条码/二维码不应触发任何渲染告警");
+            // 环境差异容忍：CI/容器没有微软雅黑时表头文字会记 FontFallback——条码/二维码语义不受影响；
+            // 机器真装了雅黑时才要求"零告警"。
+            var yaHeiExists = DefaultFontResolver.Shared.FamilyExists("Microsoft YaHei");
+            report.Issues.Where(i => i.Kind != RenderIssueKind.FontFallback || yaHeiExists)
+                .Should().BeEmpty("单元格条码/二维码不应触发任何渲染告警");
             Ink.ColorCountInMm(bitmap, Dpi, new SKRect(0, 0, 130, 90), SKColors.Black)
                 .Should().BeGreaterThan(0, "条码/二维码模块 + 文字 + 网格必须留下墨迹");
         }

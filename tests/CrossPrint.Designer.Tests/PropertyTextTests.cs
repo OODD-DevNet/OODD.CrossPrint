@@ -22,6 +22,8 @@ public class PropertyTextTests
     [Fact]
     public void 形状种类下拉选项_中文界面全部有中文显示名()
     {
+        // 中文界面是测试前提不是环境假设：CI 的 ubuntu 默认 en-US，不显式指定就会整列回英文枚举名。
+        using var _ = new UiCultureScope("zh-CN");
         foreach (var kind in Enum.GetNames<ShapeKind>())
         {
             var display = PropertyText.Option("shape.kind", kind);

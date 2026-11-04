@@ -49,7 +49,11 @@ public sealed class SystemPrintTargetTests : IDisposable
         Pdf.MediaBoxesMm(pdf).Should().HaveCount(3)
             .And.OnlyContain(m => Math.Abs(m.W - 100) < 0.05, "打印层不许改写纸张尺寸");
 
-        issues.HasIssues.Should().BeFalse("干净模板不该有告警");
+        // 环境差异容忍：CI/容器没有微软雅黑时文字渲染会记 FontFallback——与打印交付语义无关；
+        // 机器真装了雅黑时才要求"零告警"。
+        var issuesExceptEnvFont = issues.Issues
+            .Where(i => i.Kind != RenderIssueKind.FontFallback || DefaultFontResolver.Shared.FamilyExists(Fixture.CjkFont));
+        issuesExceptEnvFont.Should().BeEmpty("干净模板不该有告警（环境缺字体的 FontFallback 除外）");
         TempFiles.Leftovers(_ws.Root).Should().BeEmpty("交付成功后临时 PDF 应已删除");
     }
 

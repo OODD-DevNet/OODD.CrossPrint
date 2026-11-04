@@ -377,7 +377,11 @@ public class ScriptRunnerTests
         var result = new TemplateRenderer().RenderToBitmap(template, new RenderOptions(), data: new { orderNo = "77" });
         using (result.Bitmap)
         {
-            result.Report.HasIssues.Should().BeFalse();
+            // 环境差异容忍：CI/容器没有微软雅黑时文字渲染会记 FontFallback——脚本链路语义不受影响；
+            // 机器真装了雅黑时才要求"零告警"。
+            var yaHeiExists = DefaultFontResolver.Shared.FamilyExists("Microsoft YaHei");
+            result.Report.Issues.Where(i => i.Kind != RenderIssueKind.FontFallback || yaHeiExists)
+                .Should().BeEmpty();
         }
 
         ScriptRunner.HasScripts(template).Should().BeTrue();

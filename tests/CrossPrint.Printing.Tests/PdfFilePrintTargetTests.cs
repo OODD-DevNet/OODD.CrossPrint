@@ -121,8 +121,13 @@ public sealed class PdfFilePrintTargetTests : IDisposable
 
         var bytes = File.ReadAllBytes(hundredPath);
         Pdf.PageCount(bytes).Should().Be(100);
-        var fontStreams = Pdf.Count(bytes, "/FontFile2");
-        fontStreams.Should().Be(1, $"100 页 CJK 也只嵌一份字库（实测 {fontStreams} 份）");
+        // /FontFile 前缀计数：Windows 雅黑 TrueType → FontFile2，Linux 回退字体 CFF → FontFile3，内嵌一次的语义相同。
+        // 纯 CJK 版面在连 CJK 字形都没有的机器上无字形可嵌（0 份）——此时退而断言"绝不每页一份"。
+        var fontStreams = Pdf.Count(bytes, "/FontFile");
+        if (DefaultFontResolver.Shared.FamilyExists(Fixture.CjkFont))
+            fontStreams.Should().Be(1);
+        else
+            fontStreams.Should().BeLessThanOrEqualTo(1, "缺字体的机器上无字形可嵌（0 份），但绝不允许每页一份");
 
         var ratio = sw.ElapsedMilliseconds / (double)Math.Max(1, oneSw.ElapsedMilliseconds);
         ratio.Should().BeLessThan(30,

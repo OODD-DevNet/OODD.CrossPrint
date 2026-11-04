@@ -35,10 +35,15 @@ public sealed class PrintSettingsTests : IDisposable
 
         var vectorBytes = File.ReadAllBytes(vectorPath);
         var outlineBytes = File.ReadAllBytes(outlinePath);
-        Pdf.Count(vectorBytes, "/FontFile2").Should().Be(1, "对照：默认选项确实内嵌了字库");
-        Pdf.Count(outlineBytes, "/FontFile2").Should().Be(0, "Options 传到了引擎，否则这里还是 1 份");
-        outlineBytes.LongLength.Should().BeLessThan(vectorBytes.LongLength,
-            $"轮廓模式只带用到的字形（实测矢量 {vectorBytes.LongLength / 1024}KB vs 轮廓 {outlineBytes.LongLength / 1024}KB）");
+        // Linux 的 CJK 回退字体（Noto Sans CJK）是 CFF → /FontFile3；Windows 雅黑是 TrueType → /FontFile2。
+        // 纯 CJK 版面在连 CJK 字形都没有的机器上画不出字，PDF 里没有字体流——此时只断言"轮廓模式不再多"。
+        if (DefaultFontResolver.Shared.FamilyExists(Fixture.CjkFont))
+            Pdf.Count(vectorBytes, "/FontFile").Should().Be(1, "对照：默认选项确实内嵌了字库");
+        Pdf.Count(outlineBytes, "/FontFile").Should().Be(0, "Options 传到了引擎，否则这里还是 1 份");
+        // 相对体积只在真装了雅黑（TrueType 整份内嵌）的机器上成立；CFF 子集化的机器矢量产物本来就小。
+        if (DefaultFontResolver.Shared.FamilyExists(Fixture.CjkFont))
+            outlineBytes.LongLength.Should().BeLessThan(vectorBytes.LongLength,
+                $"轮廓模式只带用到的字形（实测矢量 {vectorBytes.LongLength / 1024}KB vs 轮廓 {outlineBytes.LongLength / 1024}KB）");
     }
 
     [Fact]
