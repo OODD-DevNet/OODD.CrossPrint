@@ -41,6 +41,11 @@
                 <Button Content="打开输出目录" Click="OnOpenOutDir" Style="{StaticResource ToolButton}"/>
                 <Button Content="保存 JSON" Click="OnExportJson" Margin="10,0,6,0" Style="{StaticResource ToolButton}"/>
                 <Button Content="读取 JSON" Click="OnImportJson" Style="{StaticResource ToolButton}"/>
+                <Button x:Name="StressButton" Content="压测：20 轮 × 10 万条" Click="OnStartStress"
+                        ToolTip="连续 20 轮、每轮 10 万明细行不间断打印（压测专用模板，约 28 分钟），每轮结束后报告内存"
+                        Margin="10,0,6,0" Style="{StaticResource ToolButton}" FontWeight="Bold"/>
+                <Button x:Name="StressStopButton" Content="停止" Click="OnStopStress" IsEnabled="False"
+                        Style="{StaticResource ToolButton}"/>
                 <CheckBox x:Name="AutoCalcCheck" Content="自动算金额（数量×单价）" IsChecked="True"
                           Margin="10,0,0,0" VerticalContentAlignment="Center"/>
             </StackPanel>

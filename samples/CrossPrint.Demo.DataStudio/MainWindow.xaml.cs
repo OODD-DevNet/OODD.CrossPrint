@@ -207,4 +207,170 @@ public partial class MainWindow : Window
         Directory.CreateDirectory(OutputDir);
         Process.Start(new ProcessStartInfo(OutputDir) { UseShellExecute = true });
     }
+
+    // ── 连续打印压测：20 轮 × 每轮 10 万条，不中断连打 ──
+
+    /// <summary>压测轮数与每轮行数（用户验收口径，不做成可调参数——口径固定才能横向对比）。</summary>
+    const int StressRounds = 20;
+    const int StressRowCount = 100_000;
+
+    /// <summary>验收线：每轮结束（强制 GC 后）托管内存不得超过 50MB，超过即视为轮间残留。</summary>
+    const long StressManagedLimitBytes = 50 * 1024 * 1024;
+
+    CancellationTokenSource? stressCts;
+
+    async void OnStartStress(object sender, RoutedEventArgs e)
+    {
+        if (stressCts is not null)
+            return;
+
+        var dir = Path.Combine(OutputDir, "stress");
+        Directory.CreateDirectory(dir);
+        var template = StressTemplate();
+        var data = StressPayload(StressRowCount);
+        var path = Path.Combine(dir, "stress.pdf");
+        var settings = new PrintSettings(path)
+        {
+            Options = new RenderOptions { PdfTextAsOutlines = true, AllowTablePagination = true },
+            Overwrite = true,
+        };
+        var process = Process.GetCurrentProcess();
+        var overall = Stopwatch.StartNew();
+
+        // 基线在数据建好之后量：数据本身常驻，压的就是"打印链路不新增残留"
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        var managedBase = GC.GetTotalMemory(forceFullCollection: true);
+        process.Refresh();
+        var workingSetFirst = process.WorkingSet64;
+
+        PrintButton.IsEnabled = false;
+        StressButton.IsEnabled = false;
+        StressStopButton.IsEnabled = true;
+        stressCts = new CancellationTokenSource();
+
+        var durations = new List<TimeSpan>();
+        long managedMax = 0;
+        long workingSetMax = 0;
+        try
+        {
+            for (var round = 1; round <= StressRounds; round++)
+            {
+                stressCts.Token.ThrowIfCancellationRequested();
+                var watch = Stopwatch.StartNew();
+
+                // 注意契约：PrintAsync 永不把作业失败折成异常，取消才会抛 OperationCanceledException
+                var result = await printTarget.PrintAsync(new PrintDocument(template, data), settings, null, stressCts.Token);
+                watch.Stop();
+                durations.Add(watch.Elapsed);
+
+                if (!result.Success)
+                {
+                    StatusText.Text = $"压测第 {round} 轮失败：{result.Message}（{result.Error?.GetType().Name}: {result.Error?.Message}）";
+                    return;
+                }
+
+                // 压测关心的是管线稳定性不是产物，每轮出完即删，避免 20 份几百页 PDF 占盘
+                File.Delete(path);
+
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                process.Refresh();
+                var managed = GC.GetTotalMemory(forceFullCollection: false) - managedBase;
+                var workingSet = process.WorkingSet64;
+                managedMax = Math.Max(managedMax, managed);
+                workingSetMax = Math.Max(workingSetMax, workingSet);
+                var verdict = managed <= StressManagedLimitBytes ? "OK" : "超 50MB！";
+                StatusText.Text = $"压测 {round}/{StressRounds} 轮成功：{result.PrintedPages} 页 · {watch.Elapsed.TotalSeconds:0} s · "
+                                  + $"托管内存 {managed / 1024.0 / 1024:0.#} MB [{verdict}] · 工作集 {workingSet / 1024.0 / 1024:0} MB";
+            }
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            process.Refresh();
+            var growth = process.WorkingSet64 - workingSetFirst;
+            StatusText.Text = $"压测完成：{StressRounds} 轮 × {StressRowCount:N0} 行全部成功，总耗时 {overall.Elapsed.TotalMinutes:0.#} 分钟；"
+                              + $"单轮最长 {durations.Max().TotalSeconds:0} s；托管内存峰值 {managedMax / 1024.0 / 1024:0.#} MB（上限 50）；"
+                              + $"工作集峰值 {workingSetMax / 1024.0 / 1024:0} MB，首末轮差 {growth / 1024.0 / 1024:0.#} MB（增长明显＝有泄漏）";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText.Text = $"压测已停止（完成 {durations.Count}/{StressRounds} 轮，总耗时 {overall.Elapsed.TotalMinutes:0.#} 分钟）。";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"压测异常（第 {durations.Count + 1} 轮）：{ex.GetType().Name}: {ex.Message}";
+        }
+        finally
+        {
+            stressCts.Dispose();
+            stressCts = null;
+            StressStopButton.IsEnabled = false;
+            StressButton.IsEnabled = true;
+            PrintButton.IsEnabled = true;
+        }
+    }
+
+    void OnStopStress(object sender, RoutedEventArgs e) => stressCts?.Cancel();
+
+    /// <summary>
+    /// 压测专用模板：A4 宽 × 1200mm 高（单页约 190 行，10 万行 ≈ 530 页/轮），20 轮约 28 分钟能跑完。
+    /// 分页/绑定/渲染/写盘与真实 A4 发票完全同一条管线，稳定性语义不变；刻意带「本页小计」汇总列
+    /// 把尾行求值也压进每页渲染。压测不依赖左侧数据——用独立载荷，避免 10 万行撑爆 DataGrid。
+    /// </summary>
+    static PrintTemplate StressTemplate()
+    {
+        var template = new PrintTemplate
+        {
+            Paper = new PaperSpec { Preset = PaperTypePresets.Custom, WidthMm = 210, HeightMm = 1200 },
+        };
+        template.Elements.Add(new TableElement
+        {
+            Id = "stress-table",
+            XMm = 10,
+            YMm = 12,
+            WidthMm = 190,
+            HeightMm = 1170,
+            Table = new TableOptions
+            {
+                Columns =
+                {
+                    new TableColumn { Title = "货物名称", WidthMm = 80, Field = "rows.name" },
+                    new TableColumn { Title = "规格", WidthMm = 40, Field = "rows.spec" },
+                    new TableColumn { Title = "数量", WidthMm = 30, Field = "rows.qty" },
+                    new TableColumn { Title = "金额", WidthMm = -1, Field = "rows.amount", Summary = TableSummary.Sum, SummaryLabel = "本页小计：" },
+                },
+                FontFamily = "Microsoft YaHei",
+                FontSizePt = 9,
+                RowHeightMm = 6,
+            },
+        });
+        return template;
+    }
+
+    /// <summary>压测载荷：固定种子随机行，与 BigDataStressTests 同口径（引擎按反射绑定 rows.* 路径）。</summary>
+    static object StressPayload(int count)
+        => new
+        {
+            rows = Enumerable.Range(1, count)
+                .Select(i => new StressRow
+                {
+                    Name = $"商品#{i:D6}",
+                    Spec = $"规格-{i % 97:D2}",
+                    Qty = i % 4 + 1,
+                    Amount = i * 1.37m,
+                })
+                .ToList(),
+        };
+
+    sealed class StressRow
+    {
+        public string Name { get; init; } = "";
+        public string Spec { get; init; } = "";
+        public int Qty { get; init; }
+        public decimal Amount { get; init; }
+    }
 }
