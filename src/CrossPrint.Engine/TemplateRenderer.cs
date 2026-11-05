@@ -105,6 +105,58 @@ public sealed class TemplateRenderer
         return report;
     }
 
+    /// <summary>
+    /// 连续纸（小票）的"任意行数"语义：表格内容超过元素高度时**不裁剪**，
+    /// 而是把表格增高到内容高、表格下方的元素整体顺移，页高随内容自适应
+    /// （<see cref="ResolvePageHeightMm"/> 取最底元素下缘）。这是小票打印机的真实行为——
+    /// 纸随内容走，版块跟着往下推。
+    /// 返回的是<b>深拷贝工作副本</b>：绝不改调用方模板（撤销栈、设计器都还持有原对象）。
+    /// 固定纸张不做（那是分页语义，归 <see cref="TemplatePaginator"/>）。
+    /// 测量期绑定告警走一次性报告，不混进正式渲染报告（正式渲染会重新绑定一遍）。
+    /// </summary>
+    internal static PrintTemplate AutoGrowContinuousTables(PrintTemplate template, RenderContext context)
+    {
+        if (!template.Paper.IsContinuous)
+            return template;
+
+        var tables = template.Elements.OfType<TableElement>().OrderBy(e => e.YMm).ToList();
+        if (tables.Count == 0)
+            return template;
+
+        var working = template.Clone();
+        var workingTables = working.Elements.OfType<TableElement>().OrderBy(e => e.YMm).ToList();
+
+        var scratchReport = new RenderReport();
+        var savedReport = context.Report;
+        var grown = false;
+        try
+        {
+            context.Report = scratchReport;
+            for (var i = 0; i < workingTables.Count; i++)
+            {
+                var table = workingTables[i];
+                TableRenderer.TryMeasurePages(table, context, out var fixedHeightMm, out var rowHeights);
+                var content = fixedHeightMm + (rowHeights.Count > 0 ? rowHeights.Sum() : 0);
+                if (content <= table.HeightMm)
+                    continue;
+
+                grown = true;
+                var delta = content - table.HeightMm;
+                var oldBottom = table.BottomMm;
+                table.HeightMm = content;
+                // 只顺移"起始于表格底边之下"的元素（并排侧放不受影响——小票版式里没有这种场景）
+                foreach (var e in working.Elements.Where(e => !ReferenceEquals(e, table) && e.YMm >= oldBottom - 0.01))
+                    e.YMm += delta;
+            }
+        }
+        finally
+        {
+            context.Report = savedReport;
+        }
+
+        return grown ? working : template;
+    }
+
     /// <summary>渲染一页到画布。</summary>
     /// <param name="template">模板。</param>
     /// <param name="canvas">目标画布。</param>
@@ -115,14 +167,18 @@ public sealed class TemplateRenderer
         if (canvas is null) throw new ArgumentNullException(nameof(canvas));
         if (context is null) throw new ArgumentNullException(nameof(context));
 
-        var pageWidth = template.Paper.PageWidthMm;
-        var pageHeight = ResolvePageHeightMm(template, context.Options);
-        var unitsPerMm = context.UnitsPerMm;
-
-        // 样式库注入：元素/载荷上的 StyleId 由此查表，做「库样式打底、内联覆盖」级联
+        // 样式库注入：元素/载荷上的 StyleId 由此查表，做「库样式打底、内联覆盖」级联。
+        // 必须先于连续纸表格增高：测量要按同一套样式口径。
         context.Styles = BuildStyleMap(template);
         // 脚本执行器注入：模板带 formatter/styler 才创建，无脚本模板零开销
         context.Scripts = ScriptRunner.HasScripts(template) ? new ScriptRunner() : null;
+
+        // 连续纸：表格自动增高 + 下方元素顺移（任意行数小票）；固定纸张原样返回
+        var working = AutoGrowContinuousTables(template, context);
+
+        var pageWidth = working.Paper.PageWidthMm;
+        var pageHeight = ResolvePageHeightMm(working, context.Options);
+        var unitsPerMm = context.UnitsPerMm;
 
         var saved = canvas.Save();
         try
@@ -138,7 +194,7 @@ public sealed class TemplateRenderer
 
             // 文字水印：垫在所有元素之下、背景之上，打印/导出与设计画布一致（mm 空间 pxPerMm=1）。
             // 文字支持 {{字段}} 占位符：与文本元素同一套绑定（设计态测试/设计数据优先，打印/导出走宿主数据）。
-            if (template.Watermark is { Enabled: true } watermark && pageWidth > 0 && pageHeight > 0)
+            if (working.Watermark is { Enabled: true } watermark && pageWidth > 0 && pageHeight > 0)
             {
                 var effective = watermark;
                 // 字段绑定（纯字段名自动包 {{}}）与 {{字段}} 占位符同一套 BindContent 口径；
@@ -162,12 +218,12 @@ public sealed class TemplateRenderer
             }
 
             // 面板整体偏移：整张页面内容平移（背景色保持铺满），实现 hiprint 的 leftOffset/topOffset。
-            var ox = template.LeftOffsetMm;
-            var oy = template.TopOffsetMm;
+            var ox = working.LeftOffsetMm;
+            var oy = working.TopOffsetMm;
             if (ox != 0 || oy != 0)
                 canvas.Translate((float)ox, (float)oy);
 
-            foreach (var element in template.Elements.OrderBy(e => e.ZIndex))
+            foreach (var element in working.Elements.OrderBy(e => e.ZIndex))
             {
                 var renderer = Registry.Find(element.TypeKey);
                 if (renderer is null)

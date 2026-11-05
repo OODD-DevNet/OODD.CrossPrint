@@ -214,8 +214,11 @@ public sealed class RenderContext
     /// <summary>渲染选项。</summary>
     public RenderOptions Options { get; }
 
-    /// <summary>降级信息收集器。</summary>
-    public RenderReport Report { get; }
+    /// <summary>
+    /// 降级信息收集器。可写：连续纸表格增高（AutoGrowContinuousTables）测量期会临时换成一次性报告，
+    /// 避免测量绑定告警与正式渲染重复——测完立即换回原报告。
+    /// </summary>
+    public RenderReport Report { get; set; }
 
     /// <summary>字体解析器。</summary>
     public IFontResolver FontResolver { get; }

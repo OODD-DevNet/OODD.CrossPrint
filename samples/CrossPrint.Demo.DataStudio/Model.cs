@@ -71,6 +71,17 @@ public sealed class UiInvoiceData : INotifyPropertyChanged
     public void RefreshTotal() => TotalAmount = Lines.Sum(l => l.Amount).ToString("0.00");
 
     /// <summary>
+    /// 小票模板（complex-receipt）的绑定字段：<c>￥&#123;&#123;subtotal&#125;&#125;</c> / <c>-￥&#123;&#123;discount&#125;&#125;</c> /
+    /// <c>￥&#123;&#123;total&#125;&#125;</c> / <c>&#123;&#123;points&#125;&#125;</c>。绑定大小写不敏感，字段随明细实时计算——
+    /// 没有它们，模板会回退到设计数据（合计恒 78.00，误导人以为没接活数据）。
+    /// </summary>
+    public string Subtotal => Lines.Sum(l => l.Amount).ToString("0.00");
+    public string Discount => "0.00";
+    public string Total => Subtotal;
+    public string Points => ((long)Lines.Sum(l => l.Amount)).ToString("0");
+
+
+    /// <summary>
     /// 初始演示数据：固定种子的 520 行对账单（金额 8~192，覆盖行色三档），
     /// 引擎表格跨页开启后约切 22 页。
     /// </summary>
