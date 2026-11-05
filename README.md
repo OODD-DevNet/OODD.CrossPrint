@@ -10,7 +10,7 @@
 
 > 模板里写的全是毫米和磅，没有像素这个坑。引擎画每一个像素，宿主控件只负责"把画布放到屏幕上"——这俩互不干扰。
 
-**中文** | [English](README.en.md) · [在线示例（WebAssembly，点了就能玩）](https://oodd-devnet.github.io/OODD.CrossPrint/)
+**中文** | [English](README.en.md) · [在线示例（WebAssembly实话实说网页版的基本不能用，建议下载release中的桌面端）](https://oodd-devnet.github.io/OODD.CrossPrint/)
 
 ---
 
