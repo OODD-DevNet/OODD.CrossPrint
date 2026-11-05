@@ -84,13 +84,14 @@ jobs:
           }
       # Trim smoke：publish Avalonia sample（partial trim），确认本仓库程序集不产生 IL 警告。
       # PowerShell 重定向 > 不会像管道那样改变 $LASTEXITCODE——这里用 > 确保 exit code 正确捕获。
+      # 裁剪开关经 -p:TrimSmoke=true 传入（样例 csproj 独享消费）：PublishTrimmed/TrimMode 若用
+      # -p: 直传会成为全局属性，压倒 Directory.Build.props 对 net461/netstandard2.0 的兜底，
+      # 流进多目标引用工程触发 NETSDK1124（#22~#26 连红的根因，2026-11-05 修复）。
       - name: Trim smoke (Avalonia sample, no AOT)
         shell: pwsh
         run: |
-          # 显式 --framework net8.0：I18n 项目有 netstandard2.0 / net461 目标，
-          # PublishTrimmed 在 netstandard 上不支持，必须锁定 TFM 为 net8.0
           dotnet publish samples/CrossPrint.Samples.Avalonia -c Release -f net8.0 -r win-x64 `
-            "-p:PublishTrimmed=true" "-p:TrimMode=partial" `
+            "-p:TrimSmoke=true" `
             -o artifacts/trim-avalonia > artifacts/trim.log 2>&1
           if ($LASTEXITCODE -ne 0) {
             Write-Error "trim publish 失败 (exit=$LASTEXITCODE)"

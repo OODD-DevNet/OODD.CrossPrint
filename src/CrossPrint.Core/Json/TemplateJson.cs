@@ -5,6 +5,9 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using SkiaSharp;
+#if NET8_0_OR_GREATER
+using System.Diagnostics.CodeAnalysis;
+#endif
 
 namespace CrossPrint.Core;
 
@@ -104,7 +107,17 @@ public static class TemplateJson
         WriteMargins(writer, t.Margins);
 
         writer.WritePropertyName("watermark");
+        // JsonTypeInfo 重载：反射式泛型重载标了 RequiresUnreferencedCode，链接器在 trim publish 时报 IL2026；
+        // PayloadOptions 的 TypeInfoResolver 是源生成上下文，GetTypeInfo 取到的元数据无反射、行为不变。
+#if NET8_0_OR_GREATER
+        // JsonTypeInfo 重载：反射式泛型重载标了 RequiresUnreferencedCode，链接器在 trim publish 时报 IL2026；
+        // PayloadOptions 的 TypeInfoResolver 是源生成上下文，GetTypeInfo 取到的元数据无反射、行为不变。
+        // net461 的 STJ 包没有 GetTypeInfo，回退原重载（net461 不参与裁剪，反射可用）。
+        JsonSerializer.Serialize(writer, t.Watermark,
+            (JsonTypeInfo<WatermarkOptions>)PayloadOptions.GetTypeInfo(typeof(WatermarkOptions))!);
+#else
         JsonSerializer.Serialize(writer, t.Watermark, PayloadOptions);
+#endif
 
         if (t.PaperNumberEnabled)
         {
@@ -138,7 +151,12 @@ public static class TemplateJson
                     style = copy;
                 }
 
+#if NET8_0_OR_GREATER
+                JsonSerializer.Serialize(writer, style,
+                    (JsonTypeInfo<NamedStyle>)PayloadOptions.GetTypeInfo(typeof(NamedStyle))!);
+#else
                 JsonSerializer.Serialize(writer, style, PayloadOptions);
+#endif
             }
 
             writer.WriteEndArray();
@@ -304,10 +322,15 @@ public static class TemplateJson
 
     static void WritePayload<T>(Utf8JsonWriter w, string name, T payload)
     {
-        // 走 PayloadOptions 解析出的 JsonTypeInfo：既保留十六进制颜色/字符串枚举转换器，
-        // 又让裁剪器看得见类型（反射式泛型重载在 Trim/AOT 下会报 IL2026）。
+        // 走 PayloadOptions 的源生成 JsonTypeInfo：既保留十六进制颜色/字符串枚举转换器，
+        // 又让链接器看得见类型（反射式泛型重载在 trim publish 下会报 IL2026）。
+#if NET8_0_OR_GREATER
+        w.WritePropertyName(name);
+        JsonSerializer.Serialize(w, payload, (JsonTypeInfo<T>)PayloadOptions.GetTypeInfo(typeof(T))!);
+#else
         w.WritePropertyName(name);
         JsonSerializer.Serialize(w, payload, PayloadOptions);
+#endif
     }
 
     static void WriteOptionalColor(Utf8JsonWriter w, string name, SKColor? color)
@@ -375,6 +398,10 @@ public static class TemplateJson
         return root.ToJsonString();
     }
 
+#if NET8_0_OR_GREATER
+    [UnconditionalSuppressMessage("Trim", "IL2026:RequiresUnreferencedCode",
+        Justification = "模板 JSON 纯数据节点迁移：JsonNode 系 API 整体标了 RequiresUnreferencedCode（链接器不读 pragma），载荷序列化走源生成元数据，无被裁剪成员")]
+#endif
     static int MigrateRowFillRulesNode(JsonNode? node)
     {
         switch (node)
@@ -817,7 +844,12 @@ public static class TemplateJson
     {
         try
         {
+#if NET8_0_OR_GREATER
+            // net461 的 STJ 包没有 GetTypeInfo，回退原重载（net461 不参与裁剪）。
+            return JsonSerializer.Deserialize(json, (JsonTypeInfo<T>)PayloadOptions.GetTypeInfo(typeof(T))!)!;
+#else
             return JsonSerializer.Deserialize<T>(json, PayloadOptions)!;
+#endif
         }
         catch (JsonException ex)
         {

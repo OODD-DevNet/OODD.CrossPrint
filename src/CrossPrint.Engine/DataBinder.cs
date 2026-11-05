@@ -382,7 +382,10 @@ public static class DataBinder
         }
     }
 
-    // UnconditionalSuppressMessage suppressed for net461 (Trim/AOT only on net8.0)
+#if NET8_0_OR_GREATER
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trim", "IL2075:'this' argument",
+        Justification = "数据绑定反射宿主 POCO：数据对象由宿主代码引用（编译期可见），裁剪不会删其公共属性/字段；类型参数无法静态标注，链接器抑制是唯一手段")]
+#endif
     static bool TryMember(object? target, string name, out object? value)
     {
         value = null;
@@ -434,7 +437,10 @@ public static class DataBinder
         }
     }
 
-    // UnconditionalSuppressMessage suppressed for net461 (Trim/AOT only on net8.0)
+#if NET8_0_OR_GREATER
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trim", "IL2070:'this' argument",
+        Justification = "同 TryMember：宿主 POCO 属性由宿主代码引用保持存活，反射绑定在裁剪后依然可用")]
+#endif
     static Dictionary<string, PropertyInfo> BuildProperties(Type type)
     {
         var map = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);

@@ -8,6 +8,12 @@
     <!-- 应用图标：exe 文件/任务栏/窗口默认图标（蓝色圆角方块 + CP 字样，多尺寸 PNG 压缩）。 -->
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <!-- CI Trim smoke 开关：裁剪属性绝不能用 -p:PublishTrimmed 直传——它是命令行全局属性，
+         会压倒 Directory.Build.props 里对 net461/netstandard2.0 的 PublishTrimmed 兜底，
+         流进多目标引用工程触发 NETSDK1124（实测 trim smoke 连红 #22~#26 的根因）。
+         改传 -p:TrimSmoke=true，由本工程独享消费；引用工程收到 TrimSmoke 但无人读取，行为不变。 -->
+    <PublishTrimmed Condition="'$(TrimSmoke)' == 'true'">true</PublishTrimmed>
+    <TrimMode Condition="'$(TrimSmoke)' == 'true'">partial</TrimMode>
   </PropertyGroup>
 
   <ItemGroup>

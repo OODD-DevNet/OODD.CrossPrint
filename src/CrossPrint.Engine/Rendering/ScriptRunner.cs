@@ -58,6 +58,15 @@ public sealed class ScriptRunner : IScriptRunner
         return style is not null && !StyleParser.IsEmpty(style) ? style : null;
     }
 
+#if NET8_0_OR_GREATER
+    // Jint 与 .NET 对象互操作内部走 Delegate.CreateDelegate 反射——Jint 库自身未做裁剪适配，
+    // 告警从本方法的 SetValue(Func)/Call 调用点冒出。脚本桥的宿主对象都是编译期引用的应用代码，
+    // 裁剪不会删成员；Jint 引擎是纯托管解释器，运行时不依赖被裁剪的 BCL 反射路径。
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trim", "IL2026:RequiresUnreferencedCode",
+        Justification = "Jint 脚本互操作：宿主对象为编译期引用的应用代码，裁剪后成员存活")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trim", "IL2111:RequiresDynamicCode",
+        Justification = "同上：Jint 委托包装的 DynamicCode 依赖在解释执行路径上不触发")]
+#endif
     JsValue? TryInvoke(string source, object?[]? args, string? elementId, RenderReport report)
     {
         if (string.IsNullOrWhiteSpace(source))
