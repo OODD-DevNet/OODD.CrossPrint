@@ -266,6 +266,9 @@ public sealed class GdiPrintTarget : IPrintTarget
         int _planIndex;
         bool _planReady;
 
+        /// <summary>连续纸自动增高后的工作副本（固定纸为 null，即用原模板）；纸张尺寸与渲染都用它。</summary>
+        PrintTemplate? _workingTemplate;
+
         /// <summary>已交给假脱机的页数（PrintPage 事件里累计）。</summary>
         public int PagesSpooled { get; private set; }
 
@@ -299,11 +302,13 @@ public sealed class GdiPrintTarget : IPrintTarget
             // GDI 打印服务拒绝 0 页作业之前，这里已经由 ExpandPages 保证至少 1 页
         }
 
-        /// <summary>每页的纸张设置跟当前文档走：批量里不同模板可能纸张不同。</summary>
+        /// <summary>每页的纸张设置跟当前文档走：批量里不同模板可能纸张不同。
+        /// 连续纸用自动增高后的工作副本——纸盒必须比内容高，否则页尾整段被截。</summary>
         public void OnQueryPageSettings(QueryPageSettingsEventArgs e)
         {
             var page = CurrentDocument();
-            var sizeMm = TemplateRenderer.GetPageSizeMm(page.Template, _options);
+            CurrentPlan(page); // 确保增高工作副本已就绪（首张 QueryPageSettings 先于首个 PrintPage 触发）
+            var sizeMm = TemplateRenderer.GetPageSizeMm(_workingTemplate ?? page.Template, _options);
             // PaperSize 单位是百分之一英寸；自定义纸型对不支持的驱动会被忽略（回落驱动默认纸）——
             // 这类驱动差异不属于引擎语义，不折算失败。
             var hundredthsW = (int)Math.Round(sizeMm.Width / UnitConverter.MmPerInch * 100);
@@ -345,7 +350,7 @@ public sealed class GdiPrintTarget : IPrintTarget
             SKBitmap bitmap;
             try
             {
-                var size = TemplateRenderer.GetPageSizeMm(page.Template, options);
+                var size = TemplateRenderer.GetPageSizeMm(payload.Template, options);
                 var width = Math.Max(1, (int)Math.Ceiling(size.Width * options.UnitsPerMm));
                 var height = Math.Max(1, (int)Math.Ceiling(size.Height * options.UnitsPerMm));
                 bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
@@ -372,7 +377,7 @@ public sealed class GdiPrintTarget : IPrintTarget
             using (bitmap)
             using (var gdi = ToGdi(bitmap))
             {
-                var sizeMm = TemplateRenderer.GetPageSizeMm(page.Template, options);
+                var sizeMm = TemplateRenderer.GetPageSizeMm(payload.Template, options);
                 var destW = (float)(sizeMm.Width / UnitConverter.MmPerInch * 100);
                 var destH = (float)(sizeMm.Height / UnitConverter.MmPerInch * 100);
                 e.Graphics?.DrawImage(gdi, 0f, 0f, destW, destH);
@@ -401,7 +406,11 @@ public sealed class GdiPrintTarget : IPrintTarget
         {
             if (!_planReady)
             {
-                _plan = TemplatePaginator.PlanLayout(page.Template, _options, page.Data, _fonts, _images);
+                // 连续纸先自动增高再规划：QueryPageSettings 的纸张尺寸与渲染都用增高后的工作副本，
+                // 否则打印机纸盒按原模板算，纸比内容短，页尾整段被截。
+                var measureContext = new RenderContext(_options, new RenderReport(), _fonts, _images, page.Data);
+                _workingTemplate = TemplateRenderer.AutoGrowContinuousTables(page.Template, measureContext);
+                _plan = TemplatePaginator.PlanLayout(_workingTemplate, _options, page.Data, _fonts, _images);
                 _planIndex = 0;
                 _planReady = true;
             }

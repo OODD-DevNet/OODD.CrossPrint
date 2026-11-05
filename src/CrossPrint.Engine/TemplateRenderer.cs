@@ -114,7 +114,7 @@ public sealed class TemplateRenderer
     /// 固定纸张不做（那是分页语义，归 <see cref="TemplatePaginator"/>）。
     /// 测量期绑定告警走一次性报告，不混进正式渲染报告（正式渲染会重新绑定一遍）。
     /// </summary>
-    internal static PrintTemplate AutoGrowContinuousTables(PrintTemplate template, RenderContext context)
+    public static PrintTemplate AutoGrowContinuousTables(PrintTemplate template, RenderContext context)
     {
         if (!template.Paper.IsContinuous)
             return template;

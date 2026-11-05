@@ -271,8 +271,9 @@ public static class PropertyText
         ["圆角半径 (mm)（仅圆角矩形生效）"] = "Corner radius (mm) (round-rect only)",
         ["圆角半径（逐角，逗号分隔：左上,右上,左下,右下；只填一个值＝四角相同）"] =
             "Corner radius per corner (comma-separated: top-left,top-right,bottom-left,bottom-right; a single value applies to all corners)",
-        ["圆角半径（逐角，逗号分隔：左上,右上,左下,右下）（椭圆不生效）"] =
-            "Corner radius per corner (comma-separated: top-left,top-right,bottom-left,bottom-right) (ignored for ellipse)",
+        // 椭圆的逐角圆角（与矩形版相比省略"只填一个值"尾注——椭圆已隐藏该字段，仅完备性门要求存在）
+        ["圆角半径（逐角，逗号分隔：左上,右上,左下,右下）"] =
+            "Corner radius per corner (comma-separated: top-left,top-right,bottom-left,bottom-right)",
         ["圆角半径（逐顶点，逗号分隔：按顶点序，矩形/圆角矩形=左上,右上,左下,右下，三角形=上,右下,左下；只填一个值＝全部相同）"] =
             "Corner radius per vertex (comma-separated, vertex order; rectangle/round-rect = top-left,top-right,bottom-left,bottom-right; triangle = top,bottom-right,bottom-left; a single value applies to all vertices)",
         ["形状种类"] = "Shape kind",

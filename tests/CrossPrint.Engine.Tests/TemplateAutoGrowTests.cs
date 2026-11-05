@@ -109,4 +109,21 @@ public sealed class TemplateAutoGrowTests
         Ink.DarkPixelCountInMm(bitmap, Dpi, new SKRect(2, 42, 74, 72))
             .Should().BeGreaterThan(0, "第 5~10 行必须画出来");
     }
+
+    [Fact]
+    public void Pdf导出_MediaBox按增高后的纸高算_内容不再被纸盒截断()
+    {
+        // 回归：导出器曾用原模板算页面尺寸（原内容高 52mm），自动增高的行全在 MediaBox 之外
+        // ——真机复现"小票打到第 75 行戛然而止"。
+        var template = Receipt(); // 增高后页高 88mm（原 52mm）
+        using var stream = new MemoryStream();
+
+        PdfExporter.Export(template, stream, new RenderOptions { Dpi = Dpi }, Payload(10));
+
+        var pdf = System.Text.Encoding.ASCII.GetString(stream.ToArray());
+        var match = System.Text.RegularExpressions.Regex.Match(pdf, @"MediaBox \[0 0 ([\d.]+) ([\d.]+)\]");
+        match.Success.Should().BeTrue("PDF 必然带 MediaBox");
+        var heightPt = double.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+        heightPt.Should().BeGreaterThan(240, "88mm ≈ 249pt；若还是 52mm ≈ 147pt 就是纸盒没跟着增高");
+    }
 }

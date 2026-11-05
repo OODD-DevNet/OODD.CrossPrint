@@ -112,9 +112,13 @@ public static class PdfExporter
         var opt = (options ?? new RenderOptions()).WithDpi(PdfUnitsPerInch);
         var r = renderer ?? TemplateRenderer.Default;
         var report = new RenderReport();
-        var size = TemplateRenderer.GetPageSizeMm(template, opt);
 
+        // 连续纸表格自动增高必须发生在页面尺寸计算之前：MediaBox 用增高后的工作副本算，
+        // 否则纸盒比内容矮，超出 MediaBox 的行全部被截（真机复现：小票打到第 75 行戛然而止）。
         var context = new RenderContext(opt, report, fontResolver, images, data);
+        var working = TemplateRenderer.AutoGrowContinuousTables(template, context);
+        var size = TemplateRenderer.GetPageSizeMm(working, opt);
+
         // 图片租约要延到页面录制真正被读走之后才还：DrawImage 只是记进页面，读像素是关闭文档时。
         // 峰值仍是"一页取用的图"，不会随页数涨。
         var leases = ImageLeaseBag.Open(context);
@@ -125,7 +129,7 @@ public static class PdfExporter
                 var page = doc.BeginPage((float)UnitConverter.MmToPt(size.Width), (float)UnitConverter.MmToPt(size.Height));
                 try
                 {
-                    r.Render(template, page, context);
+                    r.Render(working, page, context);
                 }
                 finally
                 {
@@ -211,8 +215,13 @@ public static class BatchPdfExporter
                 if (template is null) throw new ArgumentNullException(nameof(template));
 
                 var data = dataSelector?.Invoke(i);
-                var pages = TemplatePaginator.PlanLayout(template, opt, data, fontResolver, images);
-                var size = TemplateRenderer.GetPageSizeMm(template, opt);
+                // 连续纸：先按该模板的数据自动增高（工作副本），尺寸与分页规划都用它——
+                // 否则 MediaBox 按原模板算，增高后的行全在纸盒外被截断。
+                // 固定纸张 AutoGrow 原样返回，PlanLayout 行为不变。
+                var measureContext = new RenderContext(opt, new RenderReport(), fontResolver, images, data);
+                var working = TemplateRenderer.AutoGrowContinuousTables(template, measureContext);
+                var pages = TemplatePaginator.PlanLayout(working, opt, data, fontResolver, images);
+                var size = TemplateRenderer.GetPageSizeMm(working, opt);
 
                 for (var p = 0; p < pages.Count; p++)
                 {
