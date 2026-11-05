@@ -228,12 +228,6 @@ public partial class MainWindow : Window
         Directory.CreateDirectory(dir);
         var template = StressTemplate();
         var data = StressPayload(StressRowCount);
-        var path = Path.Combine(dir, "stress.pdf");
-        var settings = new PrintSettings(path)
-        {
-            Options = new RenderOptions { PdfTextAsOutlines = true, AllowTablePagination = true },
-            Overwrite = true,
-        };
         var process = Process.GetCurrentProcess();
         var overall = Stopwatch.StartNew();
 
@@ -260,6 +254,14 @@ public partial class MainWindow : Window
                 stressCts.Token.ThrowIfCancellationRequested();
                 var watch = Stopwatch.StartNew();
 
+                // 每轮独立 PDF（stress-01.pdf …），保留产物供逐轮检查排版；同名覆盖支持重复压测
+                var path = Path.Combine(dir, $"stress-{round:00}.pdf");
+                var settings = new PrintSettings(path)
+                {
+                    Options = new RenderOptions { PdfTextAsOutlines = true, AllowTablePagination = true },
+                    Overwrite = true,
+                };
+
                 // 注意契约：PrintAsync 永不把作业失败折成异常，取消才会抛 OperationCanceledException
                 var result = await printTarget.PrintAsync(new PrintDocument(template, data), settings, null, stressCts.Token);
                 watch.Stop();
@@ -271,8 +273,7 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                // 压测关心的是管线稳定性不是产物，每轮出完即删，避免 20 份几百页 PDF 占盘
-                File.Delete(path);
+                var pdfKb = new FileInfo(path).Length / 1024.0;
 
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
@@ -283,8 +284,8 @@ public partial class MainWindow : Window
                 managedMax = Math.Max(managedMax, managed);
                 workingSetMax = Math.Max(workingSetMax, workingSet);
                 var verdict = managed <= StressManagedLimitBytes ? "OK" : "超 50MB！";
-                StatusText.Text = $"压测 {round}/{StressRounds} 轮成功：{result.PrintedPages} 页 · {watch.Elapsed.TotalSeconds:0} s · "
-                                  + $"托管内存 {managed / 1024.0 / 1024:0.#} MB [{verdict}] · 工作集 {workingSet / 1024.0 / 1024:0} MB";
+                StatusText.Text = $"压测 {round}/{StressRounds} 轮成功：{Path.GetFileName(path)}（{result.PrintedPages} 页 / {pdfKb / 1024:0.#} MB）· "
+                                  + $"{watch.Elapsed.TotalSeconds:0} s · 托管内存 {managed / 1024.0 / 1024:0.#} MB [{verdict}] · 工作集 {workingSet / 1024.0 / 1024:0} MB";
             }
 
             GC.Collect();
@@ -294,7 +295,8 @@ public partial class MainWindow : Window
             var growth = process.WorkingSet64 - workingSetFirst;
             StatusText.Text = $"压测完成：{StressRounds} 轮 × {StressRowCount:N0} 行全部成功，总耗时 {overall.Elapsed.TotalMinutes:0.#} 分钟；"
                               + $"单轮最长 {durations.Max().TotalSeconds:0} s；托管内存峰值 {managedMax / 1024.0 / 1024:0.#} MB（上限 50）；"
-                              + $"工作集峰值 {workingSetMax / 1024.0 / 1024:0} MB，首末轮差 {growth / 1024.0 / 1024:0.#} MB（增长明显＝有泄漏）";
+                              + $"工作集峰值 {workingSetMax / 1024.0 / 1024:0} MB，首末轮差 {growth / 1024.0 / 1024:0.#} MB（增长明显＝有泄漏）。"
+                              + $"产物保留在 {dir}（stress-01.pdf 起，逐轮一份，可检查排版）";
         }
         catch (OperationCanceledException)
         {
