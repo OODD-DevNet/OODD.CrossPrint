@@ -30,6 +30,12 @@ namespace CrossPrint.Engine;
 /// </para>
 public static class TemplatePaginator
 {
+    /// <summary>
+    /// 表格底边与页码脚注之间的让位间隙（mm）。续页表格撑满内容区时必须给「第 x / y 页」留出这条，
+    /// 否则行/汇总行直接压在页码文字上（真机截图实锤；首页靠行高取整的余量侥幸错开）。
+    /// </summary>
+    const double FooterClearanceMm = 1.0;
+
     /// <summary>一页的分页计划：溢出表格本页的数据行窗口与页码。</summary>
     /// <param name="TableElementId">驱动分页的表格元素 id。</param>
     /// <param name="Window">本页渲染的数据行区间 <c>[Start, Start + Count)</c>。</param>
@@ -117,15 +123,11 @@ public static class TemplatePaginator
 
         // 各页容量：第 1 页表格原地撑到内容区底（落款区首页不画，元素高之下的空白没有保留价值）；
         // 续页表格移到上留白、撑满内容区；尾页要给表格下方的落款区留出模板原位，容量到表格底边为止。
+        // 容量在归类页码元素之后计算：页码脚注（「第 x / y 页」）是表格下方的固定元素，
+        // 表格必须给它让出底条——否则续页的行/汇总行直接压在页码文字上
+        //（首页靠行高取整的余量侥幸错开，续页每页必撞，真机截图实锤）。
         var contentTop = Math.Max(0, template.Margins.Top);
         var contentBottom = Math.Max(contentTop, template.Paper.PageHeightMm - Math.Max(0, template.Margins.Bottom));
-        var capFirst = contentBottom - driver.YMm - fixedHeight;
-        var capMiddle = contentBottom - contentTop - fixedHeight;
-        var capLast = Math.Min(driver.BottomMm - contentTop - fixedHeight, capMiddle);
-        if (capFirst <= 0 || capMiddle <= 0 || capLast <= 0)
-            return [SinglePage(template)];
-
-        // 按页面语义归类元素：页码文本每页都画；表格下方的落款区只在尾页出现。
         var driverBottom = driver.BottomMm;
         var pageNumbers = new List<PaperElement>();
         var belowTable = new List<PaperElement>();
@@ -136,6 +138,16 @@ public static class TemplatePaginator
             else if (element.YMm >= driverBottom - 0.05)
                 belowTable.Add(element);
         }
+
+        var footerTop = pageNumbers.Count > 0 ? pageNumbers.Min(e => e.YMm) : contentBottom;
+        var tableBottom = pageNumbers.Count > 0
+            ? Math.Min(contentBottom, footerTop - FooterClearanceMm)
+            : contentBottom;
+        var capFirst = tableBottom - driver.YMm - fixedHeight;
+        var capMiddle = tableBottom - contentTop - fixedHeight;
+        var capLast = Math.Min(driver.BottomMm - contentTop - fixedHeight, capMiddle);
+        if (capFirst <= 0 || capMiddle <= 0 || capLast <= 0)
+            return [SinglePage(template)];
 
         // 贪心装页：行高就是正式渲染会用的同一套布局度量，所以每页画出来必然装得下。
         var windows = new List<TableWindow>();
@@ -164,7 +176,7 @@ public static class TemplatePaginator
         {
             // 内容超出元素高但首页撑满后一页就装得下：仍按分页语义出这一页——
             // 表格撑满、落款区让位（它设计在表格元素下方，此时已没有空位），页码语义 1/1。
-            return [new PaginationPage(driver.Id, FirstPage(template, driver, belowTable, contentBottom), windows[0], 1, 1)];
+            return [new PaginationPage(driver.Id, FirstPage(template, driver, belowTable, tableBottom), windows[0], 1, 1)];
         }
 
         // 最后一窗按尾页容量收口：塞不下的前缀行挪成新的倒数第二页（它不超续页容量，无需再切）。
@@ -191,9 +203,9 @@ public static class TemplatePaginator
         for (var p = 0; p < total; p++)
         {
             var pageTemplate = p == 0
-                ? FirstPage(template, driver, belowTable, contentBottom) // 第 1 页：信头照画，落款区让位，表格撑到内容区底
+                ? FirstPage(template, driver, belowTable, tableBottom) // 第 1 页：信头照画，落款区让位，表格撑到页码脚注上方
                 : BuildContinuation(template, driver, pageNumbers, p == total - 1 ? belowTable : null, contentTop,
-                    p == total - 1 ? driver.BottomMm - contentTop : contentBottom - contentTop);
+                    p == total - 1 ? driver.BottomMm - contentTop : tableBottom - contentTop);
             pages.Add(new PaginationPage(driver.Id, pageTemplate, windows[p], p + 1, total));
         }
 
@@ -536,10 +548,10 @@ public static class TemplatePaginator
         PrintTemplate template,
         TableElement driver,
         IReadOnlyCollection<PaperElement> belowTable,
-        double contentBottomMm)
+        double tableBottomMm)
     {
         var table = (TableElement)driver.CloneDeep();
-        table.HeightMm = Math.Max(driver.HeightMm, contentBottomMm - driver.YMm);
+        table.HeightMm = Math.Max(driver.HeightMm, tableBottomMm - driver.YMm);
         var elements = template.Elements
             .Where(e => !belowTable.Contains(e))
             .Select(e => ReferenceEquals(e, driver) ? (PaperElement)table : e)

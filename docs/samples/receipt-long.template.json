@@ -12,12 +12,12 @@
     "discount": "60.00",
     "total": "1296.00",
     "points": "1296",
-    "items[0].name": "拿铁咖啡#01",
-    "items[0].qty": "1",
-    "items[0].amount": "32.00",
-    "items[1].name": "美式咖啡#02",
-    "items[1].qty": "2",
-    "items[1].amount": "36.00"
+    "lines[0].name": "拿铁咖啡#01",
+    "lines[0].qty": "1",
+    "lines[0].amount": "32.00",
+    "lines[1].name": "美式咖啡#02",
+    "lines[1].qty": "2",
+    "lines[1].amount": "36.00"
   },
   "elements": [
     { "id": "rl-1", "type": "text", "xMm": 2, "yMm": 6, "widthMm": 76, "heightMm": 8, "zIndex": 0, "testData": "拾光咖啡（超长测试单）",
@@ -31,9 +31,9 @@
     { "id": "rl-5", "type": "table", "xMm": 2, "yMm": 31.5, "widthMm": 76, "heightMm": 372, "zIndex": 4, "testData": "拿铁咖啡#01\t1\t32.00\n美式咖啡#02\t2\t36.00",
       "table": {
         "columns": [
-          { "title": "品名", "widthMm": 34, "field": "items.name", "align": "Left", "fontSizePt": null },
-          { "title": "数量", "widthMm": 12, "field": "items.qty", "align": "Right", "fontSizePt": null },
-          { "title": "金额", "widthMm": -1, "field": "items.amount", "align": "Right", "fontSizePt": null }
+          { "title": "品名", "widthMm": 34, "field": "lines.name", "align": "Left", "fontSizePt": null },
+          { "title": "数量", "widthMm": 12, "field": "lines.qty", "align": "Right", "fontSizePt": null },
+          { "title": "金额", "widthMm": -1, "field": "lines.amount", "align": "Right", "fontSizePt": null }
         ],
         "rows": [],
         "gridColor": "#444444", "gridWidthMm": 0.15,

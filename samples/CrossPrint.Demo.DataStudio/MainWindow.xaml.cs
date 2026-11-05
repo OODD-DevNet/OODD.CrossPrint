@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using CrossPrint.Core;
 using CrossPrint.Printing;
 using Microsoft.Win32;
+using SkiaSharp;
 
 namespace CrossPrint.Demo.DataStudio;
 
@@ -319,41 +320,80 @@ public partial class MainWindow : Window
     void OnStopStress(object sender, RoutedEventArgs e) => stressCts?.Cancel();
 
     /// <summary>
-    /// 压测专用模板：A4 宽 × 1200mm 高（单页约 190 行，10 万行 ≈ 530 页/轮），20 轮约 28 分钟能跑完。
-    /// 分页/绑定/渲染/写盘与真实 A4 发票完全同一条管线，稳定性语义不变；刻意带「本页小计」汇总列
-    /// 把尾行求值也压进每页渲染。压测不依赖左侧数据——用独立载荷，避免 10 万行撑爆 DataGrid。
+    /// 压测专用模板（复杂版式，~5000 页/轮）：152mm 高的小票纸 + 页边距 8，
+    /// 续页容量按 20 行/页切 → 10 万行 ≈ 5000 页/轮（用户验收口径：压的是页数不是行压缩比）。
+    /// 复杂度对齐真实对账单：信头文本、5 列绑定、三档条件行色（rowFillRules）、「本页小计」汇总列、
+    /// 页码脚注（「第 x / y 页」，每页让位防重叠）。压测不依赖左侧数据——独立载荷，避免 10 万行撑爆 DataGrid。
+    /// 20 轮 ≈ 10 万页，预计 4~5 小时（每页都有信头/页码/汇总/条件色，单页成本高于纯表格）。
     /// </summary>
     static PrintTemplate StressTemplate()
     {
         var template = new PrintTemplate
         {
-            Paper = new PaperSpec { Preset = PaperTypePresets.Custom, WidthMm = 210, HeightMm = 1200 },
+            Paper = new PaperSpec { Preset = PaperTypePresets.Custom, WidthMm = 210, HeightMm = 152 },
+            Margins = new ThicknessMm(8, 8, 8, 8),
         };
+        template.Elements.Add(new TextElement
+        {
+            Id = "stress-title",
+            XMm = 8,
+            YMm = 8,
+            WidthMm = 194,
+            HeightMm = 7,
+            Text = new TextOptions { Content = "大数据压测对账单（复杂版式）", FontFamily = "Microsoft YaHei", FontSizePt = 14, Bold = true, HorizontalAlign = HorizontalAlign.Center },
+        });
+        template.Elements.Add(new TextElement
+        {
+            Id = "stress-subtitle",
+            XMm = 8,
+            YMm = 15,
+            WidthMm = 194,
+            HeightMm = 4.5,
+            // 刻意不放 {{pageCount}}：绑定页码占位符的元素会被分页器归入"页码脚注"每页重印，
+            // 且它 Y=15 在表格上方，会把表格容量算成负数退化成单页。
+            Text = new TextOptions { Content = "单号：ST-2026-0001 · 连续 20 轮 × 10 万行 · 约 5000 页/轮", FontFamily = "Microsoft YaHei", FontSizePt = 7, Color = new SKColor(102, 102, 102), HorizontalAlign = HorizontalAlign.Center },
+        });
         template.Elements.Add(new TableElement
         {
             Id = "stress-table",
-            XMm = 10,
-            YMm = 12,
-            WidthMm = 190,
-            HeightMm = 1170,
+            XMm = 8,
+            YMm = 22,
+            WidthMm = 194,
+            HeightMm = 116,
             Table = new TableOptions
             {
                 Columns =
                 {
-                    new TableColumn { Title = "货物名称", WidthMm = 80, Field = "rows.name" },
-                    new TableColumn { Title = "规格", WidthMm = 40, Field = "rows.spec" },
-                    new TableColumn { Title = "数量", WidthMm = 30, Field = "rows.qty" },
+                    new TableColumn { Title = "货物名称", WidthMm = 70, Field = "rows.name" },
+                    new TableColumn { Title = "规格", WidthMm = 34, Field = "rows.spec" },
+                    new TableColumn { Title = "数量", WidthMm = 22, Field = "rows.qty" },
+                    new TableColumn { Title = "单价", WidthMm = 24, Field = "rows.unitPrice" },
                     new TableColumn { Title = "金额", WidthMm = -1, Field = "rows.amount", Summary = TableSummary.Sum, SummaryLabel = "本页小计：" },
+                },
+                ConditionalStyles =
+                {
+                    new TableConditionalStyle { Field = "amount", Operator = TableConditionOperator.GreaterThan, Value = "90", BackgroundColor = new SKColor(242, 208, 107) },
+                    new TableConditionalStyle { Field = "amount", Operator = TableConditionOperator.GreaterThan, Value = "60", BackgroundColor = new SKColor(183, 211, 242) },
+                    new TableConditionalStyle { Field = "amount", Operator = TableConditionOperator.GreaterThan, Value = "50", BackgroundColor = new SKColor(217, 217, 217) },
                 },
                 FontFamily = "Microsoft YaHei",
                 FontSizePt = 9,
                 RowHeightMm = 6,
             },
         });
+        template.Elements.Add(new TextElement
+        {
+            Id = "stress-footer",
+            XMm = 8,
+            YMm = 141.5,
+            WidthMm = 194,
+            HeightMm = 2.5,
+            Text = new TextOptions { Content = "第 {{pageNo}} 页 / 共 {{pageCount}} 页 · CrossPrint 大数据压测", FontFamily = "Microsoft YaHei", FontSizePt = 6, Color = new SKColor(153, 153, 153), HorizontalAlign = HorizontalAlign.Center },
+        });
         return template;
     }
 
-    /// <summary>压测载荷：固定种子随机行，与 BigDataStressTests 同口径（引擎按反射绑定 rows.* 路径）。</summary>
+    /// <summary>压测载荷：固定种子随机行（引擎按反射绑定 rows.* 路径）。</summary>
     static object StressPayload(int count)
         => new
         {
@@ -363,6 +403,7 @@ public partial class MainWindow : Window
                     Name = $"商品#{i:D6}",
                     Spec = $"规格-{i % 97:D2}",
                     Qty = i % 4 + 1,
+                    UnitPrice = Math.Round(i * 0.37m % 40 + 8, 2),
                     Amount = i * 1.37m,
                 })
                 .ToList(),
@@ -373,6 +414,7 @@ public partial class MainWindow : Window
         public string Name { get; init; } = "";
         public string Spec { get; init; } = "";
         public int Qty { get; init; }
+        public decimal UnitPrice { get; init; }
         public decimal Amount { get; init; }
     }
 }

@@ -42,7 +42,7 @@
                 <Button Content="保存 JSON" Click="OnExportJson" Margin="10,0,6,0" Style="{StaticResource ToolButton}"/>
                 <Button Content="读取 JSON" Click="OnImportJson" Style="{StaticResource ToolButton}"/>
                 <Button x:Name="StressButton" Content="压测：20 轮 × 10 万条" Click="OnStartStress"
-                        ToolTip="连续 20 轮、每轮 10 万明细行不间断打印（压测专用模板，约 28 分钟）；每轮 PDF 保留在 PrintOut\stress\stress-01.pdf 起，供逐轮检查排版"
+                        ToolTip="连续 20 轮、每轮 10 万明细行 ≈ 5000 页/轮（复杂版式：信头/条件行色/汇总/页码脚注），20 轮约 4~5 小时；每轮 PDF 保留在 PrintOut\stress\stress-01.pdf 起，供逐轮检查排版"
                         Margin="10,0,6,0" Style="{StaticResource ToolButton}" FontWeight="Bold"/>
                 <Button x:Name="StressStopButton" Content="停止" Click="OnStopStress" IsEnabled="False"
                         Style="{StaticResource ToolButton}"/>

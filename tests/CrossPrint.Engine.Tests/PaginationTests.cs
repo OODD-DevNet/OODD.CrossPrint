@@ -198,9 +198,10 @@ public class PaginationTests
             var table = page.Template.Elements.OfType<TableElement>().Single();
             table.Id.Should().Be(tableId);
             table.YMm.Should().Be(template.Margins.Top, "续页表格顶格接着排，不重复信头留白");
+            var footerY = template.Elements.OfType<TextElement>().Single(e => e.Id == "page-footer").YMm;
             table.HeightMm.Should().Be(
-                template.Paper.PageHeightMm - template.Margins.Bottom - template.Margins.Top,
-                "续页表格撑满整个内容区");
+                Math.Min(template.Paper.PageHeightMm - template.Margins.Bottom, footerY - 1) - template.Margins.Top,
+                "续页表格撑到页码脚注上方 1mm（原撑满整个内容区会把行/汇总行压在页码文字上）");
         }
     }
 
@@ -217,7 +218,7 @@ public class PaginationTests
     }
 
     [Fact]
-    public void 首页表格撑到内容区底()
+    public void 首页表格撑到页码脚注上方()
     {
         var (template, _) = ChromeInvoice();
 
@@ -225,9 +226,10 @@ public class PaginationTests
         var table = pages[0].Template.Elements.OfType<TableElement>().Single();
 
         table.YMm.Should().Be(TableTopMm, "首页表格不挪位");
+        var footerY = template.Elements.OfType<TextElement>().Single(e => e.Id == "page-footer").YMm;
         table.HeightMm.Should().Be(
-            template.Paper.PageHeightMm - template.Margins.Bottom - TableTopMm,
-            "落款区首页不画，表格应撑到内容区底，不在元素高处留一大段空白");
+            Math.Min(template.Paper.PageHeightMm - template.Margins.Bottom, footerY - 1) - TableTopMm,
+            "落款区首页不画，表格应撑到页码脚注上方（给「第 x / y 页」让出底条），不在元素高处留一大段空白");
         template.Elements.OfType<TableElement>().Single().HeightMm.Should().Be(TableHeightMm, "原模板不被改动");
     }
 
@@ -244,7 +246,41 @@ public class PaginationTests
         pages[0].PageNo.Should().Be(1);
         pages[0].PageTotal.Should().Be(1);
         pages[0].Template.Elements.OfType<TableElement>().Single().HeightMm.Should().Be(
-            template.Paper.PageHeightMm - template.Margins.Bottom - TableTopMm);
+            template.Paper.PageHeightMm - template.Margins.Bottom - TableTopMm,
+            "没有页码元素就不让位，表格仍撑到内容区底");
+    }
+
+    [Fact]
+    public void 续页窗口不得压到页码脚注()
+    {
+        // 回归：页码脚注（「第 x / y 页」）是表格下方的固定元素，表格撑满内容区时
+        // 行/汇总行直接压在页码文字上（真机截图实锤；首页靠行高取整余量侥幸错开）。
+        // 修法 = 续页容量给脚注让出 1mm 底条；这里锁定中间页每页行数不得超过让位后的容量。
+        var (template, tableId) = ChromeInvoice();
+
+        var pages = TemplatePaginator.PlanLayout(template, PaginationOptions(), Payload(RowCount));
+        pages.Should().HaveCountGreaterThan(2);
+
+        var footerY = template.Elements.OfType<TextElement>().Single(e => e.Id == "page-footer").YMm;
+        var tableBottom = Math.Min(template.Paper.PageHeightMm - template.Margins.Bottom, footerY - 1);
+        // fixedHeight = 表头 + 汇总行，按 6mm 各一行估；真实布局度量由渲染端兜底（溢出会告警）
+        const double fixedAllowance = 2 * RowHeightMm;
+        var capMiddle = tableBottom - template.Margins.Top - fixedAllowance;
+
+        foreach (var page in pages.Where(p => p.PageNo > 1 && p.PageNo < p.PageTotal))
+        {
+            (page.Window.Count * RowHeightMm).Should().BeLessThanOrEqualTo(
+                capMiddle, $"第 {page.PageNo} 页的行加汇总必须停在页码脚注上方");
+        }
+
+        // 渲染中间页取色：表格网格线不得伸进页码脚注文字所在的底条
+        var middle = pages[1];
+        using var bitmap = RenderPage(middle.Template, tableId, middle);
+        Ink.DarkPixelCountInMm(bitmap, 96, new SKRect(10, (float)(footerY - 0.5), 200, (float)(footerY + 4)))
+            .Should().BeGreaterThan(0, "页码文字本身要印出来");
+        // 让位间隙的中段取色（避开最后一行网格线 0.15mm 的线宽压边）
+        Ink.DarkPixelCountInMm(bitmap, 96, new SKRect(10, (float)(footerY - 0.8), 200, (float)(footerY - 0.15)))
+            .Should().Be(0, "表格与页码之间的让位间隙必须无墨（压线即重叠）");
     }
 
     [Fact]

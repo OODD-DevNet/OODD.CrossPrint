@@ -16,15 +16,15 @@
     "couponCode": "CPN-8862",
     "address": "高新区万象城 L3-12",
     "servicePhone": "400-123-4567",
-    "items[0].name": "拿铁咖啡",
-    "items[0].qty": "1",
-    "items[0].amount": "32.00",
-    "items[1].name": "美式咖啡",
-    "items[1].qty": "2",
-    "items[1].amount": "36.00",
-    "items[2].name": "可颂",
-    "items[2].qty": "1",
-    "items[2].amount": "10.00"
+    "lines[0].name": "拿铁咖啡",
+    "lines[0].qty": "1",
+    "lines[0].amount": "32.00",
+    "lines[1].name": "美式咖啡",
+    "lines[1].qty": "2",
+    "lines[1].amount": "36.00",
+    "lines[2].name": "可颂",
+    "lines[2].qty": "1",
+    "lines[2].amount": "10.00"
   },
   "elements": [
     { "id": "el-1", "type": "text", "xMm": 2, "yMm": 6, "widthMm": 76, "heightMm": 8, "zIndex": 0, "testData": "拾光咖啡（测试门店）",
@@ -45,9 +45,9 @@
       "testData": "拿铁咖啡\t1\t32.00\n美式咖啡\t2\t36.00\n可颂\t1\t10.00",
       "table": {
         "columns": [
-          { "title": "品名", "widthMm": 34, "field": "items.name", "align": "Left", "fontSizePt": null },
-          { "title": "数量", "widthMm": 12, "field": "items.qty", "align": "Right", "fontSizePt": null },
-          { "title": "金额", "widthMm": -1, "field": "items.amount", "align": "Right", "fontSizePt": null }
+          { "title": "品名", "widthMm": 34, "field": "lines.name", "align": "Left", "fontSizePt": null },
+          { "title": "数量", "widthMm": 12, "field": "lines.qty", "align": "Right", "fontSizePt": null },
+          { "title": "金额", "widthMm": -1, "field": "lines.amount", "align": "Right", "fontSizePt": null }
         ],
         "rows": [],
         "gridColor": "#444444", "gridWidthMm": 0.15,
