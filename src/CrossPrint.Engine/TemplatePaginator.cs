@@ -63,7 +63,7 @@ public static class TemplatePaginator
     /// 规划分页并构建每页的模板变体。导出器（如 BatchPdfExporter）逐页渲染返回的载荷：
     /// 变体里"该页该画的元素"已经就位，表格窗口与页码再由渲染上下文注入。
     /// </summary>
-    internal static IReadOnlyList<PaginationPage> PlanLayout(
+    public static IReadOnlyList<PaginationPage> PlanLayout(
         PrintTemplate template,
         RenderOptions options,
         object? data,

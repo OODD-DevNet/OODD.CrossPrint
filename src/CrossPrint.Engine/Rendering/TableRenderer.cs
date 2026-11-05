@@ -1264,9 +1264,94 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
 
         if (col.CellRender == TableCellRender.QrCode)
             CellCodePainter.PaintQr(canvas, rect, content, SKColors.Black, null, col.CellErrorCorrection);
+        else if (col.CellRender == TableCellRender.Image)
+            DrawCellImage(canvas, rect, content, col, context);
         else
             CellCodePainter.PaintBarcode(canvas, rect, content, SKColors.Black, null, col.CellSymbology, col.CellShowText, context);
     }
+
+    /// <summary>
+    /// 单元格图片：把本格绑定值当作图片源（data URI / 裸 base64 / http(s) 外链，或宿主 IImageResolver 资源键）
+    /// 解码后按等比适配（Contain）居中绘入整格。解码失败只记告警不抛——坏数据是模板问题，不是崩溃理由。
+    /// </summary>
+    static void DrawCellImage(SKCanvas canvas, SKRect rect, string content, TableColumn col, RenderContext context)
+    {
+        // 与图片元素同源的两级取图：宿主解析器优先（资源键），失败或没配时引擎按定位符自取。
+        var locator = content.Trim();
+        var lease = TryResolveCellImage(col, locator, context);
+        if (lease is null)
+        {
+            context.Report.Add(col.Field, RenderIssueKind.ImageMissing,
+                $"列 \"{col.Title}\" 的单元格图片字段未解析到图片：{ShortenLocator(locator)}。");
+            return;
+        }
+
+        // 租约纪律与图片元素一致：导出器挂了袋就延后归还，否则画完即还。
+        var held = ImageLeaseBag.TryHold(context, lease);
+        try
+        {
+            var dst = Geometry.Fit(lease.Image.Width, lease.Image.Height, rect, ImageFitMode.Contain);
+            using var paint = new SKPaint { FilterQuality = SKFilterQuality.High };
+            canvas.DrawImage(lease.Image, dst, paint);
+        }
+        finally
+        {
+            if (!held)
+                lease.Dispose();
+        }
+    }
+
+    static ImageCache.Lease? TryResolveCellImage(TableColumn col, string locator, RenderContext context)
+    {
+        var w = ImageAcquisition.TargetPixels(ColumnWidthMm(col), context.UnitsPerMm);
+
+        // 宿主解析器优先：字段值先当资源键问宿主（列没有独立资源键字段，资源键口径与图片元素一致）。
+        var resolver = context.Images;
+        if (resolver is not null)
+        {
+            var lease = ImageCache.Shared.GetOrAdd("cellkey:" + locator, () =>
+            {
+                var bytes = resolver.Resolve(locator);
+                return bytes is null or { Length: 0 } ? null : ImageAcquisition.Decode(bytes, w, w, out _);
+            });
+            if (lease is not null)
+                return lease;
+        }
+
+        // 引擎自取：data URI / 裸 base64 / 外链。缓存键带目标像素尺寸（SVG 按尺寸光栅化，同源不同格不糊）。
+        if (ImageAcquisition.Classify(locator) is ImageLocatorKind.Empty)
+            return null;
+
+        var sizeKey = ImageAcquisition.LooksLikeSvgLocator(locator) ? $":{w}x{w}" : string.Empty;
+        var key = "cell:" + CellImageCacheKey(locator) + sizeKey;
+        return ImageCache.Shared.GetOrAdd(key, () =>
+        {
+            var bytes = ImageAcquisition.Acquire(
+                locator,
+                context.Options.AllowRemoteImages,
+                context.Options.RemoteImageTimeoutMs,
+                out var error);
+
+            if (bytes is null or { Length: 0 })
+                return null;
+
+            return ImageAcquisition.Decode(bytes, w, w, out _);
+        });
+    }
+
+    // 列宽没有直接的上下文参数，用列定义宽作 SVG 光栅化目标尺寸的代理：
+    // 单元格宽度 ≤ 列宽，按列宽出图只会偏大更清晰，Contain 适配负责落格。
+    static double ColumnWidthMm(TableColumn col) => col.WidthMm < 0 ? 30 : Math.Max(1, col.WidthMm);
+
+    static string CellImageCacheKey(string locator)
+    {
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(locator));
+        return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+    }
+
+    static string ShortenLocator(string value)
+        => value.Length <= 48 ? value : value[..45] + "…";
 
     /// <summary>画汇总行文本：无条件样式，逐列复用折行时定稿的样式（分页测量与绘制同一实例，字体口径不分叉）。</summary>
     static void DrawFooterCells(

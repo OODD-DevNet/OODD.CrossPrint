@@ -29,7 +29,7 @@ namespace CrossPrint.Engine.Rendering;
 /// 生命周期该由持有介质的一方明确管，而不是押在 Skia 的内部实现上。
 /// </para>
 /// </remarks>
-internal sealed class ImageCache
+public sealed class ImageCache
 {
     /// <summary>进程级共享实例。</summary>
     public static ImageCache Shared { get; } = new();
@@ -59,7 +59,7 @@ internal sealed class ImageCache
     /// 一次取用的租约：归还以前缓存保证这张 <see cref="SKImage"/> 不被释放。
     /// 谁还能用到这张图，谁就是租约的持有者（见 <see cref="ImageLeaseBag"/>）。
     /// </summary>
-    internal sealed class Lease : IDisposable
+    public sealed class Lease : IDisposable
     {
         readonly ImageCache _cache;
         readonly Entry _entry;
@@ -213,7 +213,7 @@ internal sealed class ImageCache
 /// 页面（或文档）关闭后 <see cref="Complete"/>，峰值钉在"一页取用的图"，不随页数涨。
 /// 即时绘制且没有袋的路径（位图、设计器画布、宿主自己调渲染入口）按"画完即还"处理，内存口径与改动前一致。
 /// </summary>
-internal sealed class ImageLeaseBag : IDisposable
+public sealed class ImageLeaseBag : IDisposable
 {
     static readonly ConditionalWeakTable<RenderContext, ImageLeaseBag> _byContext = new();
 

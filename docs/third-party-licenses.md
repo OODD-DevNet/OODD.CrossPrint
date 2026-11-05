@@ -45,6 +45,7 @@
 | HarfBuzzSharp.NativeAssets.Win32 | 14.2.1.301 | MIT |
 | HarfBuzzSharp.NativeAssets.Linux | 14.2.1.301 | MIT |
 | HarfBuzzSharp.NativeAssets.macOS | 14.2.1.301 | MIT |
+| System.Drawing.Common | 8.0.0 | MIT |
 
 ## 边界说明
 
@@ -52,6 +53,11 @@
 - **QRCoder 进不来**：1.8.1 传递引入 `System.Drawing.Common`（Linux 不可用），QRCoder.Core 2.0.0 强制 SkiaSharp 3.119；
   二维码/一维码统一用 ZXing.Net 的 `BitMatrix` 自绘。
 - **Microsoft.WindowsAppSDK** 是微软自有许可（非 OSI），允许随应用再分发；仅在 WinUI 适配与样例中引用。
+- **System.Drawing.Common 8.0.0（MIT）**：GDI 直打目标（`GdiPrintTarget` / `SystemPrintTarget` 的 GDI 回落）
+  走 `System.Drawing.Printing.PrintDocument` 假脱机，属 Windows 专属 API；仅 `CrossPrint.Printing` 引用，
+  运行入口都有 `OperatingSystem.IsWindows()` 守卫（非 Windows 抛 `PlatformNotSupportedException`）。
+  注意与边界第二条的对照：二维码仍不用它（QRCoder 因传递引入它且 Linux 不可用被拒），
+  这里是**显式、守卫过的 Windows 打印通道**，语义不同。
 - **Jint 3.1.6（BSD-2-Clause）**：内嵌 JS 解释器，执行 hiprint 兼容的 formatter/styler 脚本。默认零 CLR 互操作
   （脚本碰不到文件/网络），引擎侧另有 250ms 超时、10 万语句、64 层递归约束；仅 `CrossPrint.Engine` 引用。
 - **Uno.Sdk 5.6.54 / Uno.WinUI 5.6.99 及其 Skia 运行时**为 Apache-2.0。它们由 `Uno.Sdk` 的隐式包与 SDK 解析引入，

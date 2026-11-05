@@ -20,6 +20,7 @@
     <PackageVersion Include="ZXing.Net" Version="0.16.11" />
     <!-- JSON：6.0.9 有 netstandard2.0 目标（间接支持 net461）；8.x 最低 net8.0。 -->
     <PackageVersion Include="System.Text.Json" Version="6.0.9" />
+    <PackageVersion Include="System.Drawing.Common" Version="8.0.0" />
     <!-- 脚本：纯托管 JS 解释器（formatter/styler），默认无 CLR 访问，沙箱安全 -->
     <PackageVersion Include="Jint" Version="3.1.6" />
     <!-- 宿主 -->

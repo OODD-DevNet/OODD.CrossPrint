@@ -38,6 +38,14 @@ public sealed record SystemPrintOptions
 
     /// <summary>渲染器实例，透传引擎；null 用 <see cref="TemplateRenderer.Default"/>。</summary>
     public TemplateRenderer? Renderer { get; init; }
+
+    /// <summary>
+    /// Windows 上动词交付失败时是否自动回落 **GDI 直打**（默认 true）。
+    /// 动词交付依赖系统里装了 PDF 关联应用——没装（SE_ERR_NOASSOC/ASSOCINCOMPLETE）就出不了纸；
+    /// GDI 直打把页面光栅成位图经假脱机直接交给打印机队列，零第三方依赖（见 <see cref="GdiPrintTarget"/>）。
+    /// 回落只发生在 <see cref="WindowsShellPrintCommand"/> 的失败路径上（测试注入的替身命令不受影响）。
+    /// </summary>
+    public bool GdiFallback { get; init; } = true;
 }
 
 /// <summary>
@@ -320,7 +328,7 @@ public sealed class SystemPrintTarget : IPrintTarget
             handedOff = failure is null;
             commandMayReadFile = command.MayReadFileAfterReturn;
             if (failure is not null)
-                return PrintResult.Failed($"系统打印交付失败：{failure}");
+                return SystemPrintGdiFallback.FailWithGdiFallback(command, options, issues, cancellationToken, pages, failure);
 
             issues?.AddRange(report);
             return PrintResult.Ok(pages.Count, Summarize(report));

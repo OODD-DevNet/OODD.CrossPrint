@@ -680,4 +680,67 @@ public class TableRendererTests
                 .Should().BeGreaterThan(0, "条码/二维码模块 + 文字 + 网格必须留下墨迹");
         }
     }
+
+    [Fact]
+    public void 单元格图片_render_把字段值绘入单元格()
+    {
+        var dataUri = "data:image/png;base64," + Convert.ToBase64String(PngBytes(SKColors.Red, 40, 20));
+
+        var element = Table(showHeader: false, grid: true, widthMm: 120);
+        element.WidthMm = 120;
+        element.Table.Columns.Clear();
+        element.Table.Columns.Add(new TableColumn { Title = "名称", WidthMm = 30, Field = "items.name" });
+        element.Table.Columns.Add(new TableColumn { Title = "图", WidthMm = 90, Field = "items.pic", CellRender = TableCellRender.Image });
+
+        var data = new
+        {
+            items = new[]
+            {
+                new { name = "A", pic = dataUri },
+                new { name = "B", pic = dataUri },
+            },
+        };
+
+        var report = new RenderReport();
+        var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 130, pageHeightMm: 90, report: report, data: data);
+        using (bitmap)
+        {
+            report.Issues.Should().BeEmpty("data URI 形态的单元格图片应该直接出图");
+            // 第二列窗口（35..125mm × 表头下方区带）内必须有红色墨迹。
+            Ink.ColorCountInMm(bitmap, Dpi, new SKRect(35.5f, 6f, 124.5f, 40f), SKColors.Red, tolerance: 40)
+                .Should().BeGreaterThan(0, "单元格图片列必须真的把字段值绘成图");
+        }
+    }
+
+    [Fact]
+    public void 单元格图片_字段值解析不到图片_记告警且不画()
+    {
+        var element = Table(showHeader: false, grid: false, widthMm: 120);
+        element.WidthMm = 120;
+        element.Table.Columns.Clear();
+        element.Table.Columns.Add(new TableColumn { Title = "图", WidthMm = 120, Field = "items.pic", CellRender = TableCellRender.Image });
+
+        var data = new { items = new[] { new { name = "A", pic = "not-a-locator" } } };
+
+        var report = new RenderReport();
+        var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 130, pageHeightMm: 60, report: report, data: data);
+        using (bitmap)
+        {
+            report.Issues.Should().ContainSingle(i => i.Kind == RenderIssueKind.ImageMissing)
+                .Which.Message.Should().Contain("单元格图片");
+            Ink.ColorCountInMm(bitmap, Dpi, new SKRect(5.5f, 6f, 124.5f, 55f), SKColors.Red, tolerance: 40)
+                .Should().Be(0, "解析不到图片不得凭空出图");
+        }
+    }
+
+    /// <summary>现场生成纯色 PNG（与 ImageRendererTests 同款），测试不依赖仓库二进制样例。</summary>
+    static byte[] PngBytes(SKColor color, int width, int height)
+    {
+        using var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using (var canvas = new SKCanvas(bitmap))
+            canvas.Clear(color);
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        return data.ToArray();
+    }
 }

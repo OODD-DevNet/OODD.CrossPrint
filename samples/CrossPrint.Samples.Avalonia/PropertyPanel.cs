@@ -668,7 +668,7 @@ public sealed class PropertyPanel : UserControl
     {
         var head = ElementTypeKeys.Table + ".columns[" + index + "].";
         var descriptors = properties.Descriptors
-            .Where(d => d.Key.StartsWith(head, StringComparison.Ordinal))
+            .Where(d => d.Key.StartsWith(head, StringComparison.Ordinal) && !d.Hidden)
             .ToList();
         if (descriptors.Count == 0)
             return;

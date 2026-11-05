@@ -675,7 +675,7 @@ public sealed class BarcodeElement : PaperElement
     }
 }
 
-/// <summary>表格单元格的渲染方式：文本（默认）、按单元格值生成一维码、或生成二维码。</summary>
+/// <summary>表格单元格的渲染方式：文本（默认）、按单元格值生成一维码/二维码，或把单元格值当作图片绘入。</summary>
 public enum TableCellRender
 {
     /// <summary>按文本显示绑定的字段值。</summary>
@@ -686,6 +686,13 @@ public enum TableCellRender
 
     /// <summary>把绑定的字段值编码成二维码绘入单元格。</summary>
     QrCode,
+
+    /// <summary>
+    /// 把绑定的字段值当作图片源绘入单元格：字段值可以是 data URI、裸 base64 或 http/https 外链
+    /// （口径与图片元素的字段绑定一致，支持宿主 IImageResolver 资源键）。
+    /// 常用于面单上"每行一张商品图/签名图"。
+    /// </summary>
+    Image,
 }
 
 /// <summary>表格列定义。</summary>

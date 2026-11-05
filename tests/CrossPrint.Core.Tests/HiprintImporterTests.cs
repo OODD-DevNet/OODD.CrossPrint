@@ -1382,14 +1382,19 @@ public class HiprintImporterTests
     }
 
     [Fact]
-    public void 表格列_tableTextType_image_单元格内嵌图片仍提示不支持()
+    public void 表格列_tableTextType_image_映射为单元格图片()
     {
         var options = "\"columns\": [["
             + "{\"title\":\"名称\",\"field\":\"name\"},"
             + "{\"title\":\"图\",\"field\":\"pic\",\"tableTextType\":\"image\"}]]";
         var result = ImportElements(TableWithOptionsJson(options));
 
-        result.Issues.Should().ContainSingle(i => i.Code == "hiprint.table-cell-code");
+        var table = result.Template.Elements.OfType<TableElement>().Single();
+        table.Table.Columns[1].CellRender.Should().Be(TableCellRender.Image);
+
+        // 已原生支持，只剩一条 Info 级说明（不再是"不支持"的降级警告）。
+        var issue = result.Issues.Should().ContainSingle(i => i.Code == "hiprint.table-cell-code").Subject;
+        issue.Severity.Should().Be(HiprintImportSeverity.Info);
     }
 
     [Fact]

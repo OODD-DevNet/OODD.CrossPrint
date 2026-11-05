@@ -285,6 +285,67 @@ public class ElementPropertiesTests
         props.Descriptors.Select(d => d.Key).Should().BeEquivalentTo(CommonKeys);
     }
 
+    // ---------------- 9. 不生效/重复字段按类型隐藏 ----------------
+
+    [Fact]
+    public void 设了不生效或与载荷重复的字段按类型标记隐藏()
+    {
+        // 判据是"渲染端真的不消费"：线条不画框底/边框，它的视觉就是一条线；
+        // 二维码/一维码载荷自带背景色，公共框底色与之重复。描述符一条不少（完备性门），
+        // 但 Hidden=true，宿主面板不铺框——"设了也不生效还误导人"的框必须消失。
+        var line = ElementProperties.For(NewElement(ElementTypeKeys.Line));
+        foreach (var key in new[] { "backgroundColor", "borderColor", "borderWidthMm", "borderDashPatternMm", "borderSides" })
+            line.Find(key)!.Hidden.Should().BeTrue($"线条的 {key} 渲染端拿不出视觉差异，面板不该铺出来");
+        line.Find("line.dashPatternMm")!.Hidden.Should().BeFalse("线条自身的虚线段长必须可编辑");
+
+        var qrcode = ElementProperties.For(NewElement(ElementTypeKeys.QrCode));
+        qrcode.Find("backgroundColor")!.Hidden.Should().BeTrue("二维码载荷自带 qrcode.backgroundColor，公共框底色与之重复");
+        qrcode.Find("qrcode.backgroundColor")!.Hidden.Should().BeFalse("载荷背景色才是生效的那条");
+
+        var barcode = ElementProperties.For(NewElement(ElementTypeKeys.Barcode));
+        barcode.Find("backgroundColor")!.Hidden.Should().BeTrue();
+
+        // 椭圆两字段都不生效（模型注释口径）：两个圆角字段都藏。
+        var ellipse = ElementProperties.For(NewElement(ElementTypeKeys.Ellipse));
+        ellipse.Find("ellipse.cornerRadiusMm")!.Hidden.Should().BeTrue();
+        ellipse.Find("ellipse.cornerRadiiMm")!.Hidden.Should().BeTrue();
+
+        // 矩形不受影响：框底/边框/圆角都真实生效。
+        var rectangle = ElementProperties.For(NewElement(ElementTypeKeys.Rectangle));
+        rectangle.Find("backgroundColor")!.Hidden.Should().BeFalse();
+        rectangle.Find("borderColor")!.Hidden.Should().BeFalse();
+        rectangle.Find("rectangle.cornerRadiiMm")!.Hidden.Should().BeFalse();
+    }
+
+    [Fact]
+    public void 表格列的码制字段跟随渲染方式显隐()
+    {
+        var table = (TableElement)NewElement(ElementTypeKeys.Table);
+        var props = ElementProperties.For(table);
+
+        // 默认 Text 列：码制/纠错/可读文本全都"设了也没用"，隐藏。
+        var textColumn = props.Find("table.columns[0].cellSymbology")!;
+        textColumn.Hidden.Should().BeTrue("文本列上的码制字段无效，只会误导人");
+        props.Find("table.columns[0].cellErrorCorrection")!.Hidden.Should().BeTrue();
+        props.Find("table.columns[0].cellShowText")!.Hidden.Should().BeTrue();
+        props.Find("table.columns[0].cellRender")!.Hidden.Should().BeFalse("渲染方式本身永远可见（它是显隐的开关）");
+
+        // 切到一维码：码制/可读文本出现，纠错等级仍是二维码专属。
+        table.Table.Columns[0].CellRender = TableCellRender.Barcode;
+        props = ElementProperties.For(table);
+        props.Find("table.columns[0].cellSymbology")!.Hidden.Should().BeFalse();
+        props.Find("table.columns[0].cellShowText")!.Hidden.Should().BeFalse();
+        props.Find("table.columns[0].cellErrorCorrection")!.Hidden.Should().BeTrue();
+
+        // 切到二维码：纠错等级出现，码制/可读文本退场；另一列（Text）不受影响。
+        table.Table.Columns[0].CellRender = TableCellRender.QrCode;
+        table.Table.Columns[1].CellRender = TableCellRender.Barcode;
+        props = ElementProperties.For(table);
+        props.Find("table.columns[0].cellErrorCorrection")!.Hidden.Should().BeFalse();
+        props.Find("table.columns[0].cellSymbology")!.Hidden.Should().BeTrue();
+        props.Find("table.columns[1].cellSymbology")!.Hidden.Should().BeFalse();
+    }
+
     // ---------------- 5/6. 键唯一 + 公共几何字段 ----------------
 
     [Fact]

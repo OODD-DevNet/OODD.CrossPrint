@@ -56,7 +56,7 @@ public sealed class ElementProperties
     {
         if (element is null) throw new ArgumentNullException(nameof(element));
 
-        var list = Common();
+        var list = Common(element);
         List<ElementAction>? actions = null;
         switch (element)
         {
@@ -116,19 +116,33 @@ public sealed class ElementProperties
 
     // ---------------- 公共字段（8 类型都有，id 只读） ----------------
 
-    static List<PropertyDescriptor> Common() =>
-    [
+    /// <summary>
+    /// 公共字段逐类型裁剪可见性：描述符<b>一条不少</b>（完备性门要求），只是对
+    /// "设了也不生效或与载荷重复"的字段标记 <see cref="PropertyDescriptor.Hidden"/>，
+    /// 宿主面板不再铺出那个框。裁剪判据来自渲染端真实消费语义：
+    /// <list type="bullet">
+    /// <item>线条不画框底/边框——它的视觉就是一条线，框底色和边框族对它毫无意义；</item>
+    /// <item>二维码/一维码载荷自带背景色（<c>qrcode.backgroundColor</c>/<c>barcode.backgroundColor</c>），
+    /// 公共框底色与它重复，藏掉防误设。</item>
+    /// </list>
+    /// </summary>
+    static List<PropertyDescriptor> Common(PaperElement element)
+    {
+        var hideBoxFill = element is LineElement or QrCodeElement or BarcodeElement;
+        var hideBorder = element is LineElement;
+        return
+        [
         ReadOnlyText("id", "编号（内核生成）"),
         Num<PaperElement>("xMm", "X 坐标 (mm)", el => el.XMm, (el, v) => el.XMm = v, min: 0, step: 0.1),
         Num<PaperElement>("yMm", "Y 坐标 (mm)", el => el.YMm, (el, v) => el.YMm = v, min: 0, step: 0.1),
         Num<PaperElement>("widthMm", "宽 (mm)", el => el.WidthMm, (el, v) => el.WidthMm = v, min: 0, step: 0.1),
         Num<PaperElement>("heightMm", "高 (mm)", el => el.HeightMm, (el, v) => el.HeightMm = v, min: 0, step: 0.1),
         Int("zIndex", "绘制层级", el => el.ZIndex, (el, v) => el.ZIndex = v, step: 1),
-        ColorOpt<PaperElement>("backgroundColor", "背景色（留空透明）", el => el.BackgroundColor, (el, v) => el.BackgroundColor = v),
-        ColorOpt<PaperElement>("borderColor", "边框色（留空不画）", el => el.BorderColor, (el, v) => el.BorderColor = v),
-        Num<PaperElement>("borderWidthMm", "边框宽 (mm)", el => el.BorderWidthMm, (el, v) => el.BorderWidthMm = v, min: 0, max: 50, step: 0.05),
-        Dash<PaperElement>("borderDashPatternMm", "边框虚线段长 (mm)", el => el.BorderDashPatternMm, (el, v) => el.BorderDashPatternMm = v),
-        EnumProp<PaperElement, BorderSide>("borderSides", "边框边（可多选）", el => el.BorderSides, (el, v) => el.BorderSides = v),
+        ColorOpt<PaperElement>("backgroundColor", "背景色（留空透明）", el => el.BackgroundColor, (el, v) => el.BackgroundColor = v, hidden: hideBoxFill),
+        ColorOpt<PaperElement>("borderColor", "边框色（留空不画）", el => el.BorderColor, (el, v) => el.BorderColor = v, hidden: hideBorder),
+        Num<PaperElement>("borderWidthMm", "边框宽 (mm)", el => el.BorderWidthMm, (el, v) => el.BorderWidthMm = v, min: 0, max: 50, step: 0.05, hidden: hideBorder),
+        Dash<PaperElement>("borderDashPatternMm", "边框虚线段长 (mm)", el => el.BorderDashPatternMm, (el, v) => el.BorderDashPatternMm = v, hidden: hideBorder),
+        EnumProp<PaperElement, BorderSide>("borderSides", "边框边（可多选）", el => el.BorderSides, (el, v) => el.BorderSides = v, hidden: hideBorder),
         Num<PaperElement>("rotationDegrees", "旋转角度 (°)", el => el.RotationDegrees, (el, v) => el.RotationDegrees = v, min: -360, max: 360, step: 1),
         Num<PaperElement>("opacity", "不透明度 (0–1)", el => el.Opacity, (el, v) => el.Opacity = v, min: 0, max: 1, step: 0.05),
         StyleRef<PaperElement>("styleId", "样式引用（模板样式库）", el => el.StyleId, (el, v) => el.StyleId = v),
@@ -140,7 +154,8 @@ public sealed class ElementProperties
         Bool<PaperElement>("pageBreakAfter", "本元素之后强制分页", el => el.PageBreakAfter, (el, v) => el.PageBreakAfter = v),
         StrOpt<PaperElement>("showInPages", "显示页区间（如 1,3-5；留空 = 所有页显示）", el => el.ShowInPages, (el, v) => el.ShowInPages = PageRangeSpec.Normalize(v)),
         StrOpt<PaperElement>("unShowInPages", "隐藏页区间（如 1-3,7-8；优先于显示区间）", el => el.UnShowInPages, (el, v) => el.UnShowInPages = PageRangeSpec.Normalize(v)),
-    ];
+        ];
+    }
 
     // ---------------- text ----------------
 
@@ -202,8 +217,9 @@ public sealed class ElementProperties
             : el => ((EllipseElement)el).Ellipse;
 
         var perEllipse = typeKey != ElementTypeKeys.Rectangle;
+        // 椭圆两字段都不生效（模型注释口径）：逐角圆角藏掉——"设了没用"的框只误导人。
         var cornerRadiiName = perEllipse
-            ? "圆角半径（逐角，逗号分隔：左上,右上,左下,右下）（椭圆不生效）"
+            ? "圆角半径（逐角，逗号分隔：左上,右上,左下,右下）"
             : "圆角半径（逐角，逗号分隔：左上,右上,左下,右下；只填一个值＝四角相同）";
         // 标量圆角已并入逐角字段（模型保留兼容旧模板/hiprint 导入，渲染端继续消费），面板不露第二个框。
         Func<PaperElement, double[]?> radiiDisplay = el =>
@@ -218,7 +234,7 @@ public sealed class ElementProperties
             Num<PaperElement>(p + "strokeWidthMm", "描边宽 (mm)", el => options(el).StrokeWidthMm, (el, v) => options(el).StrokeWidthMm = v, min: 0, max: 50, step: 0.05),
             ColorOpt<PaperElement>(p + "fillColor", "填充色（留空不填充）", el => options(el).FillColor, (el, v) => options(el).FillColor = v),
             Num<PaperElement>(p + "cornerRadiusMm", perEllipse ? "圆角半径 (mm)（椭圆不生效）" : "圆角半径 (mm)", el => options(el).CornerRadiusMm, (el, v) => options(el).CornerRadiusMm = v, min: 0, step: 0.1, hidden: true),
-            Dash<PaperElement>(p + "cornerRadiiMm", cornerRadiiName, radiiDisplay, (el, v) => options(el).CornerRadiiMm = v),
+            Dash<PaperElement>(p + "cornerRadiiMm", cornerRadiiName, radiiDisplay, (el, v) => options(el).CornerRadiiMm = v, hidden: perEllipse),
             Dash<PaperElement>(p + "dashPatternMm", "虚线段长 (mm)", el => options(el).DashPatternMm, (el, v) => options(el).DashPatternMm = v),
         ];
     }
@@ -400,6 +416,9 @@ public sealed class ElementProperties
             var index = i;
             var head = $"{P}{index}].";
             var label = $"列{index + 1}";
+            // 码制三兄弟只在对应渲染方式下生效（模型注释口径）：
+            // 码制/可读文本跟一维码走，纠错等级跟二维码走——文本列上它们"设了也没用"，藏掉。
+            var render = table.Table.Columns[index].CellRender;
 
             var styleKey = head + "styleId";
             yield return new PropertyDescriptor(styleKey, $"{label}·样式引用（模板样式库）", PropertyKind.StyleRef,
@@ -485,19 +504,20 @@ public sealed class ElementProperties
             yield return new PropertyDescriptor(cellSymbologyKey, $"{label}·码制", PropertyKind.Enum,
                 el => Peek(el, index)?.CellSymbology,
                 (el, v) => Column(el, index, cellSymbologyKey).CellSymbology = PropertyValues.ToEnum<BarcodeSymbology>(cellSymbologyKey, v, cellSymbologyNames),
-                options: cellSymbologyNames);
+                options: cellSymbologyNames, hidden: render != TableCellRender.Barcode);
 
             var cellErrKey = head + "cellErrorCorrection";
             var cellErrNames = Enum.GetNames(typeof(QrErrorCorrection));
             yield return new PropertyDescriptor(cellErrKey, $"{label}·纠错等级", PropertyKind.Enum,
                 el => Peek(el, index)?.CellErrorCorrection,
                 (el, v) => Column(el, index, cellErrKey).CellErrorCorrection = PropertyValues.ToEnum<QrErrorCorrection>(cellErrKey, v, cellErrNames),
-                options: cellErrNames);
+                options: cellErrNames, hidden: render != TableCellRender.QrCode);
 
             var cellShowKey = head + "cellShowText";
             yield return new PropertyDescriptor(cellShowKey, $"{label}·显示可读文本", PropertyKind.Boolean,
                 el => Peek(el, index)?.CellShowText,
-                (el, v) => Column(el, index, cellShowKey).CellShowText = PropertyValues.ToBool(cellShowKey, v));
+                (el, v) => Column(el, index, cellShowKey).CellShowText = PropertyValues.ToBool(cellShowKey, v),
+                hidden: render != TableCellRender.Barcode);
         }
     }
 
@@ -897,9 +917,9 @@ public sealed class ElementProperties
         where T : PaperElement
         => new(key, displayName, PropertyKind.Color, el => get((T)el), (el, v) => set((T)el, PropertyValues.ToColor(key, v)));
 
-    static PropertyDescriptor ColorOpt<T>(string key, string displayName, Func<T, SKColor?> get, Action<T, SKColor?> set)
+    static PropertyDescriptor ColorOpt<T>(string key, string displayName, Func<T, SKColor?> get, Action<T, SKColor?> set, bool hidden = false)
         where T : PaperElement
-        => new(key, displayName, PropertyKind.Color, el => get((T)el), (el, v) => set((T)el, PropertyValues.OptionalColor(key, v, allowNull: true)));
+        => new(key, displayName, PropertyKind.Color, el => get((T)el), (el, v) => set((T)el, PropertyValues.OptionalColor(key, v, allowNull: true)), hidden: hidden);
 
     static PropertyDescriptor Dash<T>(string key, string displayName, Func<T, double[]?> get, Action<T, double[]?> set, bool hidden = false)
         where T : PaperElement
@@ -910,7 +930,7 @@ public sealed class ElementProperties
         where T : PaperElement
         => new(key, displayName, PropertyKind.StyleRef, el => get((T)el), (el, v) => set((T)el, PropertyValues.OptionalText(key, v)));
 
-    static PropertyDescriptor EnumProp<T, E>(string key, string displayName, Func<T, E> get, Action<T, E> set)
+    static PropertyDescriptor EnumProp<T, E>(string key, string displayName, Func<T, E> get, Action<T, E> set, bool hidden = false)
         where T : PaperElement
         where E : struct, Enum
     {
@@ -918,7 +938,7 @@ public sealed class ElementProperties
         return new PropertyDescriptor(key, displayName, PropertyKind.Enum,
             el => get((T)el),
             (el, v) => set((T)el, PropertyValues.ToEnum<E>(key, v, names)),
-            options: names);
+            options: names, hidden: hidden);
     }
 }
 

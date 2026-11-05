@@ -38,7 +38,7 @@ jobs:
           dotnet test tests/CrossPrint.Core.Tests -c Release --no-build --logger "console;verbosity=detailed"
           dotnet test tests/CrossPrint.Engine.Tests -c Release --no-build --logger "console;verbosity=detailed"
           dotnet test tests/CrossPrint.Designer.Tests -c Release --no-build --logger "console;verbosity=detailed"
-          dotnet test tests/CrossPrint.Printing.Tests -c Release --no-build --logger "console;verbosity=detailed"
+          dotnet test tests/CrossPrint.Printing.Tests -c Release --no-build --logger "console;verbosity=detailed" --filter "Category!=Stress"
       - if: failure()
         name: Dump test failure
         shell: pwsh

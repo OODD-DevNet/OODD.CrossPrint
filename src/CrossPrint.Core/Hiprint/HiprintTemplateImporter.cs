@@ -1755,7 +1755,7 @@ public static class HiprintTemplateImporter
             var sequence = string.Equals(leaf?.TextType?.Trim(), "sequence", StringComparison.OrdinalIgnoreCase);
             var textType = (leaf?.TextType ?? string.Empty).Trim().ToLowerInvariant();
             // 单元格条码/二维码：逐行把绑定值编码成码绘入单元格（CrossPrint 原生支持）；
-            // 仅 tableTextType: image 仍无法在单元格内嵌图片，按文本打印并告警。
+            // tableTextType: image 映射为 CellRender.Image（绑定值当图片源绘入单元格）。
             var cellRender = TableCellRender.Text;
             var cellSymbology = BarcodeSymbology.Code128;
             var cellError = QrErrorCorrection.M;
@@ -1779,6 +1779,7 @@ public static class HiprintTemplateImporter
             }
             else if (!sequence && textType == "image")
             {
+                cellRender = TableCellRender.Image;
                 cellTypes++;
             }
 
@@ -1821,9 +1822,9 @@ public static class HiprintTemplateImporter
         if (cellTypes > 0)
         {
             ctx.Issue(
-                HiprintImportSeverity.Warning,
+                HiprintImportSeverity.Info,
                 "hiprint.table-cell-code",
-                $"{cellTypes} 个列使用 tableTextType: image，CrossPrint 暂不支持单元格内嵌图片，已按文本字段打印。",
+                $"{cellTypes} 个列使用 tableTextType: image，已映射为单元格图片（CellRender.Image）：字段值按 data URI/base64/外链解析为图片绘入单元格。",
                 id,
                 path);
         }
