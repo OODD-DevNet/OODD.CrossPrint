@@ -10,7 +10,7 @@ Already using hiprint (vue-plugin-hiprint / Vue-Print-Designer)? Perfect — **i
 
 > Templates speak only millimeters and points. There is no pixel here. The engine draws every pixel; host controls just "put the canvas on screen" — they don't interfere.
 
-[中文](README.md) | **English** · [Live WebAssembly demo](https://oodd-devnet.github.io/OODD.CrossPrint/)
+[中文](README.md) | **English** · [Live WebAssembly demo.To be honest, the WebAssembly web version is basically unusable. We recommend downloading the desktop version from the Releases page](https://oodd-devnet.github.io/OODD.CrossPrint/)
 
 ---
 
