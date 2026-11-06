@@ -119,7 +119,14 @@ internal sealed class MainWindow : Window
         _designer.RawKeyDown += OnDesignerRawKey;
 
         var page = new ContentPage { Content = BuildRoot() };
-        page.Loaded += (_, _) => _designer.TakeFocus();
+        page.Loaded += (_, _) =>
+        {
+            _designer.TakeFocus();
+            // 平台元素级锁浅色：MAUI 按钮等原生控件默认样式跟随后台主题，
+            // 应用级锁（App.xaml RequestedTheme / UserAppTheme）在 MAUI Windows 头上
+            // 不切 Fluent 控件资源（2026-11-06 复测实锤），元素级级联才生效（与 WinUI 宿主同款）。
+            ApplyLightTheme();
+        };
         Page = page;
 
         if (warnings.Count > 0)
@@ -168,6 +175,19 @@ internal sealed class MainWindow : Window
     {
         if (Handler?.PlatformView is Microsoft.UI.Xaml.Window native && native.AppWindow is { } appWindow)
             appWindow.Resize(new Windows.Graphics.SizeInt32(InitialWindowWidth, InitialWindowHeight));
+        ApplyLightTheme();
+    }
+
+    /// <summary>
+    /// 给平台窗口根内容元素锁 <see cref="Microsoft.UI.Xaml.ElementTheme.Light"/>：
+    /// 示例配色全部按浅色硬编码，系统深色主题下 Fluent 默认样式（按钮白字）落在浅灰底上不可读。
+    /// Handler 挂上时 Content 可能还没就位，所以 HandlerChanged 与页面 Loaded 两处都调用（幂等）。
+    /// </summary>
+    void ApplyLightTheme()
+    {
+        if (Handler?.PlatformView is Microsoft.UI.Xaml.Window native
+            && native.Content is Microsoft.UI.Xaml.FrameworkElement root)
+            root.RequestedTheme = Microsoft.UI.Xaml.ElementTheme.Light;
     }
 
     Grid BuildRoot()

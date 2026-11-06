@@ -121,7 +121,9 @@ internal sealed class MainWindow : Window
         _designer.PointerPressed += OnCanvasPointerPressed;
         HookDuplicateShortcut();
 
-        var root = new Grid();
+        // 示例配色全部按浅色主题硬编码（0xF5F5F5 底 + 深灰字），与 WinUI 宿主一样显式锁 Light：
+        // 否则 Uno 落到系统深色主题时，按钮默认白字会落在浅灰底上整排不可见（2026-11-06 真机筛查实锤）。
+        var root = new Grid { RequestedTheme = ElementTheme.Light };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });

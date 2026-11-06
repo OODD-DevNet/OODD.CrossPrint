@@ -225,6 +225,9 @@ public static class StyleLibraryDialog
             Content = root,
             CloseButtonText = Localizer.T("About.Close"),
             XamlRoot = xamlRoot,
+            // 对话框字段/按钮配色按浅色主题排布；ContentDialog 的默认主题跟随 Application 而非
+            // 主窗口内容树，系统深色时整框变深色（2026-11-06 真机筛查实锤），显式锁浅色。
+            RequestedTheme = ElementTheme.Light,
         };
         await dialog.ShowAsync();
     }

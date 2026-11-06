@@ -38,6 +38,7 @@
   "Menu.File.Open": "打开模板…",
   "Menu.File.Recent": "最近打开",
   "Menu.File.Recent.Empty": "（暂无）",
+  "Menu.File.NoRecent": "（暂无最近打开的模板）",
   "Menu.File.Save": "保存",
   "Menu.File.SaveAs": "另存为…",
   "Menu.File.ExportJson": "导出模板 JSON…",
@@ -155,6 +156,8 @@
   "Dialog.SaveAs": "另存为",
   "Dialog.OpenSolution": "打开模板",
   "Dialog.Cancel": "取消",
+  "Dialog.OK": "确定",
+  "Dialog.Open": "打开",
   "Dialog.SelectRequired": "请选择一个模板。",
   "Dialog.NameRequired": "请填写模板名称。",
 

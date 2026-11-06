@@ -123,4 +123,30 @@ public sealed class LocalizerResourceTests
             LocalizationSwitch.SetUiCulture(original.Name);
         }
     }
+
+    [Theory]
+    [InlineData("zh-Hans-CN")]
+    [InlineData("zh-Hans")]
+    [InlineData("zh-Hant-TW")]
+    public void 带脚本子标签的中文culture落到中文表而不是英文(string culture)
+    {
+        Localizer.GetTable(culture)["Element.Text"].Should().Be("文字",
+            "部分运行时（实测 Uno）把 zh-CN 规范化成带脚本子标签的 zh-Hans-CN，" +
+            "候选顺序先英文的话中文系统会整片回落成英文（2026-11-06 真机筛查实锤）");
+    }
+
+    [Fact]
+    public void CurrentUICulture被框架改写成带脚本子标签时T仍取中文()
+    {
+        var original = System.Globalization.CultureInfo.CurrentUICulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentUICulture = new System.Globalization.CultureInfo("zh-Hans-CN");
+            Localizer.T("Element.Text").Should().Be("文字");
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentUICulture = original;
+        }
+    }
 }

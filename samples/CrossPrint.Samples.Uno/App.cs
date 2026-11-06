@@ -16,8 +16,15 @@ internal sealed class App : Application
     Window? _window;
 
     /// <summary>创建应用并合入控件主题资源（纯代码方式等价于 App.xaml 的 MergedDictionaries）。</summary>
+    /// <remarks>
+    /// 示例配色按浅色主题硬编码，必须在此处（窗口创建前）显式锁应用级 Light：
+    /// Uno Skia 桌面头下窗口根 Grid 的 <c>RequestedTheme = ElementTheme.Light</c>
+    /// 不会把 Fluent 控件资源级联成浅色（按钮白字/输入框深底照旧，2026-11-06 复测实锤），
+    /// 只有应用级 <see cref="Application.RequestedTheme"/> 才真正切换主题字典。
+    /// </remarks>
     public App()
     {
+        RequestedTheme = ApplicationTheme.Light;
         Resources.MergedDictionaries.Add(new XamlControlsResources());
 
         // Uno 默认的 SymbolThemeFontFamily 指向 ms-appx:///Assets/Fonts/uno-fluentui-assets.ttf#Symbols，

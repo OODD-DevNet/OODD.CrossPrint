@@ -38,6 +38,7 @@
   "Menu.File.Open": "Open Template…",
   "Menu.File.Recent": "Recent",
   "Menu.File.Recent.Empty": "(none)",
+  "Menu.File.NoRecent": "(no recent templates)",
   "Menu.File.Save": "Save",
   "Menu.File.SaveAs": "Save As…",
   "Menu.File.ExportJson": "Export Template JSON…",
@@ -155,6 +156,8 @@
   "Dialog.SaveAs": "Save As",
   "Dialog.OpenSolution": "Open Template",
   "Dialog.Cancel": "Cancel",
+  "Dialog.OK": "OK",
+  "Dialog.Open": "Open",
   "Dialog.SelectRequired": "Please select a template.",
   "Dialog.NameRequired": "Please enter a template name.",
 

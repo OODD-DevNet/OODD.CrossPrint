@@ -77,6 +77,11 @@ public static class Localizer
         var candidates = new List<string> { culture };
         if (culture.Contains('-'))
             candidates.Add(culture.Split('-')[0]);
+        // 部分运行时会把 culture 规范化成带脚本子标签的形式（实测 Uno 把 zh-CN 归一成 zh-Hans-CN），
+        // 而表里只有 zh-CN——中文必须先落到 zh-CN 再考虑英文兜底，否则中文系统会整片回落成英文
+        //（2026-11-06 真机筛查实锤：Uno 界面恒为英文）。
+        if (culture.StartsWith("zh", StringComparison.OrdinalIgnoreCase) && !candidates.Contains("zh-CN"))
+            candidates.Add("zh-CN");
         if (!candidates.Contains("en-US"))
             candidates.Add("en-US");
         candidates.Add("zh-CN"); // 最后兜底中文
