@@ -35,6 +35,9 @@ public sealed class PaperSizeDialog : ContentDialog
         PrimaryButtonText = "确定";
         CloseButtonText = "取消";
         DefaultButton = ContentDialogButton.Primary;
+        // 示例字段配色按浅色排布；ContentDialog 默认主题跟随应用（系统深色时深底），
+        // 显式锁浅色与 StyleLibraryDialog / 各 ContentDialog 对齐（2026-11-06 巡回发现）。
+        RequestedTheme = ElementTheme.Light;
 
         _width = new TextBox
         {

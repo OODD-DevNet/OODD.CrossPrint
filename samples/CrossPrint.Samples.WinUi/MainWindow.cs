@@ -455,6 +455,7 @@ public sealed class MainWindow : Window
             Title = Localizer.T("Menu.Language"),
             Content = Localizer.T("Language.SavedRestartFailed", LocalizationSwitch.DisplayName(culture)),
             CloseButtonText = Localizer.T("About.Close"),
+            RequestedTheme = ElementTheme.Light,
             XamlRoot = Content.XamlRoot,
         };
         await dialog.ShowAsync();
@@ -1676,6 +1677,7 @@ public sealed class MainWindow : Window
         {
             Title = Localizer.T("Dialog.OpenSolution"),
             Content = grid,
+            RequestedTheme = ElementTheme.Light,
             XamlRoot = _designer.XamlRoot,
         };
 
@@ -1771,6 +1773,7 @@ public sealed class MainWindow : Window
             Content = textBox,
             PrimaryButtonText = Localizer.T("Dialog.OK"),
             CloseButtonText = Localizer.T("Dialog.Cancel"),
+            RequestedTheme = ElementTheme.Light,
             XamlRoot = _designer.XamlRoot,
         };
 
@@ -1940,6 +1943,7 @@ public sealed class MainWindow : Window
                 Title = title,
                 Content = message,
                 CloseButtonText = Localizer.T("About.Close"),
+                RequestedTheme = ElementTheme.Light,
                 XamlRoot = _designer.XamlRoot,
             };
             await dialog.ShowAsync();
@@ -2086,6 +2090,7 @@ public sealed class MainWindow : Window
             Title = Localizer.T("About.Title"),
             Content = contentPanel,
             CloseButtonText = Localizer.T("About.Close"),
+            RequestedTheme = ElementTheme.Light,
             XamlRoot = _designer.XamlRoot,
         };
 
@@ -2218,6 +2223,7 @@ public sealed class MainWindow : Window
             Title = Localizer.T("TemplateLibrary.Title"),
             Content = root,
             CloseButtonText = Localizer.T("About.Close"),
+            RequestedTheme = ElementTheme.Light,
             XamlRoot = Content.XamlRoot,
         };
         await dialog.ShowAsync();

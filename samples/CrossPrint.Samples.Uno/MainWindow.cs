@@ -1727,13 +1727,13 @@ internal sealed class MainWindow : Window
 
         try
         {
-            // Uno 的 DataWriter.DetachStream 未实现，这里直接写内存流。
+            // Uno 的 DataWriter.DetachStream 未实现，这里直接写内存流；
+            // ⚠ 包装流不能 using（Dispose 会关闭底层流，Seek(0) 抛 ObjectDisposedException），
+            //   与 PngToBitmapImage 同款修复（2026-11-06）。
             using var stream = new InMemoryRandomAccessStream();
-            using (var output = stream.AsStreamForWrite())
-            {
-                await output.WriteAsync(bytes, 0, bytes.Length);
-                await output.FlushAsync();
-            }
+            var output = stream.AsStreamForWrite();
+            await output.WriteAsync(bytes, 0, bytes.Length);
+            await output.FlushAsync();
 
             stream.Seek(0);
             var bitmap = new BitmapImage();
@@ -1806,7 +1806,7 @@ internal sealed class MainWindow : Window
             stack.Children.Add(desc);
             border.Child = stack;
 
-            var bmp = await PngToBitmapImage(BuiltinTemplateCatalog.RenderThumbnailPng(entry.Create()));
+            var bmp = await PngToImageSource(BuiltinTemplateCatalog.RenderThumbnailPng(entry.Create()));
             if (bmp is not null)
                 thumb.Source = bmp;
 
@@ -1856,23 +1856,26 @@ internal sealed class MainWindow : Window
         await dialog.ShowAsync();
     }
 
-    /// <summary>把共享层渲染出的 PNG 字节转成 WinUI 位图（沿用本宿主的 InMemoryRandomAccessStream 写法）。</summary>
-    static async Task<BitmapImage?> PngToBitmapImage(byte[] png)
+    /// <summary>PNG 字节 → 图片源。经临时文件走文件 URI 解码。</summary>
+    /// <remarks>
+    /// Uno Skia 桌面头对内存流图片解码有两条已知问题（2026-11-06 诊断日志实锤，
+    /// 模板库缩略图曾因此整列空白）：
+    /// ① <c>DataWriter.DetachStream</c> 未实现，抛异常；
+    /// ② <c>AsStreamForWrite</c> 的包装流 Dispose 会关闭底层流，且
+    /// <c>BitmapImage.SetSourceAsync</c>（InMemoryRandomAccessStream 路径）在
+    /// Uno 内部 <c>BitmapSource.UpdatePixelWidthAndHeightPartial</c> 处 NRE。
+    /// 文件 URI 走的是另一条解码路径，可用；缩略图落 %TEMP%\crossprint-uno-thumbs。
+    /// </remarks>
+    static async Task<ImageSource?> PngToImageSource(byte[] png)
     {
         try
         {
-            using var stream = new InMemoryRandomAccessStream();
-            using (var writer = new DataWriter(stream.GetOutputStreamAt(0)))
-            {
-                writer.WriteBytes(png);
-                await writer.StoreAsync();
-                await writer.FlushAsync();
-                writer.DetachStream();
-            }
-
-            stream.Seek(0);
-            var bitmap = new BitmapImage();
-            await bitmap.SetSourceAsync(stream);
+            var dir = Path.Combine(Path.GetTempPath(), "crossprint-uno-thumbs");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, "img-" + Guid.NewGuid().ToString("N") + ".png");
+            File.WriteAllBytes(path, png);
+            var bitmap = new BitmapImage(new Uri(path));
+            await Task.CompletedTask;
             return bitmap;
         }
         catch
