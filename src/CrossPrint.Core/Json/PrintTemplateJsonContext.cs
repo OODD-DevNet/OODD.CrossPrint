@@ -15,6 +15,8 @@ namespace CrossPrint.Core;
 [JsonSerializable(typeof(TableOptions))]
 [JsonSerializable(typeof(TableColumn))]
 [JsonSerializable(typeof(List<TableColumn>))]
+// 列图片数据类型：TableColumn 的枚举字段走源生成（AOT/Trimmed 下无反射兜底）。
+[JsonSerializable(typeof(TableCellImageSource))]
 [JsonSerializable(typeof(TableHeaderCell))]
 [JsonSerializable(typeof(List<TableHeaderCell>))]
 [JsonSerializable(typeof(TableConditionalStyle))]

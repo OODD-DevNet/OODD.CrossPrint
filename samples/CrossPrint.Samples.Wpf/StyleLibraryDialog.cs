@@ -264,6 +264,16 @@ internal sealed class StyleLibraryDialog : Window
                 commit(control, proxy, key);
                 _kernel.UpdateStyle(item.Id, $"修改样式 {FieldLabel(key)}", proxy.Apply);
             });
+
+            // 枚举下拉提交后从活样式回读：不回读时 ComboBox 停在用户点选前的高亮项，
+            // 而 UpdateStyle 可能把值规范化成别的成员，界面与模型就此分叉。
+            // 文本/数值字段不回读（会覆盖用户正在输入的内容）。
+            if (control is ComboBox && _kernel.Template.FindStyle(item.Id) is { } live)
+            {
+                _loading = true;
+                try { load(control, new StyleProxy(live)); }
+                finally { _loading = false; }
+            }
         }
 
         switch (control)

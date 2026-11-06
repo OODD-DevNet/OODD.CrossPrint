@@ -8,7 +8,8 @@ using CrossPrint.Core;
 namespace CrossPrint.Samples.Avalonia;
 
 /// <summary>
-/// 自定义纸张对话框内容：纸宽必填，纸高留空表示连续纸（长度随内容自适应）。
+/// 自定义纸张对话框：纸宽、纸高都必须填大于 0 的数字。
+/// 「是否连续纸」是纸张属性里的独立开关（不在对话框里）；勾选连续纸时纸高作为设计画布高度。
 /// 单位一律 mm，与模板存储口径一致；非法值留在对话框里提示，不会把半截状态写进模板。
 /// 是 UserControl 而非 Window：由 <see cref="ModalDialog"/> 决定桌面包窗口还是浏览器挂 overlay
 /// （浏览器单视图没有 WindowingPlatform，Window 一实例化就抛）。
@@ -16,6 +17,9 @@ namespace CrossPrint.Samples.Avalonia;
 public sealed class PaperSizeDialog : UserControl
 {
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    /// <summary>连续纸模式下纸高留空/0 的兜底设计高度（mm），与 EditorKernel 默认一致。</summary>
+    public const double DefaultContinuousDesignHeightMm = 297;
 
     readonly TextBox _width = new();
     readonly TextBox _height = new();
@@ -33,18 +37,23 @@ public sealed class PaperSizeDialog : UserControl
         ArgumentNullException.ThrowIfNull(current);
 
         _width.Text = current.WidthMm.ToString("0.##", Inv);
-        _height.Text = current.HeightMm > 0 ? current.HeightMm.ToString("0.##", Inv) : string.Empty;
+        // 设计高度：连续纸模板的纸高是设计高度，原样预填；0（旧隐式表达）落默认。
+        _height.Text = (current.HeightMm > 0 ? current.HeightMm : DefaultContinuousDesignHeightMm)
+            .ToString("0.##", Inv);
+        // 连续纸开关不在对话框里（用户钦定：右栏纸张属性下的独立开关才是唯一入口），
+        // 纸高一律必填；连续纸时纸高作为设计画布高度。
 
-        var hint = new TextBlock
+        var orientation = new TextBlock
         {
-            Text = "纸高留空表示连续纸（长度随内容自适应）。",
+            Text = "方向沿用当前设置（连续纸固定纵向）",
             Foreground = Brushes.DimGray,
             TextWrapping = TextWrapping.Wrap,
         };
 
-        var orientation = new TextBlock
+        var hint = new TextBlock
         {
-            Text = current.IsContinuous ? "方向：连续纸固定纵向" : "方向沿用当前设置",
+            // 连续纸由纸张属性里的独立开关控制（不在对话框里）；连续纸时此处的纸高是设计画布高度。
+            Text = "连续纸由纸张属性里的开关控制；勾选连续纸时，纸高作为设计画布高度。",
             Foreground = Brushes.DimGray,
             TextWrapping = TextWrapping.Wrap,
         };
@@ -97,7 +106,7 @@ public sealed class PaperSizeDialog : UserControl
     /// <summary>纸宽（mm），仅在 <see cref="Confirmed"/> 为 <c>true</c> 后有效。</summary>
     public double WidthMm { get; private set; }
 
-    /// <summary>纸高（mm）；0 表示连续纸。</summary>
+    /// <summary>纸高（mm）；留空/0 表示连续纸（内核落默认设计高度 297 作画布基准）。</summary>
     public double HeightMm { get; private set; }
 
     static Grid Field(string label, Control editor)
@@ -129,14 +138,14 @@ public sealed class PaperSizeDialog : UserControl
             return;
         }
 
+        // 纸高必填：连续纸/固定纸高由纸张属性里的独立开关决定，不再用"留空"表达（用户没法设计）。
+        // 连续纸时这里的纸高是设计画布高度；固定纸高时就是分页纸高。
         var heightText = _height.Text?.Trim() ?? string.Empty;
-        var height = 0.0;
-        if (heightText.Length > 0
-            && (!double.TryParse(heightText, NumberStyles.Float, Inv, out height)
-                || !double.IsFinite(height)
-                || height < 0))
+        if (!double.TryParse(heightText, NumberStyles.Float, Inv, out var height)
+            || !double.IsFinite(height)
+            || height <= 0)
         {
-            Warn("纸高必须是 0 或更大的数字（mm），留空表示连续纸。", _height);
+            Warn("纸高必须是大于 0 的数字（mm）。", _height);
             return;
         }
 

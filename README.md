@@ -437,7 +437,7 @@ JS 对象形态（camelCase）和 CSS 字符串形态（kebab-case）都能。�
 | `text` / `longText` | TextElement | pt 自动转 mm；fontSize 转 pt；formatter/styler 脚本原样保留 |
 | `hline` / `vline` | LineElement | borderWidth / borderStyle / borderColor 全支持 |
 | `rect` / `oval` | RectangleElement / EllipseElement | border 统一样式（不支持分边线型）；backgroundColor 填充 |
-| `image` | ImageElement | **只支持 base64 data URL**。外链 URL 需要宿主提供 `IImageResolver`，否则渲染成占位框 |
+| `image` | ImageElement | 识别 data URL（含 SVG）、裸 Base64、直接粘贴的 `<svg…>` 源码、http(s) 外链；其余本地路径/业务键需要宿主提供 `IImageResolver`，否则渲染成占位框 |
 | `table` / `tableCustom`（旧版） | TableElement | 二维表头 colspan/rowspan 全部展开；扁平 fields 数组也能读；每列的 formatter/styler 脚本保留 |
 | `barcode` | BarcodeElement | 10 种码制全覆盖：Code128、EAN-13、EAN-8、UPC-A、UPC-E、ITF、Codabar、Code39、Code93、MSI |
 | `qrcode` | QrCodeElement | 四种纠错等级 L/M/Q/H；码下标题（caption）+ 对齐 + 字体 |
@@ -624,6 +624,13 @@ dotnet publish samples/CrossPrint.Samples.Avalonia.Browser -c Release
 - **二维码静区**按 4 模块绘制。极少数扫码器特别严格的话可能有问题——但大部分手机扫没问题。
 - **表格跨页与长文本续页是自动的，普通元素不是**——表格数据行超高一页装不下会自动切窗口续页，`longText` 溢出会续排；但普通元素（矩形、图片……）摆到纸外就是被裁掉，没有"整体元素自动挪到下一页"的通用排版。
 - **原生水印是平铺文字**——模板字段 `watermark`（设计器纸张面板可配置）。图片水印没有原生平铺能力，用覆盖整页的最底层图片元素代替。
+- **图片大小是固定的，不会自适应宽高**——图片元素的 `WidthMm` / `HeightMm` 由模板（设计器里手动拖框）固定，`ImageFitMode`（Contain / Fill / Cover / None）只决定图片在这块固定框里怎么缩放绘制，**绝不会按图片原始尺寸回改元素宽高、也不会随内容自动增高**。想让图片变大就改元素尺寸。
+- **图片资源有固定上限（超限直接跳过并记渲染告警，不降采样、不改尺寸）**：单文件字节 ≤ **32 MB**；解码后总像素 ≤ **16,000,000**（约 4000×4000）；解码后单边 ≤ **8192 px**。字节小但解出来是几亿像素的畸形 PNG 会在解码后被拒收，避免渲染线程 OOM。常量见 `ImageAcquisition.MaxBytes` / `MaxDecodedPixels` / `MaxDecodedSide`。
+- **SVG 支持的五种填法与「图标级」子集**——「内嵌图片」/「图片资源值」可填：`data:image/svg+xml;base64,…`、百分号编码的 `data:image/svg+xml,…`、SVG 字节的裸 Base64、`https://…/logo.svg` 外链，以及**直接粘贴的 `<svg…>…</svg>` 源码文本**（字段绑定值、表格图片列单元格、hiprint 导入的 `src` 同样支持）。引擎按元素框尺寸走内置矢量光栅器，不引第三方 SVG 库；带 UTF-8 BOM、XML 声明或前置注释也能解析。⚠ 只实现图标级子集（形状 / 分组 / `use` / `text` / `transform` / 样式 / 渐变 / `viewBox`），**不支持 `filter`、`feDropShadow`、`clipPath`、`mask`、`pattern`、`textPath`、`marker`**：例如带 `<filter id="shadow">` 的窗户 SVG 会正常画出窗框和四个窗格，但阴影被忽略（其余图形照常绘制，不是解析失败）。想要阴影请改用半透明矩形自行叠加。
+- **超长文本有固定护栏**——单元素内容 ≤ **200,000 字符**、折行 ≤ **20,000 行**、单行 ≤ **8,000 字符**，超出截断并在渲染报告记 `TextTooLong`。想完整打印长文请勾「内容超出自动续页」（`continueOnOverflow`）并开通用分页，或用表格/多条文本元素拆分。常量见 `TextRenderer.MaxContentChars` / `MaxLines` / `MaxCharsPerLine`。
+- **表格列图片的数据类型可显式声明**——`TableColumn.CellImageSource`（设计器「图片数据类型」下拉，仅「渲染方式 = 图片」的列可见）：`Auto`（默认，自动识别 `data:` URI / 裸 Base64 / http(s) 外链 / 宿主 `IImageResolver` 资源键，旧模板零迁移）、`Url`（链接图片）、`Base64`（Base64 图片）。显式指定后按该类型**强制**解析，类型不符只记 `ImageSourceMismatch` 渲染告警并跳过该格，不会悄悄当成另一种类型处理。它只决定「单元格值怎么解释」，也**不做图片跨页**；图片/码的绘制尺寸另由 `CellContentWidthMm` / `CellContentHeightMm` 控制（见下条）。
+- **表格单元格图片/码有固定内容尺寸护栏**——渲染方式为「图片 / 一维码 / 二维码」的列可用「内容宽 (mm)」「内容高 (mm)」（`TableColumn.CellContentWidthMm` / `CellContentHeightMm`，默认 `0` = 跟随单元格）：按声明尺寸居中绘制，**恒夹在单元格内**，硬上限宽 **210 mm** / 高 **100 mm**（`TableColumn.MaxCellContentWidthMm` / `MaxCellContentHeightMm`）；「内容高」同时作为该列的行高下限。**关键是防撑爆**：非文本列的绑定值不再参与文本折行测量，几十 KB 的 `data:` URI / 裸 base64 不会被折成上百行把行高、连续纸页高、打印单拉成长卷；载荷原样交给图片/码渲染器。旧模板缺省 `0`，绘制尺寸不变。
+- **连续纸水印会跟着纸长往下铺**——连续纸是「一页很长」（不分页），表格按内容自动增高后页高 = 最底元素下缘 + 2 mm；水印为斜纹网格平铺，纵向行数直接由这个增高后的页高决定，不是固定在模板设计的 Y 上、也不是只在首页画一枚。PDF / GDI / PDF 文件 / PNG 四条出图链路都用增高后的同一份工作模板算纸盒与位图（PNG 此前按未增高模板裁切长单，已修）。设计态画布预览仍按设计高度显示，不随内容增高——预览显示设计尺寸是既定边界。
 - **WASM 版**没有文件对话框（浏览器安全沙箱），hiprint 导入走底部的模板 JSON 面板粘贴。
 - **复杂脚本（阿拉伯文 / 天城文 / 藏文）在 Linux 上可能要自己点名原生库**——引擎用 HarfBuzz 做连字与词形式（词首/词中/词尾）替换，`HarfBuzzSharp` 的托管包只把 Win32/macOS 原生库写成自己的依赖。Avalonia 宿主不用管（`Avalonia.Skia` 会间接带上）；**纯库消费方**（控制台、WPF/WinForms/Eto/WinUI/Uno/MAUI）在 Linux 上给宿主应用加一行 `<PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" />`。**缺它不报错**，但阿拉伯文会退回"每个字母都是独立形式"，看着像坏了又没抛异常。取证与四条口径见 [`docs/rendering-spec.md`](docs/rendering-spec.md) §3.3。
 - **.NET Framework 4.x 只在核心层**——Core / Engine / Designer / Printing / I18n 提供 `net461` 目标（Jint 3.1.6 与 System.Text.Json 6.0.9 都有 netstandard2.0 目标），但七个宿主适配层统一要求 .NET 8（Avalonia 11 / WinUI 3 / MAUI 8 本身就不支持 net461）。`net461` 目标只保证编译兼容，测试与 CI 覆盖的是 `net8.0`。

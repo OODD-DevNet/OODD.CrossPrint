@@ -229,7 +229,7 @@ public class EditorRendererTests
     }
 
     [Fact]
-    public void 连续纸的页框与引擎自适应页高一致()
+    public void 连续纸的页框用设计高度_不再跟着内容缩()
     {
         var template = new PrintTemplate
         {
@@ -240,10 +240,13 @@ public class EditorRendererTests
 
         var kernel = new EditorKernel(template) { ViewWidthHostPx = 800, ViewHeightHostPx = 600 };
 
-        // 内容底边 30mm 与下留白 5mm 取大者，再 +2mm —— 这是 PrintTemplate.ResolvePageHeightMm 的判据。
-        kernel.PageHeightMm.Should().BeApproximately(32, 1e-9, "连续纸页高 = max(内容底边, 下留白) + 2mm");
+        // 设计高度与连续纸解耦（用户反馈）：画布页框 = 设计高度（HeightMm=0 回落默认 297），
+        // 不再随内容底边收缩；打印/导出侧仍按内容自适应（引擎 TemplateAutoGrow/ResolvePageHeightMm 回归覆盖）。
+        kernel.PageHeightMm.Should().Be(EditorKernel.DefaultContinuousDesignHeightMm,
+            "连续纸画布按设计高度排版，空模板不再缩成一小条");
 
         var page = EditorRenderer.PageRectHost(kernel);
-        ((double)page.Height).Should().BeApproximately(32 * Viewport.MmToBasePx, 0.01);
+        ((double)page.Height).Should().BeApproximately(
+            EditorKernel.DefaultContinuousDesignHeightMm * Viewport.MmToBasePx, 0.01);
     }
 }

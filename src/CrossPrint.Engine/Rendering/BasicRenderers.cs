@@ -6,6 +6,15 @@ namespace CrossPrint.Engine.Rendering;
 /// <summary>文本元素渲染器。度量、折行与对齐全部委托 <see cref="TextStyle"/>。</summary>
 public sealed class TextRenderer : ElementRenderer<TextElement>
 {
+    /// <summary>单个文本元素参与度量的最大字符数（固定值，与元素宽高/纸张无关）。</summary>
+    public const int MaxContentChars = 200_000;
+
+    /// <summary>单个文本元素最多保留的折行行数（固定值）。</summary>
+    public const int MaxLines = 20_000;
+
+    /// <summary>单行最大字符数（固定值，防"一整段无换行"把 shaping 拖死）。</summary>
+    public const int MaxCharsPerLine = 8_000;
+
     /// <inheritdoc/>
     public override string TypeKey => ElementTypeKeys.Text;
 
@@ -97,6 +106,17 @@ public sealed class TextRenderer : ElementRenderer<TextElement>
         if (content.Length == 0)
             return null;
 
+        // 固定护栏：绑定/脚本可能塞进"雷霆大文本"（几 MB 文字），Wrap 会逐字测量并生成
+        // 几十万行 Line 对象，度量（分页器）与渲染都扛不住。截断在度量前统一发生，
+        // 绘制与分页器（MeasureLongTexts 也走 BuildBlock）拿到的是同一份内容，不会两边漂移。
+        if (content.Length > MaxContentChars)
+        {
+            var original = content.Length;
+            content = content[..MaxContentChars];
+            context.Report.Add(element.Id, RenderIssueKind.TextTooLong,
+                $"文本 {original} 字符超过固定上限 {MaxContentChars}，已截断（元素 {element.Id}）。");
+        }
+
         // 样式库级联：库样式打底、内联覆盖（非空内联字段等于模型默认值视为未设置，哨兵口径）
         var named = StyleCascade.Find(context, o.StyleId);
         var fontFamily = StyleCascade.Pick(o.FontFamily, "Microsoft YaHei", named?.FontFamily);
@@ -149,6 +169,30 @@ public sealed class TextRenderer : ElementRenderer<TextElement>
 
         var lineHeight = style.LineHeight(lineSpacing);
         var lines = style.Wrap(content, innerWidth, o.Wrap);
+
+        // 行数与单行长度护栏：Wrap 后的结果才是实际要 shape/绘制的量，两道都卡在固定值上。
+        if (lines.Count > MaxLines)
+        {
+            var originalLines = lines.Count;
+            lines = lines.GetRange(0, MaxLines);
+            context.Report.Add(element.Id, RenderIssueKind.TextTooLong,
+                $"文本折行 {originalLines} 行超过固定上限 {MaxLines} 行，已截断（元素 {element.Id}）。");
+        }
+
+        var longLine = false;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (lines[i].Length <= MaxCharsPerLine)
+                continue;
+            lines[i] = lines[i][..MaxCharsPerLine];
+            longLine = true;
+        }
+        if (longLine)
+        {
+            context.Report.Add(element.Id, RenderIssueKind.TextTooLong,
+                $"存在超过 {MaxCharsPerLine} 字符的超长行，已截断到该长度（元素 {element.Id}）。");
+        }
+
         if (!o.Wrap && o.Ellipsis)
         {
             for (var i = 0; i < lines.Count; i++)

@@ -156,6 +156,21 @@ public static class StyleLibraryDialog
             }
 
             RefreshList();
+
+            // 对齐下拉提交后从活样式回读：只刷清单时右侧选中项停在旧值，
+            // 与 UpdateStyle 写进去的值分叉，看起来就是"选了没变化"。
+            // 文本/数值字段不动（会打断连续输入），只回读两个枚举下拉。
+            var style = Current();
+            syncing = true;
+            try
+            {
+                hAlign.SelectedItem = style?.HorizontalAlign?.ToString();
+                vAlign.SelectedItem = style?.VerticalAlign?.ToString();
+            }
+            finally
+            {
+                syncing = false;
+            }
         }
 
         /// <summary>数值字段提交：空串清为 null（不设置），非法数字提示且不提交。</summary>

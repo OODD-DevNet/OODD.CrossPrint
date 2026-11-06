@@ -48,6 +48,7 @@ internal sealed class PaperPanel : UserControl
     readonly ComboBox _combo = new();
     readonly Button _rotateButton = new();
     readonly Button _customButton = new();
+    readonly CheckBox _continuousToggle = new() { Content = "连续纸（打印长度随内容自适应）", Margin = new Thickness(0, 4, 0, 0) };
     readonly TextBlock _info = new();
 
     bool _syncing;
@@ -96,6 +97,11 @@ internal sealed class PaperPanel : UserControl
         buttons.Children.Add(_customButton);
         stack.Children.Add(buttons);
 
+        // 连续纸独立开关：与预设正交（选 A4 再勾上就是"A4 宽的连续纸"）。
+        _continuousToggle.Checked += (_, _) => ToggleContinuous(true);
+        _continuousToggle.Unchecked += (_, _) => ToggleContinuous(false);
+        stack.Children.Add(_continuousToggle);
+
         _info.FontSize = 11;
         _info.Foreground = new SolidColorBrush(Microsoft.UI.Colors.DimGray);
         _info.TextWrapping = TextWrapping.Wrap;
@@ -120,6 +126,30 @@ internal sealed class PaperPanel : UserControl
 
     /// <summary>需要回显到状态栏的消息。</summary>
     public event Action<string>? StatusRequested;
+
+    /// <summary>连续纸独立开关：走内核命令（可撤销），处理器全程拉起重入保护挡住回填触发的嵌套事件。</summary>
+    void ToggleContinuous(bool value)
+    {
+        if (_syncing)
+            return;
+        _syncing = true;
+        try
+        {
+            _kernel.SetPaperContinuous(value);
+            Report(value
+                ? "连续纸：打印长度随内容自适应（纸高只决定画布多高）。"
+                : "固定纸高：按纸高分页打印。");
+        }
+        catch (Exception ex)
+        {
+            Report("切换连续纸失败：" + ex.Message);
+        }
+        finally
+        {
+            _syncing = false;
+        }
+        Sync();
+    }
 
     /// <summary>切换纸张方向；连续纸没有固定页高，直接给出提示而不调内核。</summary>
     public void ToggleOrientation()
@@ -178,14 +208,15 @@ internal sealed class PaperPanel : UserControl
 
         var heightBox = new TextBox
         {
-            Text = paper.HeightMm > 0 ? paper.HeightMm.ToString("0.##", Inv) : string.Empty,
+            // 连续纸时纸高是设计高度，原样预填；0（旧隐式表达）落默认避免预填成 0。
+            Text = (paper.HeightMm > 0 ? paper.HeightMm : 297).ToString("0.##", Inv),
             Header = "纸高（mm）",
-            PlaceholderText = "留空表示连续纸",
         };
 
         var hint = new TextBlock
         {
-            Text = "纸高留空表示连续纸（长度随内容自适应）。",
+            // 连续纸开关不在对话框里（纸张属性下的独立开关是唯一入口）。
+            Text = "连续纸由纸张属性里的开关控制；勾选连续纸时，纸高作为设计画布高度。",
             FontSize = 12,
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.DimGray),
             TextWrapping = TextWrapping.Wrap,
@@ -194,7 +225,7 @@ internal sealed class PaperPanel : UserControl
 
         var orientation = new TextBlock
         {
-            Text = paper.IsContinuous ? "方向：连续纸固定纵向" : "方向沿用当前设置",
+            Text = "方向沿用当前设置（连续纸固定纵向）",
             FontSize = 12,
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.DimGray),
             TextWrapping = TextWrapping.Wrap,
@@ -243,21 +274,21 @@ internal sealed class PaperPanel : UserControl
                 return;
             }
 
+            // 纸高必填：连续纸/固定纸高由纸张属性里的独立开关决定，不再用"留空"表达。
             var heightText = (heightBox.Text ?? string.Empty).Trim();
-            var parsedHeight = 0.0;
-            if (heightText.Length > 0
-                && (!double.TryParse(heightText, NumberStyles.Float, Inv, out parsedHeight)
-                    || !double.IsFinite(parsedHeight)
-                    || parsedHeight < 0))
+            if (!double.TryParse(heightText, NumberStyles.Float, Inv, out var parsedHeight)
+                || !double.IsFinite(parsedHeight)
+                || parsedHeight <= 0)
             {
-                ShowDialogError(error, "纸高必须是 0 或更大的数字（mm），留空表示连续纸。", heightBox);
+                ShowDialogError(error, "纸高必须是大于 0 的数字（mm）。", heightBox);
                 args.Cancel = true;
                 return;
             }
 
             try
             {
-                _kernel.SetCustomPaper(parsedWidth, parsedHeight);
+                // 自定义纸张只改尺寸：是否连续纸保持内核当前状态。
+                _kernel.SetCustomPaper(parsedWidth, parsedHeight, _kernel.Template.Paper.IsContinuous);
             }
             catch (Exception ex)
             {
@@ -293,9 +324,9 @@ internal sealed class PaperPanel : UserControl
             _dialogOpen = false;
         }
 
-        Report(height > 0
-            ? $"自定义纸张：{width:0.##} × {height:0.##} mm。"
-            : $"自定义连续纸：宽 {width:0.##} mm，长度随内容自适应。");
+        Report(_kernel.Template.Paper.IsContinuous
+            ? $"自定义纸张：宽 {width:0.##} mm，设计高度 {height:0.##} mm，打印长度随内容。"
+            : $"自定义纸张：{width:0.##} × {height:0.##} mm。");
         _focusCanvas?.Invoke();
     }
 
@@ -348,6 +379,7 @@ internal sealed class PaperPanel : UserControl
             _combo.SelectedIndex = index >= 0 ? index : Choices.Length - 1;
 
             var continuous = paper.IsContinuous;
+            _continuousToggle.IsChecked = continuous;
             _rotateButton.IsEnabled = !continuous;
             _rotateButton.Content = paper.Orientation == PaperOrientation.Landscape ? "转纵向" : "转横向";
             _info.Text = DescribePaper(paper);

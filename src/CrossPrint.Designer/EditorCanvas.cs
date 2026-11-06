@@ -75,7 +75,11 @@ public static class EditorCanvas
         {
             EditorRenderer.PushCamera(canvas, kernel);
             (renderer ?? TemplateRenderer.Default).Render(kernel.Template, canvas, new RenderContext(
-                new RenderOptions { Dpi = kernel.Viewport.EffectiveRenderDpi },
+                // 背景必须透明：backdrop 已画页纸底色，再叠一层默认白底（RenderOptions.PageBackgroundColor
+                // 默认 White）会把页内网格与安全区虚线整块盖掉——连续纸设计高度比内容自适应页高长时
+                // 症状是"网格只在页面下半截出现"（2026-11-05 用户截图实锤）。打印/导出路径自建
+                // RenderOptions（保持白底），只有设计画布透明。
+                new RenderOptions { Dpi = kernel.Viewport.EffectiveRenderDpi, PageBackgroundColor = SKColors.Transparent },
                 report,
                 fontResolver,
                 images,

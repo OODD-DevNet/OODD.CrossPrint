@@ -328,6 +328,8 @@ public class ElementPropertiesTests
         textColumn.Hidden.Should().BeTrue("文本列上的码制字段无效，只会误导人");
         props.Find("table.columns[0].cellErrorCorrection")!.Hidden.Should().BeTrue();
         props.Find("table.columns[0].cellShowText")!.Hidden.Should().BeTrue();
+        props.Find("table.columns[0].cellContentWidthMm")!.Hidden.Should().BeTrue("文本列不需要内容尺寸");
+        props.Find("table.columns[0].cellContentHeightMm")!.Hidden.Should().BeTrue();
         props.Find("table.columns[0].cellRender")!.Hidden.Should().BeFalse("渲染方式本身永远可见（它是显隐的开关）");
 
         // 切到一维码：码制/可读文本出现，纠错等级仍是二维码专属。
@@ -336,6 +338,8 @@ public class ElementPropertiesTests
         props.Find("table.columns[0].cellSymbology")!.Hidden.Should().BeFalse();
         props.Find("table.columns[0].cellShowText")!.Hidden.Should().BeFalse();
         props.Find("table.columns[0].cellErrorCorrection")!.Hidden.Should().BeTrue();
+        props.Find("table.columns[0].cellContentWidthMm")!.Hidden.Should().BeFalse();
+        props.Find("table.columns[0].cellContentHeightMm")!.Hidden.Should().BeFalse();
 
         // 切到二维码：纠错等级出现，码制/可读文本退场；另一列（Text）不受影响。
         table.Table.Columns[0].CellRender = TableCellRender.QrCode;
@@ -461,7 +465,14 @@ public class ElementPropertiesTests
         element.As<TableElement>().Table.Columns[0].Title.Should().Be("规格");
 
         var columnCount = props.Descriptors.Count(d => d.Key.StartsWith("table.columns[", StringComparison.Ordinal));
-        columnCount.Should().Be(element.As<TableElement>().Table.Columns.Count * 17, "每列 17 个可写字段（含样式引用、同值合并开关、格式化/样式脚本、单元格渲染/码制/纠错等级/可读文本）");
+        // 不硬编码"每列 N 条"：每加一个列字段（图片数据类型、内容宽/高……）旧写法就会假红。
+        // 这里锁定真正的不变量——每列字段数一致、总数随列数线性增长，并点名关键新字段。
+        var perColumn = props.Descriptors.Count(d => d.Key.StartsWith("table.columns[0].", StringComparison.Ordinal));
+        perColumn.Should().BeGreaterThan(0);
+        columnCount.Should().Be(element.As<TableElement>().Table.Columns.Count * perColumn,
+            "每列展开的字段数必须一致，且随列数线性增长");
+        props.Find("table.columns[0].cellContentWidthMm").Should().NotBeNull();
+        props.Find("table.columns[0].cellContentHeightMm").Should().NotBeNull();
     }
 
     [Fact]

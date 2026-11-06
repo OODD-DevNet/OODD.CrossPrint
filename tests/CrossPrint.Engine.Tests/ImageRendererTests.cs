@@ -1,3 +1,4 @@
+using System.Text;
 using CrossPrint.Core;
 using FluentAssertions;
 using SkiaSharp;
@@ -253,6 +254,40 @@ public class ImageRendererTests
         report.Issues.Should().BeEmpty();
 
         // 元素框 (10,10)-(50,30)，四个象限各取中心区域
+        Ink.ColorCountInMm(bitmap, Dpi, new SKRect(12, 12, 28, 19), new SKColor(0xF2, 0x50, 0x22)).Should().BeGreaterThan(0, "左上橙");
+        Ink.ColorCountInMm(bitmap, Dpi, new SKRect(32, 12, 48, 19), new SKColor(0x7F, 0xBA, 0x00)).Should().BeGreaterThan(0, "右上绿");
+        Ink.ColorCountInMm(bitmap, Dpi, new SKRect(12, 21, 28, 28), new SKColor(0x00, 0xA4, 0xEF)).Should().BeGreaterThan(0, "左下蓝");
+        Ink.ColorCountInMm(bitmap, Dpi, new SKRect(32, 21, 48, 28), new SKColor(0xFF, 0xB9, 0x00)).Should().BeGreaterThan(0, "右下黄");
+    }
+
+    /// <summary>
+    /// 用户实报「图片资源值无法解析 SVG」：属性面板「内嵌图片」里直接粘 &lt;svg…&gt; 源码文本。
+    /// 旧链路 Classify→Other、FromLocator 再试裸 base64 解码失败，最后只给一个占位框。
+    /// 现在源码本身即载荷，四个色块必须真的画出来。
+    /// </summary>
+    [Fact]
+    public void 图片资源值直接粘_SVG_源码也能出图()
+    {
+        var rawSvg = Encoding.UTF8.GetString(Convert.FromBase64String(WindowsLogoSvg));
+        var element = new ImageElement
+        {
+            Id = "img",
+            XMm = 10,
+            YMm = 10,
+            WidthMm = 40,
+            HeightMm = 20,
+            Image = new ImageOptions
+            {
+                SourceType = ImageSourceType.EmbeddedBase64,
+                Data = rawSvg,
+                FitMode = ImageFitMode.Fill,
+            },
+        };
+
+        var report = new RenderReport();
+        using var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 60, pageHeightMm: 40, report: report);
+
+        report.Issues.Should().BeEmpty();
         Ink.ColorCountInMm(bitmap, Dpi, new SKRect(12, 12, 28, 19), new SKColor(0xF2, 0x50, 0x22)).Should().BeGreaterThan(0, "左上橙");
         Ink.ColorCountInMm(bitmap, Dpi, new SKRect(32, 12, 48, 19), new SKColor(0x7F, 0xBA, 0x00)).Should().BeGreaterThan(0, "右上绿");
         Ink.ColorCountInMm(bitmap, Dpi, new SKRect(12, 21, 28, 28), new SKColor(0x00, 0xA4, 0xEF)).Should().BeGreaterThan(0, "左下蓝");

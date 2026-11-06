@@ -62,7 +62,8 @@ public sealed class ThicknessMm
 
 /// <summary>
 /// 纸张规格。<see cref="WidthMm"/>/<see cref="HeightMm"/> 恒为**纵向（Portrait）**尺寸，
-/// Landscape 且纸高固定时由渲染引擎交换得到实际页面尺寸；连续纸（<see cref="HeightMm"/> 为 0）不交换，
+/// Landscape 且纸高固定时由渲染引擎交换得到实际页面尺寸。
+/// 连续纸（<see cref="Continuous"/> 为 true，或历史上 <see cref="HeightMm"/> 为 0）不交换，
 /// 横向仍按 <see cref="WidthMm"/> 走纸、长度自适应内容。
 /// </summary>
 public sealed class PaperSpec
@@ -73,8 +74,18 @@ public sealed class PaperSpec
     /// <summary>纵向纸宽（mm）。</summary>
     public double WidthMm { get; set; } = 210;
 
-    /// <summary>纵向纸高（mm）。0 表示连续纸（长度自适应内容）。</summary>
+    /// <summary>
+    /// 纵向纸高（mm）。连续纸（<see cref="Continuous"/>）时这是**设计高度**——
+    /// 设计器画布按它排版，打印/导出忽略它、长度随内容自适应；0 且无设计高度时内核回落默认设计高度。
+    /// 历史语义（0 = 连续纸）保留：<see cref="IsContinuous"/> 对两种表达都成立。
+    /// </summary>
     public double HeightMm { get; set; } = 297;
+
+    /// <summary>
+    /// 是否为连续纸（长度随内容自适应）。与 <see cref="HeightMm"/> 解耦：
+    /// 设计高度归设计高度（画布用它排版），连续纸归连续纸（打印/导出忽略纸高、自动增高）。
+    /// </summary>
+    public bool Continuous { get; set; }
 
     /// <summary>方向。</summary>
     public PaperOrientation Orientation { get; set; } = PaperOrientation.Portrait;
@@ -85,11 +96,11 @@ public sealed class PaperSpec
     /// <summary>实际页面高度（mm，已应用方向）。0 表示自适应内容。</summary>
     public double PageHeightMm => SwapsDimensions ? WidthMm : HeightMm;
 
-    /// <summary>是否为连续纸（高度自适应）。</summary>
-    public bool IsContinuous => PageHeightMm <= 0;
+    /// <summary>是否为连续纸（长度自适应内容）：显式标志或历史表达（纸高 0）。</summary>
+    public bool IsContinuous => Continuous || PageHeightMm <= 0;
 
-    // 连续纸的 HeightMm=0 是"长度自适应内容"而不是一个可旋转的维度，交换后纸宽会变成 0。
-    bool SwapsDimensions => Orientation == PaperOrientation.Landscape && HeightMm > 0;
+    // 连续纸不交换方向维度（"长度随内容"不是一个可旋转的量），且交换后纸宽会变成设计高度、语义错乱。
+    bool SwapsDimensions => Orientation == PaperOrientation.Landscape && !Continuous && HeightMm > 0;
 
     /// <summary>按纸张名预设构造。</summary>
     public static PaperSpec FromPreset(string preset)
@@ -97,7 +108,7 @@ public sealed class PaperSpec
         if (!PaperTypePresets.TryGet(preset, out var size))
             throw new ArgumentException($"未知纸张预设 '{preset}'。可用：{string.Join(", ", PaperTypePresets.Names)}", nameof(preset));
 
-        return new PaperSpec { Preset = preset, WidthMm = size.WidthMm, HeightMm = size.HeightMm };
+        return new PaperSpec { Preset = preset, WidthMm = size.WidthMm, HeightMm = size.HeightMm, Continuous = size.HeightMm <= 0 };
     }
 
     /// <summary>深拷贝。</summary>
@@ -106,6 +117,7 @@ public sealed class PaperSpec
         Preset = Preset,
         WidthMm = WidthMm,
         HeightMm = HeightMm,
+        Continuous = Continuous,
         Orientation = Orientation,
     };
 }

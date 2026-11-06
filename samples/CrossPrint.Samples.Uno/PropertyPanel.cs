@@ -39,7 +39,14 @@ internal sealed class PropertyPanel : UserControl
 
     bool _building;
     bool _refreshing;
+    bool _rebuildQueued;
     string _selectionKey = string.Empty;
+
+    /// <summary>
+    /// 无选中元素时空白区的附加内容构造器（页面级设置：水印等）。
+    /// 必须返回懒构建的持久实例，绝不能每次 Rebuild 新建控件树。
+    /// </summary>
+    public Func<FrameworkElement>? EmptyStateContentBuilder { get; set; }
 
     public PropertyPanel(EditorKernel kernel)
     {
@@ -93,7 +100,8 @@ internal sealed class PropertyPanel : UserControl
         Rebuild();
     }
 
-    string SelectionKey() => string.Join("|", _kernel.Selection.Ids);
+    // 结构签名含描述符 Key + Hidden（条件属性显隐），不含坐标值，拖拽不逐帧重建。
+    string SelectionKey() => PropertyOptions.StructureSignature(_kernel);
 
     void OnViewChanged()
     {
@@ -149,6 +157,8 @@ internal sealed class PropertyPanel : UserControl
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(10, 4, 10, 10),
                 });
+                if (_kernel.Selection.IsEmpty && EmptyStateContentBuilder?.Invoke() is { } extra)
+                    _stack.Children.Add(extra);
                 return;
             }
 
@@ -361,8 +371,8 @@ internal sealed class PropertyPanel : UserControl
             {
                 var combo = new ComboBox
                 {
-                    ItemsSource = descriptor.Options ?? Array.Empty<string>(),
-                    SelectedItem = descriptor.GetValue(element)?.ToString(),
+                    ItemsSource = PropertyOptions.Values(descriptor, element),
+                    SelectedItem = PropertyOptions.Current(descriptor, element),
                     IsEnabled = !descriptor.ReadOnly,
                 };
 
@@ -383,7 +393,7 @@ internal sealed class PropertyPanel : UserControl
                     if (combo.FocusState != FocusState.Unfocused)
                         return;
 
-                    combo.SelectedItem = descriptor.GetValue(element)?.ToString();
+                    combo.SelectedItem = PropertyOptions.Current(descriptor, element);
                 };
 
                 editor = combo;
@@ -505,6 +515,26 @@ internal sealed class PropertyPanel : UserControl
         {
             ShowError(ex.Message);
         }
+
+        // 提交后必须刷新：下拉从活模型回读，表格列切换渲染方式后的条件属性靠重建出现。
+        ScheduleRebuild();
+    }
+
+    /// <summary>延迟重建：不在 SelectionChanged 派发中销毁正在派发事件的控件；同批提交只排一次。</summary>
+    void ScheduleRebuild()
+    {
+        if (_rebuildQueued || _building)
+            return;
+
+        _rebuildQueued = true;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            _rebuildQueued = false;
+            Rebuild();
+        };
+        timer.Start();
     }
 
     void ShowError(string message)

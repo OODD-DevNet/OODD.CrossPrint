@@ -635,7 +635,7 @@ public class EditorKernelTests
     }
 
     [Fact]
-    public void 整页适配按模板页高_连续纸走引擎的自适应判据()
+    public void 整页适配按模板页高_连续纸按设计高度适配()
     {
         var kernel = KernelFixture.Kernel();
         kernel.Viewport.Zoom = 3.0;
@@ -647,16 +647,19 @@ public class EditorKernelTests
         // 可用 = (800−96) × (600−96) = 704 × 504 → 取小的那一边：504 / 1122.5196850393701
         kernel.Viewport.Zoom.Should().BeApproximately(504 / (297 * MmPx), 1e-9);
 
-        // 连续纸：页高没有定值，用引擎同一判据（内容底边 + 2mm 余量），否则适配出来框不住纸。
+        // 连续纸：画布按设计高度排版（HeightMm=0 回落默认 297），内容自适应只在打印/导出侧——
+        // 否则空模板画布缩成一小条没法设计（用户反馈）。
         var receipt = new PrintTemplate
         {
             Paper = new PaperSpec { Preset = PaperTypePresets.Custom, WidthMm = 80, HeightMm = 0 },
             Margins = new ThicknessMm(5, 5, 5, 5),
         };
-        KernelFixture.AddRect(receipt, 5, 40, 40, 30);   // 底边 40+30 = 70mm → 页高 70 + 2 = 72mm
+        KernelFixture.AddRect(receipt, 5, 40, 40, 30);   // 内容底边 70mm，不影响画布页框
         var receiptKernel = KernelFixture.Kernel(receipt);
+        receiptKernel.PageHeightMm.Should().Be(EditorKernel.DefaultContinuousDesignHeightMm);
         receiptKernel.OnKeyDown(new KeyInfo(KeyAction.ZoomFit));
-        receiptKernel.Viewport.Zoom.Should().BeApproximately(Math.Min(704 / (80 * MmPx), 504 / (72 * MmPx)), 1e-9);
+        receiptKernel.Viewport.Zoom.Should().BeApproximately(
+            Math.Min(704 / (80 * MmPx), 504 / (EditorKernel.DefaultContinuousDesignHeightMm * MmPx)), 1e-9);
     }
 
     [Fact]

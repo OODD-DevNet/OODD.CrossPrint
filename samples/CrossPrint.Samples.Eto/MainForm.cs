@@ -4,8 +4,12 @@ using CrossPrint.Designer;
 using CrossPrint.Engine;
 using CrossPrint.Hosts.Eto;
 using CrossPrint.I18n;
+using CrossPrint.Printing;
+using CrossPrint.SolutionStorage;
 using Eto.Drawing;
 using Eto.Forms;
+using System.IO;
+using System.Threading.Tasks;
 
 namespace CrossPrint.Samples.Eto;
 
@@ -44,8 +48,20 @@ internal sealed class MainForm : Form
     ];
 
     readonly DesignerControl _designer;
+
+    // 阶段 E：解决方案持久化（共享存储 + 会话）。模板落库到 AppData/CrossPrint/templates.db（SQLite）。
+    readonly SolutionSession _session = new();
+    readonly UITimer _autosaveTimer = new() { Interval = 30 };
+    ButtonMenuItem _recentItem = null!;
     readonly PropertyPanel _properties;
     readonly Label _status = new() { TextColor = Colors.DimGray };
+    readonly Label _zoomText = new() { TextColor = Colors.DimGray };
+    Button _undoButton = null!;
+    Button _redoButton = null!;
+    // 阶段 G：右上角 Toast 浮层（PixelLayout 绝对定位覆盖整窗，不拦截鼠标）。
+    readonly PixelLayout _toastLayer = new();
+    Panel? _toastCard;
+    readonly UITimer _toastTimer = new() { Interval = 3 };
 
     readonly ContextMenu _canvasMenu = new();
     readonly List<MenuItem> _selectionMenuItems = [];
@@ -53,6 +69,7 @@ internal sealed class MainForm : Form
     readonly ListBox _toolbox = new();
     readonly Button _rotatePaperButton = new() { Text = Localizer.T("Paper.Rotate") };
     readonly Button _customPaperButton = new() { Text = Localizer.T("Paper.CustomBtn") };
+    readonly CheckBox _continuousToggle = new() { Text = "连续纸（打印长度随内容自适应）" };
     readonly Label _paperInfo = new() { TextColor = Colors.DimGray, Wrap = WrapMode.Word };
     readonly TextArea _templateJson = new();
     readonly Label _jsonState = new() { TextColor = Colors.DimGray, VerticalAlignment = VerticalAlignment.Center };
@@ -62,6 +79,17 @@ internal sealed class MainForm : Form
     MenuItem _verticalCenterItem = null!;
     MenuItem _rotatePaperItem = null!;
     bool _syncingPaper;
+    // 右栏空白区（页面级水印）：持久实例，见 PropertyPanel.EmptyStateContentBuilder 挂接处注释。
+    Control? _pageSection;
+    bool _syncingWatermark;
+    CheckBox _watermarkEnabled = null!;
+    TextBox _watermarkText = null!;
+    TextBox _watermarkBinding = null!;
+    TextBox _watermarkFontSize = null!;
+    TextBox _watermarkOpacity = null!;
+    TextBox _watermarkRotation = null!;
+    TextBox _watermarkSpacing = null!;
+    TextBox _watermarkColor = null!;
     bool _jsonDirty;
     bool _jsonExpanded;
     string _jsonSnapshot = string.Empty;
@@ -79,13 +107,23 @@ internal sealed class MainForm : Form
             Data = SampleData.Create(),
         };
         _properties = new PropertyPanel(_designer.Kernel);
+        // 空白区必须返回懒构建的持久实例：属性面板每次 Rebuild 都会整表替换并 Dispose 旧行控件，
+        // 新建控件树会让字段级单例控件重复进视觉树（Eto 平台下还会被 Dispose 掉）。
+        _properties.EmptyStateContentBuilder = () => _pageSection ??= BuildPageSection();
         var root = new TableLayout { Spacing = new Size(0, 0) };
         root.Rows.Add(new TableRow(new TableCell(BuildToolBars()) { ScaleWidth = true }));
         var midRow = new TableRow(new TableCell(BuildCenterSplitter()) { ScaleWidth = true }) { ScaleHeight = true };
         root.Rows.Add(midRow);
         root.Rows.Add(new TableRow(new TableCell(BuildTemplateJsonPanel()) { ScaleWidth = true }));
         root.Rows.Add(new TableRow(new TableCell(BuildStatusBar()) { ScaleWidth = true }));
-        Content = root;
+        // 阶段 G：用 PixelLayout 包裹 TableLayout，使 Toast 浮层覆盖整窗且不抢占输入。
+        _toastLayer.Add(root, 0, 0);
+        Content = _toastLayer;
+        SizeChanged += (_, _) =>
+        {
+            root.Size = ClientSize;
+            PositionToast();
+        };
         Menu = BuildMenuBar();
 
         BuildCanvasContextMenu();
@@ -94,6 +132,18 @@ internal sealed class MainForm : Form
         _designer.MouseDown += OnDesignerMouseDown;
         _designer.KeyDown += OnDesignerKeyDown;
         BindKernel();
+
+        _autosaveTimer.Elapsed += (_, _) => { if (_session.IsDirty) _ = SaveSolution(false, silent: true); };
+        _autosaveTimer.Start();
+        // 阶段 G：Toast 3 秒后自动消失。
+        _toastTimer.Elapsed += (_, _) =>
+        {
+            _toastTimer.Stop();
+            if (_toastCard is not null)
+                _toastLayer.Remove(_toastCard);
+        };
+        UpdateTitle();
+        RefreshRecentMenu();
 
         Load += (_, _) => _designer.Focus();
 
@@ -135,6 +185,49 @@ internal sealed class MainForm : Form
         var importItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.ImportHiprint") };
         importItem.Click += (_, _) => ImportHiprintDialog();
         fileMenu.Items.Add(importItem);
+
+        var templatesItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.Templates"), ToolTip = Localizer.T("Menu.File.TemplatesTip") };
+        templatesItem.Click += (_, _) => OpenTemplateLibrary();
+        fileMenu.Items.Add(templatesItem);
+
+        var stylesItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.StyleLibrary"), ToolTip = Localizer.T("Menu.File.StyleLibraryTip") };
+        stylesItem.Click += (_, _) => StyleLibraryDialog.Show(_designer.Kernel, this);
+        fileMenu.Items.Add(stylesItem);
+
+        fileMenu.Items.Add(new SeparatorMenuItem());
+
+        var newItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.New") };
+        newItem.Click += (_, _) => NewSolution();
+        fileMenu.Items.Add(newItem);
+
+        var openItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.Open") };
+        openItem.Click += (_, _) => OpenSolutionDialog();
+        fileMenu.Items.Add(openItem);
+
+        _recentItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.Recent") };
+        fileMenu.Items.Add(_recentItem);
+
+        var saveItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.Save") };
+        saveItem.Click += (_, _) => _ = SaveSolution(false);
+        fileMenu.Items.Add(saveItem);
+
+        var saveAsItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.SaveAs") };
+        saveAsItem.Click += (_, _) => _ = SaveSolution(true);
+        fileMenu.Items.Add(saveAsItem);
+
+        fileMenu.Items.Add(new SeparatorMenuItem());
+
+        var exportJsonItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.ExportJson") };
+        exportJsonItem.Click += (_, _) => ExportSolutionJson();
+        fileMenu.Items.Add(exportJsonItem);
+
+        var exportPdfItem = new ButtonMenuItem { Text = Localizer.T("Menu.File.ExportPdf") };
+        exportPdfItem.Click += (_, _) => ExportPdf();
+        fileMenu.Items.Add(exportPdfItem);
+
+        var printItem = new ButtonMenuItem { Text = Localizer.T("Menu.Print.System") };
+        printItem.Click += (_, _) => PrintSolution();
+        fileMenu.Items.Add(printItem);
 
         var helpMenu = new ButtonMenuItem { Text = Localizer.T("Menu.Help") };
         var aboutItem = new ButtonMenuItem { Text = Localizer.T("Menu.Help.About") };
@@ -207,15 +300,19 @@ internal sealed class MainForm : Form
         // 导入按钮放最前面：工具条一行放不下时末尾的按钮会先被裁掉。
         edit.Items.Add(MakeButton(Localizer.T("Toolbar.Import"), ImportHiprintDialog, Localizer.T("Toolbar.Import.Tip")));
         edit.Items.Add(ToolbarSeparator());
+        _undoButton = MakeButton(Localizer.T("Toolbar.Undo"), DoUndo, Localizer.T("Toolbar.Undo.Tip"));
+        _redoButton = MakeButton(Localizer.T("Toolbar.Redo"), DoRedo, Localizer.T("Toolbar.Redo.Tip"));
+        edit.Items.Add(_undoButton);
+        edit.Items.Add(_redoButton);
+        edit.Items.Add(ToolbarSeparator());
         edit.Items.Add(MakeButton(Localizer.T("Toolbar.Duplicate"), DuplicateSelection, Localizer.T("Toolbar.Duplicate.Tip")));
         edit.Items.Add(MakeButton(Localizer.T("Toolbar.Delete"), DeleteSelection, Localizer.T("Toolbar.Delete.Tip")));
         edit.Items.Add(MakeButton(Localizer.T("Toolbar.BringForward"), () => Run(_designer.Kernel.BringForward), Localizer.T("Toolbar.BringForward.Tip")));
         edit.Items.Add(MakeButton(Localizer.T("Toolbar.SendBackward"), () => Run(_designer.Kernel.SendBackward), Localizer.T("Toolbar.SendBackward.Tip")));
         edit.Items.Add(MakeButton(Localizer.T("Toolbar.BringToFront"), () => Run(_designer.Kernel.BringToFront), Localizer.T("Toolbar.BringToFront.Tip")));
         edit.Items.Add(MakeButton(Localizer.T("Toolbar.SendToBack"), () => Run(_designer.Kernel.SendToBack), Localizer.T("Toolbar.SendToBack.Tip")));
-        edit.Items.Add(ToolbarSeparator());
-        edit.Items.Add(MakeButton(Localizer.T("Toolbar.FitToPage"), () => Run(_designer.FitToPage), Localizer.T("Toolbar.FitToPage.Tip")));
-        edit.Items.Add(MakeButton(Localizer.T("Toolbar.ZoomActual"), ZoomActual, Localizer.T("Toolbar.ZoomActual.Tip")));
+        // 「适合窗口 / 100%」与底部状态栏缩放组重复，统一收敛到状态栏（Avalonia 基准口径）；
+        // 画布右键菜单仍保留同名项。
         edit.Items.Add(ToolbarSeparator());
         edit.Items.Add(MakeButton(Localizer.T("Toolbar.ExportPdf"), ExportPdf, Localizer.T("Toolbar.ExportPdf.Tip")));
         edit.Items.Add(MakeButton(Localizer.T("Toolbar.Preview"), OpenPreview, Localizer.T("Toolbar.Preview.Tip")));
@@ -328,6 +425,9 @@ internal sealed class MainForm : Form
         _rotatePaperButton.Click += (_, _) => TogglePaperOrientation();
         _customPaperButton.Click += (_, _) => ShowCustomPaperDialog();
 
+        // 连续纸独立开关：与预设正交（选 A4 再勾上就是"A4 宽的连续纸"）。走内核命令可撤销。
+        _continuousToggle.CheckedChanged += (_, _) => TogglePaperContinuous(_continuousToggle.Checked == true);
+
         var buttons = new TableLayout { Spacing = new Size(4, 0) };
         buttons.Rows.Add(new TableRow(
             new TableCell(_rotatePaperButton) { ScaleWidth = true },
@@ -342,6 +442,7 @@ internal sealed class MainForm : Form
         };
         layout.Items.Add(_paperDropDown);
         layout.Items.Add(buttons);
+        layout.Items.Add(_continuousToggle);
         layout.Items.Add(_paperInfo);
 
         return layout;
@@ -349,17 +450,18 @@ internal sealed class MainForm : Form
 
     Control BuildToolbox()
     {
-        // 工具箱列表与 ElementButtons 一一对应：选中项下标即元素类型，
-        // 双击（Activated）/回车或点「添加到画布」都加到画布中心。
-        foreach (var (label, _) in ElementButtons)
-            _toolbox.Items.Add(label);
-
+        // 列表条目来自过滤后的 _toolboxEntries：搜索框按中英文名（或类型键）过滤后，
+        // 选中项下标不再等于全量 ElementButtons 下标；双击（Activated）/回车或点「添加到画布」都加到画布中心。
+        ApplyToolboxFilter(string.Empty);
         _toolbox.Activated += (_, _) => AddFromToolbox();
+
+        var search = new TextBox { PlaceholderText = Localizer.T("Toolbox.Search") };
+        search.TextChanged += (_, _) => ApplyToolboxFilter(search.Text);
 
         var add = MakeButton(Localizer.T("Toolbox.AddToCanvas"), AddFromToolbox, "把选中的元素添加到画布中心");
         var hint = new Label
         {
-            Text = Localizer.T("Status.DefaultTip"),
+            Text = Localizer.T("Toolbox.HintDrag"),
             TextColor = Colors.Gray,
             Wrap = WrapMode.Word,
         };
@@ -369,21 +471,151 @@ internal sealed class MainForm : Form
             Spacing = new Size(4, 2),
             Padding = new Padding(0, 0, 0, 2),
         };
+        layout.Rows.Add(new TableRow(search));
         layout.Rows.Add(new TableRow(new TableCell(_toolbox) { ScaleWidth = true }) { ScaleHeight = true });
         layout.Rows.Add(new TableRow(add));
         layout.Rows.Add(new TableRow(hint));
 
+        HookToolboxDragDrop();
         return layout;
     }
 
-    Control BuildStatusBar()
+    /// <summary>过滤后的工具箱条目：与 _toolbox.Items 一一对应（搜索过滤后的子集）。</summary>
+    readonly List<(string Label, string Key)> _toolboxEntries = new();
+
+    /// <summary>工具箱按中英文名（或类型键）过滤条目：空查询=全部显示。</summary>
+    void ApplyToolboxFilter(string? query)
     {
-        return new Panel
+        _toolbox.Items.Clear();
+        _toolboxEntries.Clear();
+        foreach (var (label, key) in ElementButtons)
         {
-            Content = _status,
-            Padding = new Padding(10, 4),
+            if (!ToolboxNames.Matches(key, query))
+                continue;
+
+            _toolbox.Items.Add(label);
+            _toolboxEntries.Add((label, key));
+        }
+    }
+
+    /// <summary>
+    /// 工具箱条目拖入画布。载荷走 Text + 内置类型键白名单校验：只认 ElementTypeKeys.All 里的精确值，
+    /// 别家拖普通文本进来不会误触发放置，也避开 Eto 各平台自定义格式支持不一的坑。
+    /// </summary>
+    void HookToolboxDragDrop()
+    {
+        _toolbox.MouseDown += (_, e) =>
+        {
+            if (e.Buttons == MouseButtons.Primary)
+                _toolboxDragStart = e.Location;
+        };
+        _toolbox.MouseMove += (_, e) =>
+        {
+            if (e.Buttons != MouseButtons.Primary || _toolbox.SelectedIndex < 0)
+                return;
+
+            // 越过 4px 阈值才算拖拽：单纯点击仍走双击/按钮的"加到中心"。
+            if (Math.Abs(e.Location.X - _toolboxDragStart.X) < 4 && Math.Abs(e.Location.Y - _toolboxDragStart.Y) < 4)
+                return;
+
+            var entry = _toolboxEntries[_toolbox.SelectedIndex];
+            _toolbox.DoDragDrop(new DataObject { Text = entry.Key }, DragEffects.Copy);
+        };
+
+        _designer.AllowDrop = true;
+        _designer.DragOver += (_, e) =>
+        {
+            var key = e.Data?.Text;
+            e.Effects = key is not null && ElementTypeKeys.All.Contains(key)
+                ? DragEffects.Copy
+                : DragEffects.None;
+        };
+        _designer.DragDrop += (_, e) =>
+        {
+            var key = e.Data?.Text;
+            if (key is null || !ElementTypeKeys.All.Contains(key))
+                return;
+
+            // 从屏幕坐标换算控件内位置；逻辑 px × Dpi/96 → 设备 px（与右键命中同一口径）。
+            var local = _designer.PointFromScreen(Mouse.Position);
+            var scale = _designer.Dpi / 96.0;
+            var mm = _designer.Kernel.Viewport.ToMm(local.X * scale, local.Y * scale, _designer.Dpi);
+            Run(() => _designer.Kernel.AddElementAt(key, mm.X, mm.Y));
+            SetStatus(Localizer.T("Status.ElementAddedCenter", Localizer.T(ToolboxNames.I18nKeyOf(key))));
         };
     }
+
+    PointF _toolboxDragStart;
+
+    Control BuildStatusBar()
+    {
+        var zoomBox = new StackLayout { Orientation = Orientation.Horizontal, Spacing = 2 };
+        zoomBox.Items.Add(ZoomButton(Localizer.T("Toolbar.ZoomOut"), () => EditorActions.ZoomOut(_designer.Kernel), Localizer.T("Toolbar.ZoomOut.Tip")));
+        zoomBox.Items.Add(ZoomButton(Localizer.T("Toolbar.ZoomIn"), () => EditorActions.ZoomIn(_designer.Kernel), Localizer.T("Toolbar.ZoomIn.Tip")));
+        zoomBox.Items.Add(ZoomButton(Localizer.T("Toolbar.ZoomActual"), () => EditorActions.ZoomActual(_designer.Kernel), Localizer.T("Toolbar.ZoomActual.Tip")));
+        zoomBox.Items.Add(ZoomButton(Localizer.T("Toolbar.FitToPage"), FitToPageFromStatus, Localizer.T("Toolbar.FitToPage.Tip")));
+
+        // TableLayout 第三列 ScaleWidth=true：状态文本吃掉剩余宽度，缩放组不会被挤动。
+        var row = new TableLayout { Spacing = new Size(8, 0) };
+        row.Rows.Add(new TableRow(
+            new TableCell(zoomBox),
+            new TableCell(_zoomText),
+            new TableCell(_status) { ScaleWidth = true }));
+        return new Panel { Content = row, Padding = new Padding(10, 4) };
+    }
+
+    /// <summary>状态栏缩放按钮：显式固定宽度，短标签才不会被 Eto 的默认内边距吃掉。</summary>
+    static Button ZoomButton(string text, Action action, string tip)
+    {
+        var button = new Button { Text = text, Width = 34, ToolTip = tip };
+        button.Click += (_, _) => action();
+        return button;
+    }
+
+    /// <summary>「适合窗口」用宿主真实绘制表面尺寸；它不发 ViewChanged，读数要手动刷一次。</summary>
+    void FitToPageFromStatus()
+    {
+        _designer.FitToPage();
+        UpdateZoomText();
+        _designer.Focus();
+    }
+
+    void DoUndo()
+    {
+        if (!EditorActions.Undo(_designer.Kernel))
+        {
+            SetStatus(Localizer.T("Status.NothingToUndo"));
+            return;
+        }
+
+        _designer.Focus();
+        SetStatus(Localizer.T("Status.Undone"));
+    }
+
+    void DoRedo()
+    {
+        if (!EditorActions.Redo(_designer.Kernel))
+        {
+            SetStatus(Localizer.T("Status.NothingToRedo"));
+            return;
+        }
+
+        _designer.Focus();
+        SetStatus(Localizer.T("Status.Redone"));
+    }
+
+    void UpdateUndoButtons()
+    {
+        if (_undoButton is null)
+            return;
+
+        _undoButton.Enabled = _designer.Kernel.CanUndo;
+        _redoButton.Enabled = _designer.Kernel.CanRedo;
+    }
+
+    /// <summary>缩放比例读数：−/+/100% 都走内核 KeyAction，会发 ViewChanged 自动刷新。</summary>
+    void UpdateZoomText()
+        => _zoomText.Text = Localizer.T("Status.Zoom", EditorActions.ZoomPercent(_designer.Kernel));
 
     void BuildCanvasContextMenu()
     {
@@ -446,6 +678,27 @@ internal sealed class MainForm : Form
 
     void OnDesignerKeyDown(object? sender, KeyEventArgs e)
     {
+        // 撤销/重做与 Ctrl+D 同口径：画布有焦点时才生效，属性面板文本框里的按键不抢。
+        // Ctrl+Shift+Z 与 Ctrl+Y 都算重做（与 Avalonia 基准一致）。
+        if (e.Control && !e.Alt && (e.Key == Keys.Z || e.Key == Keys.Y))
+        {
+            if (e.Key == Keys.Y || e.Shift)
+                DoRedo();
+            else
+                DoUndo();
+
+            e.Handled = true;
+            return;
+        }
+
+        // 阶段 E：Ctrl+S 立即保存。
+        if (e.Control && !e.Alt && e.Key == Keys.S)
+        {
+            SaveSolution(false);
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+D 只在设计画布有焦点时生效：属性面板的文本框里按键不该被抢。
         if (e.Key != Keys.D || !e.Control || e.Shift || e.Alt)
             return;
@@ -496,16 +749,43 @@ internal sealed class MainForm : Form
 
         try
         {
-            _designer.Kernel.SetCustomPaper(dialog.WidthMm, dialog.HeightMm);
-            SetStatus(dialog.HeightMm > 0
-                ? $"自定义纸张：{dialog.WidthMm:0.##} × {dialog.HeightMm:0.##} mm。"
-                : $"自定义连续纸：宽 {dialog.WidthMm:0.##} mm，长度随内容自适应。");
+            // 自定义纸张只改尺寸：是否连续纸由纸张属性里的独立开关决定，此处保持现状。
+            var continuous = _designer.Kernel.Template.Paper.IsContinuous;
+            _designer.Kernel.SetCustomPaper(dialog.WidthMm, dialog.HeightMm, continuous);
+            SetStatus(continuous
+                ? $"自定义纸张：宽 {dialog.WidthMm:0.##} mm，设计高度 {dialog.HeightMm:0.##} mm，打印长度随内容。"
+                : $"自定义纸张：{dialog.WidthMm:0.##} × {dialog.HeightMm:0.##} mm。");
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, Localizer.T("Error.PaperFailed", ex.Message), Localizer.T("Paper.Section"), MessageBoxType.Warning);
         }
 
+        SyncPaperControls();
+        _designer.Focus();
+    }
+
+    /// <summary>连续纸独立开关：走内核命令（可撤销），处理器全程拉起重入保护挡住回填触发的嵌套事件。</summary>
+    void TogglePaperContinuous(bool value)
+    {
+        if (_syncingPaper)
+            return;
+        _syncingPaper = true;
+        try
+        {
+            _designer.Kernel.SetPaperContinuous(value);
+            SetStatus(value
+                ? "连续纸：打印长度随内容自适应（纸高只决定画布多高）。"
+                : "固定纸高：按纸高分页打印。");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("切换连续纸失败：" + ex.Message);
+        }
+        finally
+        {
+            _syncingPaper = false;
+        }
         SyncPaperControls();
         _designer.Focus();
     }
@@ -552,6 +832,8 @@ internal sealed class MainForm : Form
             _paperDropDown.SelectedIndex = index >= 0 ? index : PaperChoices.Length - 1;
 
             var continuous = paper.IsContinuous;
+            if (_continuousToggle.Checked != continuous)
+                _continuousToggle.Checked = continuous;
             _rotatePaperButton.Enabled = !continuous;
             _rotatePaperButton.Text = paper.Orientation == PaperOrientation.Landscape ? Localizer.T("Canvas.Context.RotatePortrait") : Localizer.T("Paper.Rotate");
 
@@ -563,6 +845,121 @@ internal sealed class MainForm : Form
         finally
         {
             _syncingPaper = false;
+        }
+    }
+
+    /// <summary>右栏空白区持久实例：属性面板每次 Rebuild 复用同一棵控件树。</summary>
+    Control BuildPageSection()
+    {
+        var stack = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 6,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        stack.Items.Add(BuildWatermarkSection());
+        return stack;
+    }
+
+    /// <summary>
+    /// 水印设置区：启用/文字/字段绑定/字号/透明度/角度/间距/颜色。
+    /// 校验、夹取、可撤销提交、回填统一走共享层 <see cref="WatermarkEdits"/>。
+    /// </summary>
+    Control BuildWatermarkSection()
+    {
+        _watermarkEnabled = new CheckBox { Text = Localizer.T("Watermark.Enabled") };
+        _watermarkEnabled.CheckedChanged += (_, _) =>
+            CommitIfNotSyncing(() => WatermarkEdits.SetEnabled(_designer.Kernel, _watermarkEnabled.Checked == true));
+
+        _watermarkText = WatermarkBox(() => WatermarkEdits.SetText(_designer.Kernel, _watermarkText.Text));
+        _watermarkBinding = WatermarkBox(() => WatermarkEdits.SetBinding(_designer.Kernel, _watermarkBinding.Text));
+        _watermarkFontSize = WatermarkBox(() => CommitWatermarkNumber(WatermarkNumber.FontSizePt, _watermarkFontSize));
+        _watermarkOpacity = WatermarkBox(() => CommitWatermarkNumber(WatermarkNumber.Opacity, _watermarkOpacity));
+        _watermarkRotation = WatermarkBox(() => CommitWatermarkNumber(WatermarkNumber.RotationDeg, _watermarkRotation));
+        _watermarkSpacing = WatermarkBox(() => CommitWatermarkNumber(WatermarkNumber.SpacingMm, _watermarkSpacing));
+        _watermarkColor = WatermarkBox(CommitWatermarkColor);
+
+        var section = new TableLayout { Spacing = new Size(6, 4) };
+        section.Rows.Add(new TableRow(new TableCell(new Label
+        {
+            Text = Localizer.T("Watermark.Section"),
+            Font = new Font(SystemFont.Bold),
+        })
+        { ScaleWidth = true }));
+        section.Rows.Add(new TableRow(new TableCell(_watermarkEnabled) { ScaleWidth = true }));
+        AddWatermarkRow(section, Localizer.T("Watermark.Text"), _watermarkText);
+        AddWatermarkRow(section, Localizer.T("Watermark.Binding"), _watermarkBinding);
+        AddWatermarkRow(section, Localizer.T("Watermark.FontSize"), _watermarkFontSize);
+        AddWatermarkRow(section, Localizer.T("Watermark.Opacity"), _watermarkOpacity);
+        AddWatermarkRow(section, Localizer.T("Watermark.Rotation"), _watermarkRotation);
+        AddWatermarkRow(section, Localizer.T("Watermark.Spacing"), _watermarkSpacing);
+        AddWatermarkRow(section, Localizer.T("Watermark.Color"), _watermarkColor);
+
+        RefreshWatermarkControls();
+        return section;
+    }
+
+    static void AddWatermarkRow(TableLayout section, string label, Control editor)
+        => section.Rows.Add(new TableRow(
+            new TableCell(new Label { Text = label, TextColor = Colors.Gray, VerticalAlignment = VerticalAlignment.Center }),
+            new TableCell(editor) { ScaleWidth = true }));
+
+    /// <summary>水印输入框：失焦或回车提交；回填期间的事件由重入守卫挡掉。</summary>
+    TextBox WatermarkBox(Action commit)
+    {
+        var box = new TextBox();
+        box.LostFocus += (_, _) => CommitIfNotSyncing(commit);
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key != Keys.Enter)
+                return;
+
+            e.Handled = true;
+            CommitIfNotSyncing(commit);
+        };
+        return box;
+    }
+
+    void CommitIfNotSyncing(Action commit)
+    {
+        if (!_syncingWatermark)
+            commit();
+    }
+
+    void CommitWatermarkNumber(WatermarkNumber field, TextBox box)
+    {
+        if (!WatermarkEdits.SetNumber(_designer.Kernel, field, box.Text))
+            RefreshWatermarkControls();
+    }
+
+    void CommitWatermarkColor()
+    {
+        if (!WatermarkEdits.SetColor(_designer.Kernel, _watermarkColor.Text))
+            RefreshWatermarkControls();
+    }
+
+    /// <summary>换模板 / 撤销 / 重做后一次性把水印控件同步回模型值。</summary>
+    void RefreshWatermarkControls()
+    {
+        if (_syncingWatermark || _watermarkEnabled is null)
+            return;
+
+        _syncingWatermark = true;
+        try
+        {
+            var w = WatermarkEdits.Read(_designer.Kernel);
+            _watermarkEnabled.Checked = w.Enabled;
+            _watermarkText.Text = w.Text;
+            _watermarkBinding.Text = w.Binding;
+            _watermarkFontSize.Text = w.FontSizePt;
+            _watermarkOpacity.Text = w.Opacity;
+            _watermarkRotation.Text = w.RotationDeg;
+            _watermarkSpacing.Text = w.SpacingMm;
+            _watermarkColor.Text = w.Color;
+        }
+        finally
+        {
+            _syncingWatermark = false;
         }
     }
 
@@ -614,13 +1011,13 @@ internal sealed class MainForm : Form
     void AddFromToolbox()
     {
         var index = _toolbox.SelectedIndex;
-        if (index < 0)
+        if (index < 0 || index >= _toolboxEntries.Count)
         {
             SetStatus(Localizer.T("Status.SelectFirst"), error: true);
             return;
         }
 
-        var (label, key) = ElementButtons[index];
+        var (label, key) = _toolboxEntries[index];
         Run(() => _designer.Kernel.AddElementAtCenter(key));
         SetStatus(Localizer.T("Status.ElementAddedCenter", label));
     }
@@ -711,8 +1108,18 @@ internal sealed class MainForm : Form
     {
         _designer.Kernel.TemplateChanged += SyncPaperControls;
         _designer.Kernel.TemplateChanged += OnKernelTemplateChanged;
+        // 阶段 E：任何编辑都标记脏位（LoadTemplate 已换内核，这里重绑到新内核）。
+        _designer.Kernel.TemplateChanged += MarkSolutionDirty;
+        // 提交、撤销、重做、换模板都会发 TemplateChanged：水印控件统一从这里回读模型值。
+        _designer.Kernel.TemplateChanged += RefreshWatermarkControls;
+        // LoadTemplate 会换内核：撤销态与缩放读数的订阅必须每次重绑（与 Avalonia 基准一致）。
+        _designer.Kernel.UndoStateChanged += UpdateUndoButtons;
+        _designer.Kernel.ViewChanged += UpdateZoomText;
         _properties.Attach(_designer.Kernel);
         SyncPaperControls();
+        RefreshWatermarkControls();
+        UpdateUndoButtons();
+        UpdateZoomText();
         RefreshTemplateJson(jsonNote);
     }
 
@@ -862,6 +1269,255 @@ internal sealed class MainForm : Form
             + string.Join("；", result.Issues.Take(3));
     }
 
+    // ===== 阶段 E/F：解决方案持久化 + 导出/打印 =====
+
+    void MarkSolutionDirty()
+    {
+        _session.IsDirty = true;
+        UpdateTitle();
+    }
+
+    void UpdateTitle()
+    {
+        var mark = _session.IsDirty ? "*" : string.Empty;
+        Title = $"{Localizer.T("App.Title.Short")} — Eto — {_session.CurrentName}{mark}";
+    }
+
+    void NewSolution()
+    {
+        _designer.LoadTemplate(PrintTemplate.CreateDefault(PaperTypePresets.A4));
+        BindKernel("未命名模板");
+        _session.New();
+        SetStatus(Localizer.T("Status.NewSolution"));
+        UpdateTitle();
+    }
+
+    void OpenSolutionDialog()
+    {
+        var records = _session.List();
+        var listBox = new ListBox();
+        foreach (var record in records)
+            listBox.Items.Add(record.Name);
+
+        var openButton = new Button { Text = Localizer.T("Dialog.Open") };
+        var cancelButton = new Button { Text = Localizer.T("Dialog.Cancel") };
+        var buttonPanel = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+
+            Spacing = 6,
+            Padding = new Padding(6),
+            Items = { cancelButton, openButton },
+        };
+
+        var layout = new DynamicLayout();
+        layout.BeginVertical();
+        layout.Add(listBox, yscale: true);
+        layout.Add(buttonPanel);
+        layout.EndVertical();
+
+        var dialog = new Dialog
+        {
+            Title = Localizer.T("Dialog.OpenSolution"),
+            Content = layout,
+            Owner = this,
+        };
+        dialog.DefaultButton = openButton;
+        dialog.AbortButton = cancelButton;
+
+        void OpenSelected()
+        {
+            if (listBox.SelectedIndex >= 0 && listBox.SelectedIndex < records.Count)
+            {
+                var rec = records[listBox.SelectedIndex];
+                dialog.Close();
+                OpenSolution(rec.Id);
+            }
+        }
+
+        openButton.Click += (_, _) => OpenSelected();
+        cancelButton.Click += (_, _) => dialog.Close();
+        listBox.MouseDoubleClick += (_, _) => OpenSelected();
+
+        dialog.ShowModal(this);
+    }
+
+    void OpenSolution(string id)
+    {
+        var record = _session.Load(id);
+        if (record is null)
+        {
+            SetStatus(Localizer.T("Error.OpenFailed"), error: true);
+            return;
+        }
+
+        var template = SolutionSession.Parse(record.Json);
+        if (template is null)
+        {
+            SetStatus(Localizer.T("Error.OpenFailed"), error: true);
+            return;
+        }
+
+        _designer.LoadTemplate(template);
+        BindKernel(record.Name);
+        _session.OpenRecord(record);
+        SetStatus(Localizer.T("Status.Opened", record.Name));
+        UpdateTitle();
+        RefreshRecentMenu();
+    }
+
+    void RefreshRecentMenu()
+    {
+        _recentItem.Items.Clear();
+        foreach (var record in _session.Recent(8))
+        {
+            var item = new ButtonMenuItem { Text = record.Name };
+            item.Click += (_, _) => OpenSolution(record.Id);
+            _recentItem.Items.Add(item);
+        }
+
+        if (_recentItem.Items.Count == 0)
+            _recentItem.Items.Add(new ButtonMenuItem { Text = Localizer.T("Menu.File.NoRecent"), Enabled = false });
+    }
+
+    async Task<bool> SaveSolution(bool saveAs, bool silent = false)
+    {
+        string? name = null;
+        if (saveAs || (_session.CurrentId is null && !silent))
+        {
+            name = PromptName(_session.CurrentName ?? "未命名模板");
+            if (name is null)
+                return false;
+        }
+
+        try
+        {
+            _session.SaveCurrent(_designer.Template, name);
+            SetStatus(Localizer.T("Status.Saved", _session.CurrentName));
+            ShowToast("保存成功", Localizer.T("Status.Saved", _session.CurrentName));
+        }
+        catch (Exception ex)
+        {
+            SetStatus(Localizer.T("Error.SaveFailed", ex.Message), error: true);
+            return false;
+        }
+
+        UpdateTitle();
+        RefreshRecentMenu();
+        return true;
+    }
+
+    string? PromptName(string defaultName)
+    {
+        var textBox = new TextBox { Text = defaultName };
+        var okButton = new Button { Text = Localizer.T("Dialog.OK") };
+        var cancelButton = new Button { Text = Localizer.T("Dialog.Cancel") };
+        var buttonPanel = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+
+            Spacing = 6,
+            Padding = new Padding(6),
+            Items = { cancelButton, okButton },
+        };
+
+        var layout = new DynamicLayout();
+        layout.BeginVertical();
+        layout.Add(textBox);
+        layout.Add(buttonPanel);
+        layout.EndVertical();
+
+        var dialog = new Dialog
+        {
+            Title = Localizer.T("Dialog.SaveAs"),
+            Content = layout,
+            Owner = this,
+        };
+        dialog.DefaultButton = okButton;
+        dialog.AbortButton = cancelButton;
+
+        string? result = null;
+        okButton.Click += (_, _) =>
+        {
+            result = textBox.Text.Trim();
+            if (string.IsNullOrEmpty(result))
+                result = null;
+            dialog.Close();
+        };
+        cancelButton.Click += (_, _) => dialog.Close();
+
+        dialog.ShowModal(this);
+        return result;
+    }
+
+    void ExportSolutionJson()
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Title = Localizer.T("Dialog.Export.Title"),
+            FileName = "crossprint-template.json",
+        };
+        dialog.Filters.Add(new FileFilter("JSON 文件", ".json"));
+
+        if (dialog.ShowDialog(this) != DialogResult.Ok)
+            return;
+
+        try
+        {
+            File.WriteAllText(dialog.FileName, TemplateJson.Serialize(_designer.Template, indented: true));
+            SetStatus(Localizer.T("Status.Exported", dialog.FileName));
+            ShowToast("已导出模板", Localizer.T("Status.Exported", dialog.FileName));
+        }
+        catch (Exception ex)
+        {
+            SetStatus(Localizer.T("Error.ExportFailed", ex.Message), error: true);
+            MessageBox.Show(this, ex.Message, Localizer.T("Dialog.Export.Title"), MessageBoxType.Error);
+        }
+    }
+
+    // 阶段 F：系统打印（SystemPrintTarget）：渲染临时 PDF 后交 OS 打印管线。
+    bool _printing;
+
+    void PrintSolution()
+    {
+        if (_printing)
+        {
+            SetStatus(Localizer.T("Status.PrintingBusy"), error: true);
+            return;
+        }
+
+        _printing = true;
+        SetStatus(Localizer.T("Status.PrintingStarting"));
+        var issues = new RenderReport();
+        var document = new CrossPrint.Printing.PrintDocument(_designer.Template, SampleData.Create());
+        _ = PrintSolutionAsync(document, issues);
+    }
+
+    async Task PrintSolutionAsync(CrossPrint.Printing.PrintDocument document, RenderReport issues)
+    {
+        try
+        {
+            var result = await new SystemPrintTarget().PrintBatchAsync(new[] { document }, new SystemPrintOptions(), issues);
+            SetStatus(result.Success
+                ? (issues.HasIssues
+                    ? Localizer.T("Status.PrintedWithWarnings", result.PrintedPages, issues.Issues.Count)
+                    : Localizer.T("Status.Printed", result.PrintedPages))
+                : Localizer.T("Error.PrintFailed", result.Message), error: !result.Success);
+            if (result.Success)
+                ShowToast("打印完成", issues.HasIssues
+                    ? Localizer.T("Status.PrintedWithWarnings", result.PrintedPages, issues.Issues.Count)
+                    : Localizer.T("Status.Printed", result.PrintedPages));
+        }
+        catch (Exception ex)
+        {
+            SetStatus(Localizer.T("Error.PrintFailed", ex.Message), error: true);
+        }
+        finally
+        {
+            _printing = false;
+        }
+    }
+
     void ExportPdf()
     {
         using var dialog = new SaveFileDialog
@@ -888,6 +1544,7 @@ internal sealed class MainForm : Form
             SetStatus(report.HasIssues
                 ? $"已导出 PDF（{report.Issues.Count} 条渲染降级）：{dialog.FileName}"
                 : $"已导出 PDF：{dialog.FileName}");
+            ShowToast("已导出 PDF", dialog.FileName);
         }
         catch (Exception ex)
         {
@@ -1023,6 +1680,36 @@ internal sealed class MainForm : Form
         _status.TextColor = error ? Colors.Firebrick : Colors.DimGray;
     }
 
+    // 阶段 G：右上角 Toast（成功/提示浮层），3 秒自动消失，不拦截鼠标；同一时刻只保留最新一条。
+    void ShowToast(string title, string? message = null)
+    {
+        var stack = new StackLayout { Padding = new Padding(12, 8) };
+        stack.Items.Add(new Label { Text = title, Font = Fonts.Sans(11, FontStyle.Bold), TextColor = Colors.Black });
+        if (!string.IsNullOrEmpty(message))
+            stack.Items.Add(new Label { Text = message, Font = Fonts.Sans(10), TextColor = Colors.DimGray, Wrap = WrapMode.Word });
+
+        _toastCard = new Panel
+        {
+            Content = stack,
+            BackgroundColor = Colors.White,
+            Width = 320,
+        };
+
+        PositionToast();
+        if (!_toastLayer.Controls.Contains(_toastCard))
+            _toastLayer.Add(_toastCard, ClientSize.Width - 320 - 16, 56);
+        _toastTimer.Stop();
+        _toastTimer.Start();
+    }
+
+    void PositionToast()
+    {
+        if (_toastCard is null)
+            return;
+        _toastLayer.Remove(_toastCard);
+        _toastLayer.Add(_toastCard, ClientSize.Width - 320 - 16, 56);
+    }
+
     static Button MakeButton(string text, Action action, string? tooltip = null)
     {
         var button = new Button { Text = text };
@@ -1031,5 +1718,114 @@ internal sealed class MainForm : Form
 
         button.Click += (_, _) => action();
         return button;
+    }
+
+    /// <summary>模板库对话框：左侧分类 + 右侧缩略图卡片网格，点击卡片套用模板。</summary>
+    void OpenTemplateLibrary()
+    {
+        var entries = BuiltinTemplateCatalog.BuildEntries();
+        var byCategory = new Dictionary<string, List<BuiltinTemplateCatalog.Entry>>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            if (!byCategory.TryGetValue(entry.Category, out var list))
+                byCategory[entry.Category] = list = new List<BuiltinTemplateCatalog.Entry>();
+            list.Add(entry);
+        }
+
+        var categoryList = new ListBox { Width = 160 };
+        categoryList.Items.Add("全部");
+        foreach (var c in BuiltinTemplateCatalog.Categories)
+            categoryList.Items.Add(c);
+        categoryList.SelectedIndex = 0;
+
+        const int Columns = 3;
+        var cardTable = new TableLayout { Spacing = new Size(8, 8), Padding = new Padding(8) };
+        var scroll = new Scrollable { Content = cardTable };
+
+        Dialog? dialog = null;
+
+        void ApplyFromLibrary(BuiltinTemplateCatalog.Entry entry)
+        {
+            _designer.LoadTemplate(entry.Create());
+            BindKernel(entry.Name);
+            SetStatus(Localizer.T("Status.TemplateApplied", entry.Name));
+        }
+
+        TableLayout BuildCard(BuiltinTemplateCatalog.Entry entry)
+        {
+            var card = new TableLayout { Spacing = new Size(0, 4), Padding = new Padding(8) };
+            try
+            {
+                var bmp = new Bitmap(new MemoryStream(BuiltinTemplateCatalog.RenderThumbnailPng(entry.Create())));
+                card.Rows.Add(new TableRow(new TableCell(new ImageView { Image = bmp, Size = new Size(200, 96) }) { ScaleWidth = true }));
+            }
+            catch
+            {
+                // 缩略图渲染失败不阻断选单本身。
+            }
+
+            card.Rows.Add(new TableRow(new TableCell(new Label
+            {
+                Text = entry.Name,
+                Font = new Font(SystemFont.Bold),
+                Wrap = WrapMode.None,
+            })));
+            card.Rows.Add(new TableRow(new TableCell(new Label
+            {
+                Text = entry.Description,
+                TextColor = Colors.Gray,
+                Wrap = WrapMode.Word,
+            })));
+            card.MouseDown += (_, e) =>
+            {
+                if (e.Buttons == MouseButtons.Primary)
+                {
+                    dialog!.Close();
+                    ApplyFromLibrary(entry);
+                }
+            };
+            return card;
+        }
+
+        void ShowCards(string category)
+        {
+            cardTable.Rows.Clear();
+            var list = category == "全部" ? entries : byCategory.GetValueOrDefault(category, new List<BuiltinTemplateCatalog.Entry>());
+            for (var i = 0; i < list.Count; i += Columns)
+            {
+                var cells = new List<TableCell>();
+                for (var j = 0; j < Columns && i + j < list.Count; j++)
+                    cells.Add(new TableCell(BuildCard(list[i + j])) { ScaleWidth = true });
+                cardTable.Rows.Add(new TableRow(cells.ToArray()));
+            }
+        }
+
+        categoryList.SelectedIndexChanged += (_, _) =>
+        {
+            if (categoryList.SelectedIndex >= 0)
+                ShowCards(categoryList.Items[categoryList.SelectedIndex]?.ToString() ?? "全部");
+        };
+        ShowCards("全部");
+
+        var body = new TableLayout();
+        body.Rows.Add(new TableRow(
+            new TableCell(categoryList) { ScaleWidth = false },
+            new TableCell(scroll) { ScaleWidth = true }) { ScaleHeight = true });
+
+        var hint = new Label { Text = Localizer.T("TemplateLibrary.Hint"), TextColor = Colors.Gray };
+        var root = new TableLayout();
+        root.Padding = new Padding(4);
+        root.Spacing = new Size(0, 4);
+        root.Rows.Add(new TableRow(new TableCell(hint) { ScaleWidth = true }));
+        root.Rows.Add(new TableRow(new TableCell(body) { ScaleWidth = true }) { ScaleHeight = true });
+
+        dialog = new Dialog
+        {
+            Title = Localizer.T("TemplateLibrary.Title"),
+            ClientSize = new Size(1080, 720),
+            Content = root,
+            Owner = this,
+        };
+        dialog.ShowModal(this);
     }
 }

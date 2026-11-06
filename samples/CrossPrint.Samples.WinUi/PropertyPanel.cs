@@ -39,6 +39,12 @@ public sealed class PropertyPanel : UserControl
     bool _rebuilding;
     string _signature = string.Empty;
 
+    /// <summary>
+    /// 无选中元素时空白区的附加内容构造器（页面级设置：水印等）。
+    /// 必须返回懒构建的持久实例，绝不能每次 Rebuild 新建控件树。
+    /// </summary>
+    public Func<FrameworkElement>? EmptyStateContentBuilder { get; set; }
+
     /// <summary>为指定内核创建属性面板。</summary>
     /// <param name="kernel">设计器内核；面板跟随它的选中集合刷新。</param>
     public PropertyPanel(EditorKernel kernel)
@@ -128,6 +134,8 @@ public sealed class PropertyPanel : UserControl
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 8, 0, 0),
                 });
+                if (EmptyStateContentBuilder?.Invoke() is { } extra)
+                    _rows.Children.Add(extra);
                 return;
             }
 
@@ -171,8 +179,9 @@ public sealed class PropertyPanel : UserControl
         }
     }
 
+    // 统一结构签名：含 Key + Hidden，条件属性切换/撤销后能即时重建；不含坐标值，拖拽不误重建。
     static string BuildSignature(ElementProperties properties)
-        => properties.Element.Id + "|" + string.Join("|", properties.Descriptors.Select(d => d.Key));
+        => PropertyOptions.StructureSignature(properties);
 
     static string DescribeElement(PaperElement element) => PropertyText.ElementType(element.TypeKey, element switch
     {
@@ -289,11 +298,11 @@ public sealed class PropertyPanel : UserControl
             {
                 var combo = new ComboBox
                 {
-                    ItemsSource = descriptor.Options,
+                    ItemsSource = PropertyOptions.Values(descriptor, element),
                     IsEnabled = !descriptor.ReadOnly,
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                 };
-                var current = descriptor.GetValue(element)?.ToString();
+                var current = PropertyOptions.Current(descriptor, element);
                 if (current is not null)
                     combo.SelectedItem = current;
 

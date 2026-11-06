@@ -695,9 +695,32 @@ public enum TableCellRender
     Image,
 }
 
+/// <summary>
+/// 表格单元格图片的数据类型（仅 <see cref="TableCellRender.Image"/> 列生效）。
+/// <see cref="Auto"/> 保持历史行为：data URI / 裸 base64 / http(s) 外链 / 宿主资源键一律自动识别；
+/// 显式指定后按类型<b>强制</b>解析，类型不符记 <c>ImageSourceMismatch</c> 告警而不悄悄降级。
+/// </summary>
+public enum TableCellImageSource
+{
+    /// <summary>自动识别（默认，旧模板零迁移）。</summary>
+    Auto,
+
+    /// <summary>链接图片：http/https 地址，或由宿主 <c>IImageResolver</c> 解析的资源键。</summary>
+    Url,
+
+    /// <summary>Base64 图片：<c>data:</c> URI 或裸 base64 载荷。</summary>
+    Base64,
+}
+
 /// <summary>表格列定义。</summary>
 public sealed class TableColumn
 {
+    /// <summary>单元格非文本内容的宽度硬上限 (mm)：A4 纸宽，防止 JSON 直接灌入超大值把版式撑爆。</summary>
+    public const double MaxCellContentWidthMm = 210;
+
+    /// <summary>单元格非文本内容的高度硬上限 (mm)：单格再高也没有打印意义。</summary>
+    public const double MaxCellContentHeightMm = 100;
+
     /// <summary>引用模板样式库的命名样式 id：对齐/字体族/字号/加粗/倾斜/字色/底色作为该列默认值，内联字段优先。</summary>
     public string? StyleId { get; set; }
 
@@ -769,6 +792,31 @@ public sealed class TableColumn
     /// <summary>单元格一维码是否在码下方绘制可读文本（<see cref="CellRender"/> 为 <see cref="TableCellRender.Barcode"/> 时生效）。</summary>
     public bool CellShowText { get; set; }
 
+    /// <summary>
+    /// 单元格图片的数据类型（<see cref="CellRender"/> 为 <see cref="TableCellRender.Image"/> 时生效）。
+    /// 默认 <see cref="TableCellImageSource.Auto"/>：自动识别链接 / Base64 / 宿主资源键，旧模板零迁移。
+    /// 指定 <see cref="TableCellImageSource.Url"/> 或 <see cref="TableCellImageSource.Base64"/> 后强制按该类型解析，
+    /// 类型不符只记渲染告警并跳过该格，不会悄悄当成另一种类型处理。
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public TableCellImageSource CellImageSource { get; set; } = TableCellImageSource.Auto;
+
+    /// <summary>
+    /// 单元格非文本内容（图片 / 一维码 / 二维码）的<b>绘制宽度</b> (mm)。
+    /// 0 = 跟随单元格宽度；&gt; 0 = 按该宽度居中绘制，且恒夹在单元格内、不超过
+    /// <see cref="MaxCellContentWidthMm"/>。文本列忽略此值。
+    /// </summary>
+    public double CellContentWidthMm { get; set; }
+
+    /// <summary>
+    /// 单元格非文本内容的<b>绘制高度</b> (mm)。
+    /// 0 = 跟随行高；&gt; 0 = 按该高度居中绘制，并作为该列的<b>行高下限</b>（夹到
+    /// <see cref="MaxCellContentHeightMm"/>）。文本列忽略此值。
+    /// 关键：非文本列的绑定值（尤其是几十 KB 的 data URI / 裸 base64）不再参与文本折行测量，
+    /// 因此载荷再长也不会把行高、连续纸页高、打印单撑爆。
+    /// </summary>
+    public double CellContentHeightMm { get; set; }
+
     internal TableColumn Clone() => new()
     {
         StyleId = StyleId,
@@ -788,6 +836,9 @@ public sealed class TableColumn
         CellSymbology = CellSymbology,
         CellErrorCorrection = CellErrorCorrection,
         CellShowText = CellShowText,
+        CellImageSource = CellImageSource,
+        CellContentWidthMm = CellContentWidthMm,
+        CellContentHeightMm = CellContentHeightMm,
     };
 }
 

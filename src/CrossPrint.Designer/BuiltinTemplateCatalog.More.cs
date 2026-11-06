@@ -2,14 +2,14 @@ using System.Collections.Generic;
 using CrossPrint.Core;
 using SkiaSharp;
 
-namespace CrossPrint.Samples.Avalonia;
+namespace CrossPrint.Designer;
 
 /// <summary>
 /// 模板库第二批扩容（partial）：面向"单机软件开箱即用的模板大市场"——
 /// 食品外包装/零售标签（含价签、酒标、药标、能效标、称重标、外卖封签等） +
 /// 复杂表单（快递面单、发货单、银行回单、工资条、维修工单）。全部程序化构造、自带演示数据。
 /// </summary>
-internal static partial class TemplateLibraryDialog
+public static partial class BuiltinTemplateCatalog
 {
     /// <summary>第二批：食品包装 + 复杂面单/表单。</summary>
     static IEnumerable<Entry> BuildMoreEntries()

@@ -18,4 +18,10 @@
     <PackageReference Include="SkiaSharp" />
   </ItemGroup>
 
+  <!-- 内置模板目录依赖的两份样例资产：作为内嵌资源随 Designer 程序集分发，所有宿主共享读取。 -->
+  <ItemGroup>
+    <EmbeddedResource Include="kitchen-sink.template.json" LogicalName="BuiltinTemplates.kitchen-sink.template.json" />
+    <EmbeddedResource Include="complex-receipt.template.json" LogicalName="BuiltinTemplates.complex-receipt.template.json" />
+  </ItemGroup>
+
 </Project>

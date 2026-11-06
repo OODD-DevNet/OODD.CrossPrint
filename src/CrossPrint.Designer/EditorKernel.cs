@@ -783,7 +783,9 @@ public sealed class EditorKernel
 
         var before = Template.Paper;
         var after = PaperSpec.FromPreset(preset);
-        after.Orientation = after.HeightMm <= 0 ? PaperOrientation.Portrait : before.Orientation;
+        // 热敏连续纸预设（高度 0）同步打上显式标志；固定纸预设关闭标志
+        after.Continuous = after.HeightMm <= 0;
+        after.Orientation = after.IsContinuous ? PaperOrientation.Portrait : before.Orientation;
         CommitPaper($"设置纸张 {preset}", before, after);
     }
 
@@ -792,19 +794,63 @@ public sealed class EditorKernel
     /// <param name="heightMm">纵向纸高，0 表示连续纸。</param>
     /// <exception cref="ArgumentOutOfRangeException">尺寸非法。</exception>
     public void SetCustomPaper(double widthMm, double heightMm)
+        => SetCustomPaper(widthMm, heightMm, continuous: heightMm <= 0);
+
+    /// <summary>
+    /// 自定义纸张：宽度、设计高度与"是否连续纸"三个语义独立。
+    /// 连续纸时 <paramref name="heightMm"/> 是**设计高度**（画布排版基准；≤0 落默认 297），
+    /// 打印/导出按内容自适应；非连续纸时它是真实的固定纸高。
+    /// </summary>
+    /// <param name="widthMm">纵向纸宽，必须大于 0。</param>
+    /// <param name="heightMm">纵向纸高（设计高度），必须非负。</param>
+    /// <param name="continuous">是否连续纸。</param>
+    /// <exception cref="ArgumentOutOfRangeException">尺寸非法。</exception>
+    public void SetCustomPaper(double widthMm, double heightMm, bool continuous)
     {
-        if (!!double.IsNaN(widthMm) && !double.IsInfinity(widthMm) || widthMm <= 0)
+        // net461 没有 double.IsFinite，用 IsNaN/Infinity 等价组合。
+        if (double.IsNaN(widthMm) || double.IsInfinity(widthMm) || widthMm <= 0)
             throw new ArgumentOutOfRangeException(nameof(widthMm), widthMm, "纸宽必须是有限正数。");
-        if (!!double.IsNaN(heightMm) && !double.IsInfinity(heightMm) || heightMm < 0)
-            throw new ArgumentOutOfRangeException(nameof(heightMm), heightMm, "纸高必须是非负有限数（0 表示连续纸）。");
+        if (double.IsNaN(heightMm) || double.IsInfinity(heightMm) || heightMm < 0)
+            throw new ArgumentOutOfRangeException(nameof(heightMm), heightMm, "纸高必须是非负有限数。");
 
         var before = Template.Paper;
         var after = before.Clone();
         after.Preset = PaperTypePresets.Custom;
         after.WidthMm = widthMm;
-        after.HeightMm = heightMm;
-        after.Orientation = heightMm <= 0 ? PaperOrientation.Portrait : before.Orientation;
-        CommitPaper($"自定义纸张 {widthMm:0.##}×{heightMm:0.##}mm", before, after);
+        after.Continuous = continuous;
+        after.HeightMm = continuous && heightMm <= 0 ? DefaultContinuousDesignHeightMm : heightMm;
+        after.Orientation = continuous ? PaperOrientation.Portrait : before.Orientation;
+        CommitPaper($"自定义纸张 {widthMm:0.##}×{after.HeightMm:0.##}mm{(continuous ? "（连续纸）" : "")}", before, after);
+    }
+
+    /// <summary>
+    /// 切换当前纸张的**连续纸**语义（纸张面板上的独立开关，用户钦定不藏进对话框——
+    /// 有人就需要 A4 宽的连续纸）：保留纸宽，纸高转设计高度语义；连续纸强制纵向。
+    /// 状态相同是幂等空操作（不灌撤销栈）。
+    /// </summary>
+    /// <param name="continuous">true=连续纸（长度随内容自适应）；false=固定纸高分页。</param>
+    public void SetPaperContinuous(bool continuous)
+    {
+        var before = Template.Paper;
+        if (before.IsContinuous == continuous)
+            return;
+
+        var after = before.Clone();
+        after.Continuous = continuous;
+        if (continuous)
+        {
+            // 设计高度沿用当前纸高；隐式连续纸（高度 0）落默认设计高度。
+            if (after.HeightMm <= 0)
+                after.HeightMm = DefaultContinuousDesignHeightMm;
+            after.Orientation = PaperOrientation.Portrait;
+        }
+        else if (after.HeightMm <= 0)
+        {
+            // 关掉连续纸但历史数据没有固定纸高：落默认 297 保证可分页。
+            after.HeightMm = DefaultContinuousDesignHeightMm;
+        }
+
+        CommitPaper(continuous ? "纸张切换为连续纸" : "纸张切换为固定纸高", before, after);
     }
 
     /// <summary>设置纸张方向。连续纸没有固定页高，不允许旋转。</summary>
@@ -846,7 +892,10 @@ public sealed class EditorKernel
         => string.Equals(a.Preset, b.Preset, StringComparison.Ordinal)
         && a.WidthMm.Equals(b.WidthMm)
         && a.HeightMm.Equals(b.HeightMm)
-        && a.Orientation == b.Orientation;
+        && a.Orientation == b.Orientation
+        // 连续纸语义是纸张的一部分：A4 勾"连续纸"宽高全同，漏比这条命令会被静默吞掉，
+        // 开关在 IsCheckedChanged 处理器里被 Sync 弹回 false（同步重入）。
+        && a.IsContinuous == b.IsContinuous;
 
     /// <summary>删除选中元素。命令 Revert 会把元素插回原索引（同 Id 同 ZIndex）。</summary>
     public void DeleteSelection()
@@ -1287,10 +1336,15 @@ public sealed class EditorKernel
     public IReadOnlyList<PaperElement> SelectedElements
         => Template.Elements.Where(e => Selection.Contains(e.Id)).ToList();
 
-    /// <summary>当前页面高度（mm）：固定纸取纸张高度；连续纸用引擎的"内容自适应"判据，
-    /// 这样叠加层的页框与导出/打印画出来的其实是同一张页。</summary>
+    /// <summary>连续纸无设计高度时的画布回退高度（mm）：画布总要有一个可排版的高度。</summary>
+    public const double DefaultContinuousDesignHeightMm = 297;
+
+    /// <summary>
+    /// 当前**设计**页面高度（mm）：固定纸取纸张高度；连续纸取设计高度
+    /// （HeightMm &gt; 0 即用户设的设计高度，否则回落 <see cref="DefaultContinuousDesignHeightMm"/>）。
+    /// 连续纸打印/导出按内容自适应增高，画布高度只是排版基准——旧实现画布跟着内容缩成一小条，没法设计。</summary>
     public double PageHeightMm => Template.Paper.IsContinuous
-        ? TemplateRenderer.ResolvePageHeightMm(Template, new RenderOptions { Dpi = Viewport.Dpi })
+        ? (Template.Paper.PageHeightMm > 0 ? Template.Paper.PageHeightMm : DefaultContinuousDesignHeightMm)
         : Template.Paper.PageHeightMm;
 
     /// <summary>换手势/重抓前收尾在途拖拽：把模型当前（已由 OnPointerMoved 实时写好）的几何按松手同样的流程提交，

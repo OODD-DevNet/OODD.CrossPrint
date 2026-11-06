@@ -821,8 +821,8 @@ public static class HiprintTemplateImporter
     }
 
     /// <summary>
-    /// 把 hiprint 的图片源分四类落库：完整 data URI（内嵌，可能是 SVG）、裸 base64 载荷、
-    /// <c>http/https</c> 外链、其余（本地路径/业务键，交宿主解析器）。
+    /// 把 hiprint 的图片源分五类落库：完整 data URI（内嵌，可能是 SVG）、裸 SVG 源码文本、
+    /// 裸 base64 载荷、<c>http/https</c> 外链、其余（本地路径/业务键，交宿主解析器）。
     /// </summary>
     /// <remarks>
     /// 早期实现只认 base64，把外链一律塞进 ResolverKey，渲染期没有解析器就是一张空框——
@@ -873,6 +873,15 @@ public static class HiprintTemplateImporter
             return;
         }
 
+        // 面板里直接粘 <svg…> 源码的情况：它是图片载荷而非资源键，落到 ResolverKey
+        // 会让"没配 IImageResolver 的宿主"平白得到一个占位框。
+        if (LooksLikeSvgText(source))
+        {
+            image.SourceType = ImageSourceType.EmbeddedBase64;
+            image.Data = source;
+            return;
+        }
+
         if (LooksLikeBase64Payload(source))
         {
             image.SourceType = ImageSourceType.EmbeddedBase64;
@@ -888,6 +897,23 @@ public static class HiprintTemplateImporter
             $"{what}源 '{Shorten(source)}' 需要宿主提供 IImageResolver 才能解析（本地路径/业务键），否则渲染占位框。",
             id,
             path);
+    }
+
+    /// <summary>
+    /// 粗判"这段值本身就是 SVG 源码文本"。Core 不能引用 Engine 的 SvgRasterizer（依赖方向相反），
+    /// 这里只做根标签嗅探，最终是否合法 XML 由渲染期的矢量光栅器判定。
+    /// </summary>
+    static bool LooksLikeSvgText(string source)
+    {
+        var s = source.TrimStart('\uFEFF').TrimStart();
+        if (s.Length == 0 || s[0] != '<')
+            return false;
+
+        return (s.StartsWith("<svg", StringComparison.OrdinalIgnoreCase)
+                || s.StartsWith("<?xml", StringComparison.OrdinalIgnoreCase)
+                || s.StartsWith("<!--", StringComparison.Ordinal)
+                || s.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase))
+               && s.IndexOf("<svg", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     /// <summary>

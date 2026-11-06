@@ -37,6 +37,12 @@ internal sealed class PropertyPanel : UserControl
     bool _rebuildQueued;
     string _selectionKey = string.Empty;
 
+    /// <summary>
+    /// 无选中空白区的内容构建器（页面级设置：纸张/连续纸/水印）。
+    /// 选中元素后空白区消失，页面设置随之隐藏——与 Avalonia 宿主同一交互。
+    /// </summary>
+    public Func<object>? EmptyStateContentBuilder { get; set; }
+
     public PropertyPanel(EditorKernel kernel)
     {
         _kernel = kernel;
@@ -85,7 +91,9 @@ internal sealed class PropertyPanel : UserControl
         Rebuild();
     }
 
-    string SelectionKey() => string.Join("|", _kernel.Selection.Ids);
+    // 结构签名含描述符 Key + Hidden：表格列切换渲染方式后条件属性会即时出现，
+    // 且不含坐标值，拖拽时不会逐帧重建面板。
+    string SelectionKey() => PropertyOptions.StructureSignature(_kernel);
 
     void OnViewChanged()
     {
@@ -152,6 +160,18 @@ internal sealed class PropertyPanel : UserControl
                 Grid.SetColumn(hint, 0);
                 Grid.SetColumnSpan(hint, 2);
                 _form.Children.Add(hint);
+
+                // 空白区追加页面级设置（纸张/连续纸/水印），宿主用 EmptyStateContentBuilder 提供。
+                if (EmptyStateContentBuilder?.Invoke() is UIElement extra)
+                {
+                    var extraRow = _form.RowDefinitions.Count;
+                    _form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                    Grid.SetRow(extra, extraRow);
+                    Grid.SetColumn(extra, 0);
+                    Grid.SetColumnSpan(extra, 2);
+                    _form.Children.Add(extra);
+                }
+
                 return;
             }
 
@@ -369,8 +389,8 @@ internal sealed class PropertyPanel : UserControl
             {
                 var combo = new ComboBox
                 {
-                    ItemsSource = descriptor.Options ?? Array.Empty<string>(),
-                    SelectedItem = descriptor.GetValue(element)?.ToString(),
+                    ItemsSource = PropertyOptions.Values(descriptor, element),
+                    SelectedItem = PropertyOptions.Current(descriptor, element),
                     IsEnabled = !descriptor.ReadOnly,
                 };
 
@@ -389,7 +409,7 @@ internal sealed class PropertyPanel : UserControl
                 refresh = () =>
                 {
                     if (!combo.IsKeyboardFocusWithin)
-                        combo.SelectedItem = descriptor.GetValue(element)?.ToString();
+                        combo.SelectedItem = PropertyOptions.Current(descriptor, element);
                 };
 
                 editor = combo;
@@ -482,6 +502,16 @@ internal sealed class PropertyPanel : UserControl
                         items.Add(display);
                 }
 
+                // 引用了已被删除/尚未载入的样式 id 时，旧实现把裸 id 设为 SelectedItem，
+                // 但 items 里没这一项 → 下拉空白、选中后看起来没变化。补成一项显示出来。
+                var currentId = descriptor.GetValue(element) as string;
+                var orphanDisplay = OrphanDisplay(currentId);
+                if (orphanDisplay is not null && !idByDisplay.ContainsValue(currentId!))
+                {
+                    idByDisplay.TryAdd(orphanDisplay, currentId!);
+                    items.Add(orphanDisplay);
+                }
+
                 var combo = new ComboBox
                 {
                     ItemsSource = items,
@@ -489,11 +519,14 @@ internal sealed class PropertyPanel : UserControl
                     ToolTip = Localizer.T("Property.Tip.StyleRef"),
                 };
 
+                static string? OrphanDisplay(string? id)
+                    => string.IsNullOrEmpty(id) ? null : $"{id}（样式库中未找到）";
+
                 string DisplayOf(string? id) => string.IsNullOrEmpty(id)
                     ? none
                     : _kernel.Template.Styles.FirstOrDefault(s => s.Id == id) is { } found
                         ? $"{found.Name}（{found.Id}）"
-                        : id;
+                        : OrphanDisplay(id)!;
                 combo.SelectedItem = DisplayOf(descriptor.GetValue(element) as string);
 
                 if (!descriptor.ReadOnly)

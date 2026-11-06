@@ -19,6 +19,13 @@ public enum ImageLocatorKind
     /// <summary>裸 base64 载荷。</summary>
     Base64,
 
+    /// <summary>
+    /// 裸 SVG 源码文本（属性面板「内嵌图片」直接粘贴的 <c>&lt;svg…&gt;…&lt;/svg&gt;</c>）。
+    /// 它本身就是图片载荷，不是资源键——旧实现归到 <see cref="Other"/> 后只会被再试一次
+    /// base64 解码，于是"图片资源值无法解析 SVG"。
+    /// </summary>
+    SvgText,
+
     /// <summary>交给宿主解析器的资源键（文件路径、业务键等）。</summary>
     Other,
 }
@@ -41,6 +48,15 @@ internal static class ImageAcquisition
 {
     /// <summary>单张图片字节上限：超过按失败处理（防畸形模板把内存吃光）。</summary>
     public const int MaxBytes = 32 * 1024 * 1024;
+
+    /// <summary>
+    /// 解码后总像素上限（固定值，约 4000×4000）。字节上限拦不住"压缩包很小、解出来几亿像素"的 PNG，
+    /// 32MB 的 PNG 可以是 30000×30000 ≈ 3.6GB ARGB，必须先解码再按像素尺寸拒收。
+    /// </summary>
+    public const long MaxDecodedPixels = 16_000_000;
+
+    /// <summary>解码后单边像素上限（固定值），防 1×16M 这类极端长条图。</summary>
+    public const int MaxDecodedSide = 8192;
 
     /// <summary>URL → 原始字节的缓存条数上限。</summary>
     const int ByteCacheCapacity = 32;
@@ -72,6 +88,11 @@ internal static class ImageAcquisition
         if (IsRemote(s))
             return ImageLocatorKind.Remote;
 
+        // 直接粘进「内嵌图片」的 <svg…> 源码：先按首字符廉价挡掉 base64 / 路径 / 业务键，
+        // 避免对几十 KB 的 base64 载荷做整串 XML 嗅探。
+        if ((s[0] == '<' || s[0] == '\uFEFF') && SvgRasterizer.LooksLikeSvgText(s))
+            return ImageLocatorKind.SvgText;
+
         if (LooksLikeBase64(s))
             return ImageLocatorKind.Base64;
 
@@ -91,7 +112,8 @@ internal static class ImageAcquisition
 
     /// <summary>
     /// 不取字节就判断"这条定位符是不是 SVG"：用于决定图片缓存键要不要带上目标像素尺寸。
-    /// 判据是廉价的形态特征（data URI 的 mime、URL 后缀、base64 头部魔数），误判只影响缓存粒度，不影响正确性。
+    /// 判据是廉价的形态特征（data URI 的 mime、URL 后缀、base64 头部魔数、裸 SVG 根标签），
+    /// 误判只影响缓存粒度，不影响正确性。
     /// </summary>
     public static bool LooksLikeSvgLocator(string? locator)
     {
@@ -123,6 +145,11 @@ internal static class ImageAcquisition
                        || head.StartsWith("PD94bW", StringComparison.Ordinal)
                        || head.StartsWith("PCFET0", StringComparison.Ordinal);
             }
+
+            // 裸 SVG 文本必须让缓存键带上目标像素尺寸，否则同一段源码先用在大图上、
+            // 再复用给小图时会拿到按小尺寸光栅化的糊图。
+            case ImageLocatorKind.SvgText:
+                return true;
 
             default:
                 return false;
@@ -175,6 +202,21 @@ internal static class ImageAcquisition
                     return bytes;
                 error = "图片数据不是合法 Base64。";
                 return null;
+
+            case ImageLocatorKind.SvgText:
+            {
+                // 源码即载荷：UTF-8 编码后交给 Decode 的矢量光栅器。去掉 BOM，
+                // 否则 XDocument.Parse 会把开头的 \uFEFF 当成根元素之前的非法字符。
+                var text = locator!.Trim().TrimStart('\uFEFF');
+                var svg = Encoding.UTF8.GetBytes(text);
+                if (svg.Length > MaxBytes)
+                {
+                    error = $"SVG 文本超过上限（{MaxBytes} 字节），已跳过。";
+                    return null;
+                }
+
+                return svg;
+            }
 
             case ImageLocatorKind.Remote:
                 if (!allowRemote)
@@ -420,7 +462,9 @@ internal static class ImageAcquisition
             string svgText;
             try
             {
-                svgText = Encoding.UTF8.GetString(bytes);
+                // data URI / 外部文件里的 SVG 可能带 UTF-8 BOM，\uFEFF 会让 XDocument.Parse 报
+                // "根级数据无效"；统一在此去掉，别让"明明是合法 SVG"变成解析失败。
+                svgText = Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
             }
             catch (Exception ex)
             {
@@ -431,9 +475,32 @@ internal static class ImageAcquisition
             return SvgRasterizer.Rasterize(svgText, targetWidthPx, targetHeightPx, out error);
         }
 
-        var image = SKImage.FromEncodedData(bytes);
+        SKImage? image;
+        try
+        {
+            image = SKImage.FromEncodedData(bytes);
+        }
+        catch (Exception ex)
+        {
+            error = "图片解码异常：" + ex.Message;
+            return null;
+        }
+
         if (image is null)
+        {
             error = "图片数据不是可解码的图片格式。";
+            return null;
+        }
+
+        // 固定大小限制：只按解码后的像素尺寸判，不按元素宽高、纸张或 DPI 自适应——
+        // 超限直接拒收（不降采样、不改元素尺寸），避免畸形图片把渲染线程内存吃光。
+        var pixels = (long)image.Width * image.Height;
+        if (image.Width > MaxDecodedSide || image.Height > MaxDecodedSide || pixels > MaxDecodedPixels)
+        {
+            error = $"图片解码后尺寸超限（{image.Width}×{image.Height}，固定上限：单边 {MaxDecodedSide}px / 总 {MaxDecodedPixels} 像素），已跳过。";
+            image.Dispose();
+            return null;
+        }
 
         return image;
     }

@@ -85,14 +85,144 @@ public static class PropertyText
         if (IsEnglish)
             return option;
 
+        // 按描述符键选表：同一个 "None" 在边框边是「不画」、在图片适配是「原始尺寸」、
+        // 在尾行汇总是「不汇总」，用一张通用表会翻错。没建表的枚举（码制名等专有名词）原样返回。
         return descriptorKey switch
         {
-            "shape.kind" => ShapeKindZh.TryGetValue(option, out var zh) ? zh : option,
+            "shape.kind" => Lookup(ShapeKindZh, option),
+            _ when descriptorKey.EndsWith("cellRender", StringComparison.Ordinal)
+                => Lookup(CellRenderZh, option),
+            _ when descriptorKey.EndsWith("cellImageSource", StringComparison.Ordinal)
+                => Lookup(CellImageSourceZh, option),
+            _ when descriptorKey.EndsWith("borderSides", StringComparison.Ordinal)
+                => Lookup(BorderSideZh, option),
+            _ when descriptorKey.EndsWith("horizontalAlign", StringComparison.Ordinal)
+                || descriptorKey.EndsWith("captionAlign", StringComparison.Ordinal)
+                || descriptorKey.EndsWith(".align", StringComparison.Ordinal)
+                => Lookup(AlignZh, option),
+            _ when descriptorKey.EndsWith("verticalAlign", StringComparison.Ordinal)
+                => Lookup(VerticalAlignZh, option),
+            _ when descriptorKey.EndsWith("line.direction", StringComparison.Ordinal)
+                => Lookup(LineDirectionZh, option),
+            _ when descriptorKey.EndsWith("fitMode", StringComparison.Ordinal)
+                || descriptorKey.EndsWith("logoFit", StringComparison.Ordinal)
+                => Lookup(FitZh, option),
+            _ when descriptorKey.EndsWith("sourceType", StringComparison.Ordinal)
+                => Lookup(ImageSourceTypeZh, option),
+            _ when descriptorKey.IndexOf("ErrorCorrection", StringComparison.OrdinalIgnoreCase) >= 0
+                => Lookup(QrErrorCorrectionZh, option),
+            _ when descriptorKey.EndsWith(".summary", StringComparison.Ordinal)
+                => Lookup(SummaryZh, option),
+            _ when descriptorKey.EndsWith(".operator", StringComparison.Ordinal)
+                => Lookup(ConditionOperatorZh, option),
             _ => option,
         };
     }
 
+    static string Lookup(Dictionary<string, string> table, string option)
+        => table.TryGetValue(option, out var zh) ? zh : option;
+
+    /// <summary>
+    /// 表格列「渲染方式」下拉的中文显示名（键 = TableCellRender CLR 名）。
+    /// 四项齐全，Image 显示「图片」而不是裸 "Image"，避免用户以为只有文字/一维码/二维码三种。
+    /// </summary>
+    static readonly Dictionary<string, string> CellRenderZh = new(StringComparer.Ordinal)
+    {
+        ["Text"] = "文字",
+        ["Barcode"] = "一维码",
+        ["QrCode"] = "二维码",
+        ["Image"] = "图片",
+    };
+
     /// <summary>形状种类下拉的中文显示名（键 = ShapeKind CLR 名）。</summary>
+    /// <summary>表格图片列「图片数据类型」下拉（键 = TableCellImageSource CLR 名）。</summary>
+    static readonly Dictionary<string, string> CellImageSourceZh = new(StringComparer.Ordinal)
+    {
+        ["Auto"] = "自动识别",
+        ["Url"] = "链接图片",
+        ["Base64"] = "Base64 图片",
+    };
+
+    static readonly Dictionary<string, string> BorderSideZh = new(StringComparer.Ordinal)
+    {
+        ["None"] = "不画",
+        ["Top"] = "上边",
+        ["Right"] = "右边",
+        ["Bottom"] = "下边",
+        ["Left"] = "左边",
+        ["All"] = "四边全画",
+    };
+
+    static readonly Dictionary<string, string> AlignZh = new(StringComparer.Ordinal)
+    {
+        ["Left"] = "左对齐",
+        ["Center"] = "居中",
+        ["Right"] = "右对齐",
+        ["Justify"] = "两端对齐",
+    };
+
+    static readonly Dictionary<string, string> VerticalAlignZh = new(StringComparer.Ordinal)
+    {
+        ["Top"] = "顶部",
+        ["Middle"] = "垂直居中",
+        ["Bottom"] = "底部",
+    };
+
+    static readonly Dictionary<string, string> LineDirectionZh = new(StringComparer.Ordinal)
+    {
+        ["Horizontal"] = "水平线",
+        ["Vertical"] = "垂直线",
+    };
+
+    static readonly Dictionary<string, string> FitZh = new(StringComparer.Ordinal)
+    {
+        ["Contain"] = "等比容纳",
+        ["Cover"] = "等比覆盖",
+        ["Fill"] = "拉伸填满",
+        ["None"] = "原始尺寸",
+        ["Original"] = "原尺寸",
+    };
+
+    static readonly Dictionary<string, string> ImageSourceTypeZh = new(StringComparer.Ordinal)
+    {
+        ["EmbeddedBase64"] = "内嵌 Base64",
+        ["ResolverKey"] = "宿主资源键",
+        ["Url"] = "链接地址",
+    };
+
+    static readonly Dictionary<string, string> QrErrorCorrectionZh = new(StringComparer.Ordinal)
+    {
+        ["L"] = "低（约 7%）",
+        ["M"] = "中（约 15%）",
+        ["Q"] = "较高（约 25%）",
+        ["H"] = "高（约 30%）",
+    };
+
+    static readonly Dictionary<string, string> SummaryZh = new(StringComparer.Ordinal)
+    {
+        ["None"] = "不汇总",
+        ["Count"] = "计数",
+        ["Sum"] = "求和",
+        ["Average"] = "平均值",
+        ["Min"] = "最小值",
+        ["Max"] = "最大值",
+        ["Text"] = "固定文本",
+    };
+
+    static readonly Dictionary<string, string> ConditionOperatorZh = new(StringComparer.Ordinal)
+    {
+        ["GreaterThan"] = "大于",
+        ["GreaterOrEqual"] = "大于等于",
+        ["LessThan"] = "小于",
+        ["LessOrEqual"] = "小于等于",
+        ["Equal"] = "等于",
+        ["NotEqual"] = "不等于",
+        ["Contains"] = "包含",
+        ["NotContains"] = "不包含",
+        ["StartsWith"] = "开头是",
+        ["EndsWith"] = "结尾是",
+    };
+
     static readonly Dictionary<string, string> ShapeKindZh = new(StringComparer.Ordinal)
     {
         ["Rectangle"] = "矩形",
@@ -357,6 +487,9 @@ public static class PropertyText
         ["汇总前缀"] = "Summary prefix",
         ["汇总小数位"] = "Summary decimals",
         ["同值合并（连续数据行）"] = "Merge equal values (consecutive rows)",
+        ["图片数据类型"] = "Image source type",
+        ["内容宽 (mm)（0 跟随列宽）"] = "Content width (mm) (0 = column width)",
+        ["内容高 (mm)（0 跟随行高）"] = "Content height (mm) (0 = row height)",
 
         // 表头单元格（前缀「表头N·」）
         ["行"] = "Row",

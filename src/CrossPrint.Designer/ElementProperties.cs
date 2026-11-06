@@ -518,6 +518,34 @@ public sealed class ElementProperties
                 el => Peek(el, index)?.CellShowText,
                 (el, v) => Column(el, index, cellShowKey).CellShowText = PropertyValues.ToBool(cellShowKey, v),
                 hidden: render != TableCellRender.Barcode);
+
+            // 图片列专属：告诉引擎这格的值是「链接图片」还是「Base64 图片」。
+            // Auto 为默认（旧模板零迁移），显式指定后类型不符只告警不降级。
+            var cellImageSourceKey = head + "cellImageSource";
+            var cellImageSourceNames = Enum.GetNames(typeof(TableCellImageSource));
+            yield return new PropertyDescriptor(cellImageSourceKey, $"{label}·图片数据类型", PropertyKind.Enum,
+                el => Peek(el, index)?.CellImageSource,
+                (el, v) => Column(el, index, cellImageSourceKey).CellImageSource =
+                    PropertyValues.ToEnum<TableCellImageSource>(cellImageSourceKey, v, cellImageSourceNames),
+                options: cellImageSourceNames, hidden: render != TableCellRender.Image);
+
+            // 图片/一维码/二维码共用的内容尺寸：0 = 跟随单元格；> 0 = 按该 mm 居中绘制且恒夹在单元格内。
+            // 高度同时作为该列的行高下限，使超长 base64 / data URI 不再把连续纸撑成长卷。
+            var cellContentWidthKey = head + "cellContentWidthMm";
+            yield return new PropertyDescriptor(cellContentWidthKey, $"{label}·内容宽 (mm)（0 跟随列宽）", PropertyKind.Number,
+                el => Peek(el, index)?.CellContentWidthMm,
+                (el, v) => Column(el, index, cellContentWidthKey).CellContentWidthMm =
+                    Math.Max(0, Math.Min(PropertyValues.ToDouble(cellContentWidthKey, v), TableColumn.MaxCellContentWidthMm)),
+                min: 0, max: TableColumn.MaxCellContentWidthMm, step: 0.5,
+                hidden: render == TableCellRender.Text);
+
+            var cellContentHeightKey = head + "cellContentHeightMm";
+            yield return new PropertyDescriptor(cellContentHeightKey, $"{label}·内容高 (mm)（0 跟随行高）", PropertyKind.Number,
+                el => Peek(el, index)?.CellContentHeightMm,
+                (el, v) => Column(el, index, cellContentHeightKey).CellContentHeightMm =
+                    Math.Max(0, Math.Min(PropertyValues.ToDouble(cellContentHeightKey, v), TableColumn.MaxCellContentHeightMm)),
+                min: 0, max: TableColumn.MaxCellContentHeightMm, step: 0.5,
+                hidden: render == TableCellRender.Text);
         }
     }
 

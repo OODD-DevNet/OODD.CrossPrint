@@ -25,6 +25,8 @@ public class ImageAcquisitionTests
     [InlineData(@"C:\temp\logo.png", ImageLocatorKind.Other)]
     [InlineData("/var/lib/logo.png", ImageLocatorKind.Other)]
     [InlineData("biz-key-2024", ImageLocatorKind.Other)]
+    [InlineData("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'></svg>", ImageLocatorKind.SvgText)]
+    [InlineData("  <?xml version='1.0'?><svg xmlns='http://www.w3.org/2000/svg'></svg>", ImageLocatorKind.SvgText)]
     public void 定位符分类(string? locator, ImageLocatorKind expected)
         => ImageAcquisition.Classify(locator).Should().Be(expected);
 
@@ -66,6 +68,8 @@ public class ImageAcquisitionTests
     [InlineData("https://cdn.example.com/logo.png", false)]
     [InlineData("data:image/svg+xml;base64,PHN2Zz4=", true)]
     [InlineData("data:image/png;base64,iVBORw0KGgo=", false)]
+    [InlineData("<svg xmlns='http://www.w3.org/2000/svg'></svg>", true)]
+    [InlineData("biz-key-2024", false)]
     public void SVG_定位符嗅探(string locator, bool expected)
         => ImageAcquisition.LooksLikeSvgLocator(locator).Should().Be(expected);
 
@@ -77,6 +81,39 @@ public class ImageAcquisitionTests
 
         ImageAcquisition.LooksLikeSvgLocator(bare).Should().BeTrue();
         ImageAcquisition.Classify(bare).Should().Be(ImageLocatorKind.Base64);
+    }
+
+    /// <summary>
+    /// 用户实报：属性面板「内嵌图片」直接粘 &lt;svg…&gt; 源码。旧实现把这种值归为 Other，
+    /// 渲染器再试裸 base64 解码失败 → "图片数据不是合法 Base64" → 占位框。
+    /// </summary>
+    [Fact]
+    public void 裸_SVG_源码本身就是可解码的图片载荷()
+    {
+        const string svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><rect width='1' height='1' fill='#ff6b6b'/></svg>";
+
+        ImageAcquisition.Classify(svg).Should().Be(ImageLocatorKind.SvgText);
+        ImageAcquisition.LooksLikeSvgLocator(svg).Should().BeTrue("按尺寸光栅化，缓存键必须带目标像素尺寸");
+
+        var bytes = ImageAcquisition.Acquire(svg, allowRemote: false, timeoutMs: 1000, out var error);
+        error.Should().BeNull();
+        Encoding.UTF8.GetString(bytes!).Should().Be(svg);
+
+        using var image = ImageAcquisition.Decode(bytes!, 32, 32, out var decodeError);
+        decodeError.Should().BeNull();
+        image.Should().NotBeNull();
+        image!.Width.Should().Be(32);
+    }
+
+    [Fact]
+    public void 带_BOM_的_SVG_字节也能解码()
+    {
+        const string svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><rect width='1' height='1' fill='#1a535c'/></svg>";
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(svg)).ToArray();
+
+        using var image = ImageAcquisition.Decode(bytes, 16, 16, out var error);
+        error.Should().BeNull();
+        image.Should().NotBeNull();
     }
 
     [Fact]

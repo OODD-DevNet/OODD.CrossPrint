@@ -295,6 +295,30 @@ public class TemplateJsonTests
     }
 
     [Fact]
+    public void Continuous_flag_round_trips_and_defaults_to_absent()
+    {
+        // 连续纸 + 设计高度：JSON 显式带 continuous 标志，往返不丢。
+        var t = new PrintTemplate
+        {
+            Paper = new PaperSpec { Preset = PaperTypePresets.Custom, WidthMm = 80, HeightMm = 500, Continuous = true },
+        };
+        var json = TemplateJson.Serialize(t);
+        json.Should().Contain("\"continuous\": true", "设计高度与连续纸语义解耦后，标志必须显式落盘");
+        var back = TemplateJson.Deserialize(json);
+        back.Paper.Continuous.Should().BeTrue();
+        back.Paper.HeightMm.Should().Be(500, "连续纸时 HeightMm 是设计高度，不许被清零");
+        back.Paper.IsContinuous.Should().BeTrue();
+
+        // 普通纸张不写 continuous（字节级稳定 + 兼容旧 JSON）。
+        var plain = new PrintTemplate
+        {
+            Paper = new PaperSpec { Preset = PaperTypePresets.A4, WidthMm = 210, HeightMm = 297 },
+        };
+        TemplateJson.Serialize(plain).Should().NotContain("continuous");
+        TemplateJson.Deserialize(TemplateJson.Serialize(plain)).Paper.Continuous.Should().BeFalse();
+    }
+
+    [Fact]
     public void Design_data_round_trips_and_only_keeps_scalar_values()
     {
         const string json = """

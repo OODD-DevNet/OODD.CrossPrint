@@ -281,7 +281,7 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
     protected override void Draw(SKCanvas canvas, ImageElement element, RenderContext context)
     {
         var o = element.Image;
-        // 字段绑定优先：把字段值解析成图片源定位符（http/https 地址、data: URI 或裸 base64）。
+        // 字段绑定优先：把字段值解析成图片源定位符（http/https 地址、data: URI、裸 base64 或裸 SVG 源码）。
         // 公共 binding（hiprint field 语义，属性面板暴露）优先于图片载荷自带的 Field——两者语义相同。
         string? fieldSrc = null;
         var fieldPath = !string.IsNullOrWhiteSpace(element.Binding) ? element.Binding.Trim() : o.Field;
@@ -344,7 +344,8 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
     ImageCache.Lease? Resolve(ImageElement element, ImageOptions o, RenderContext context, string? scriptSrc, string? fieldSrc)
     {
         // 字段绑定优先：字段值当作资源键交给宿主解析器（与 ResolverKey 同源）；
-        // 若值本身就是定位符（data URI/外链/裸 base64），则引擎自取，支持「字段既能写内嵌也能写外链」。
+        // 若值本身就是定位符（data URI/外链/裸 base64/裸 SVG 源码），则引擎自取，
+        // 支持「字段既能写内嵌也能写外链，也能直接给一段 <svg…>」。
         if (!string.IsNullOrWhiteSpace(fieldSrc))
         {
             var resolver = context.Images;
@@ -359,7 +360,8 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
                     return lease;
             }
 
-            if (ImageAcquisition.Classify(fieldSrc) is ImageLocatorKind.DataUri or ImageLocatorKind.Remote or ImageLocatorKind.Base64)
+            if (ImageAcquisition.Classify(fieldSrc) is ImageLocatorKind.DataUri or ImageLocatorKind.Remote
+                or ImageLocatorKind.Base64 or ImageLocatorKind.SvgText)
                 return FromLocator(element, fieldSrc!, context, "字段绑定");
 
             context.Report.Add(element.Id, RenderIssueKind.ImageMissing,
@@ -425,7 +427,8 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
                 // 宿主没配、或配了但没有这个键：如果键本身就是"引擎能自己取的形态"
                 // （历史模板把外链/内嵌图错存成 ResolverKey 的情况非常常见），引擎兜底自己取，
                 // 不要让用户看到一张空框却不知道为什么。
-                if (ImageAcquisition.Classify(key) is ImageLocatorKind.DataUri or ImageLocatorKind.Remote or ImageLocatorKind.Base64)
+                if (ImageAcquisition.Classify(key) is ImageLocatorKind.DataUri or ImageLocatorKind.Remote
+                    or ImageLocatorKind.Base64 or ImageLocatorKind.SvgText)
                     return FromLocator(element, key!, context, "resolverKey（引擎兜底）");
 
                 context.Report.Add(element.Id, RenderIssueKind.ImageMissing,
@@ -442,7 +445,7 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
     }
 
     /// <summary>
-    /// 引擎自取一条定位符（data URI / 裸 base64 / 网络地址）。
+    /// 引擎自取一条定位符（data URI / 裸 base64 / 网络地址 / 裸 SVG 源码文本）。
     /// </summary>
     /// <remarks>
     /// 缓存键带目标像素尺寸——SVG 是按尺寸光栅化成位图的，同一条 SVG 用在两个大小不同的元素上
@@ -469,9 +472,10 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
             // 内嵌源（EmbeddedBase64）的 data 字段本就是数据载体，<see cref="ImageAcquisition.Acquire"/> 把"看不出形态的字符串"
             // 归为 Other 而返回 null。这里强制再试一次裸 base64 解码，把"数据损坏"和"压根没有来源"区分开：
             // 前者是解码失败，后者是缺失（占位框原因文案不同，便于排查）。
+            // 注意：裸 SVG 源码已由 SvgText 分支在 Acquire 里直接转字节，走不到这条兜底。
             if (bytes is null or { Length: 0 } && embedded && !ImageAcquisition.TryFromBase64(locator, out var direct))
             {
-                error ??= "图片数据不是合法 Base64。";
+                error ??= "图片数据不是合法 Base64，也不是可解析的 SVG 源码；请填 data URI、裸 Base64 或直接粘贴 <svg…> 文本。";
             }
             else if (bytes is null or { Length: 0 } && embedded && ImageAcquisition.TryFromBase64(locator, out var direct2))
             {
@@ -502,7 +506,14 @@ public sealed class ImageRenderer : ElementRenderer<ImageElement>
 
         var image = ImageAcquisition.Decode(bytes, w, h, out var error);
         if (image is null)
-            context.Report.Add(element.Id, RenderIssueKind.ImageDecodeFailed, error ?? "图片数据不是可解码的图片格式。");
+        {
+            // 尺寸超限与坏数据分开报，用户能直接从告警看出该换图而不是查编码。
+            // net461 没有 string.Contains(string, StringComparison)，用 IndexOf 保持多目标框架一致。
+            var kind = error is not null && error.IndexOf("尺寸超限", StringComparison.Ordinal) >= 0
+                ? RenderIssueKind.ImageTooLarge
+                : RenderIssueKind.ImageDecodeFailed;
+            context.Report.Add(element.Id, kind, error ?? "图片数据不是可解码的图片格式。");
+        }
 
         return image;
     }

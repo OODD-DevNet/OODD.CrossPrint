@@ -23,6 +23,12 @@ public sealed class PropertyPanel : UserControl
     bool _rebuilding;
     string _selectionSignature = string.Empty;
 
+    /// <summary>
+    /// 无选中空白区的内容构建器（页面级设置：纸张/连续纸/水印）。
+    /// 选中元素后空白区消失，页面设置随之隐藏——与 Avalonia 宿主同一交互。
+    /// </summary>
+    public Func<Control>? EmptyStateContentBuilder { get; set; }
+
     /// <summary>为指定内核创建属性面板。</summary>
     public PropertyPanel(EditorKernel kernel)
     {
@@ -109,7 +115,8 @@ public sealed class PropertyPanel : UserControl
         ScheduleRebuild();
     }
 
-    string Signature() => string.Join("|", _kernel.Selection.Ids);
+    // 结构签名含描述符 Key + Hidden（条件属性显隐），不含坐标值，拖拽时不逐帧重建。
+    string Signature() => PropertyOptions.StructureSignature(_kernel);
 
     void ScheduleRebuild()
     {
@@ -178,6 +185,15 @@ public sealed class PropertyPanel : UserControl
                 };
                 _table.Controls.Add(hint, 0, 0);
                 _table.SetColumnSpan(hint, 2);
+
+                // 空白区追加页面级设置（纸张/连续纸/水印），宿主用 EmptyStateContentBuilder 提供。
+                if (EmptyStateContentBuilder?.Invoke() is { } extra)
+                {
+                    AllocateRows(1);
+                    _table.Controls.Add(extra, 0, _table.RowCount - 1);
+                    _table.SetColumnSpan(extra, 2);
+                }
+
                 return;
             }
 
@@ -377,13 +393,11 @@ public sealed class PropertyPanel : UserControl
                 Margin = new Padding(0, 2, 0, 2),
                 Tag = descriptor.Key,
             };
-            if (descriptor.Options is not null)
-            {
-                foreach (var option in descriptor.Options)
-                    combo.Items.Add(option);
-            }
+            // 候选项走统一口径：Flags 组合值 / 不在库里的 id 也补成一项，避免空白或静默不选。
+            foreach (var option in PropertyOptions.Values(descriptor, element))
+                combo.Items.Add(option);
 
-            var current = value?.ToString();
+            var current = PropertyOptions.Current(descriptor, element);
             if (current is not null && combo.Items.Contains(current))
                 combo.SelectedItem = current;
 

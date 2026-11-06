@@ -66,6 +66,7 @@ public sealed class MainView : UserControl, IModalOverlayHost
     readonly List<(string Key, string Label, Control Tile)> _toolboxTiles = [];
     readonly Button _rotateButton = new();
     readonly Button _customPaperButton = new();
+    readonly CheckBox _continuousToggle = new() { Content = "连续纸（打印长度随内容自适应）" };
     readonly TextBlock _paperInfo = new();
     readonly ContextMenu _canvasMenu = new();
     readonly List<MenuItem> _selectionMenuItems = [];
@@ -120,8 +121,11 @@ public sealed class MainView : UserControl, IModalOverlayHost
         _designer.Data = SampleData.Create();
 
         _properties = new PropertyPanel(_designer.Kernel);
-        // 水印/页面设置在右侧属性栏的无选中空白区（用户预期：水印像元素属性一样在右栏）。
-        _properties.EmptyStateContentBuilder = BuildWatermarkSection;
+        // 纸张 + 连续纸 + 水印全部在右侧属性栏的无选中空白区（用户钦定：页面级设置不占左栏）。
+        // ⚠ 必须返回持久实例：属性面板随 ViewChanged/TemplateChanged 频繁 Rebuild（Clear 摘树后重挂同一棵树），
+        //   而 BuildPaperPanel 里的字段级单例控件（_paperCombo/_rotateButton/_continuousToggle…）不能重复进视觉树——
+        //   每次新建就会抛 "already has a visual parent"（2026-11-05 崩溃日志实锤）。
+        _properties.EmptyStateContentBuilder = () => _pageSection ??= BuildPageSection();
         // 「测试数据」行显示画布当前生效值（元素测试数据 > 宿主数据 > 模板设计数据）——
         // 与 EditorCanvas.Draw 的合并口径逐字一致（同一个 BindText 解析器）。
         _properties.CanvasDataProvider = () => DataBinder.WithDesignData(
@@ -1103,13 +1107,24 @@ public sealed class MainView : UserControl, IModalOverlayHost
         }
     }
 
-    /// <summary>组件库：纸张设置 + 可拖入画布的元素清单（顶部搜索框可过滤）。</summary>
+    /// <summary>组件库：可拖入画布的元素清单（顶部搜索框可过滤）。纸张/水印在右侧属性栏。</summary>
     Control BuildComponentLibraryTab()
     {
         var stack = new StackPanel { Spacing = 4 };
-        stack.Children.Add(BuildPaperPanel());
         stack.Children.Add(BuildToolbox());
         return new ScrollViewer { Content = stack };
+    }
+
+    /// <summary>页面区持久实例：属性面板每次 Rebuild 复用同一棵控件树（见 EmptyStateContentBuilder 挂接处注释）。</summary>
+    Control? _pageSection;
+
+    /// <summary>右属性栏无选中空白区 = 纸张设置（含连续纸开关）+ 水印，页面级设置集中在这里。</summary>
+    Control BuildPageSection()
+    {
+        var stack = new StackPanel { Spacing = 4 };
+        stack.Children.Add(BuildPaperPanel());
+        stack.Children.Add(BuildWatermarkSection());
+        return stack;
     }
 
     /// <summary>数据类型：模板可用占位符字段，双击复制占位符（{{字段名}}）到剪贴板。</summary>
@@ -1160,12 +1175,49 @@ public sealed class MainView : UserControl, IModalOverlayHost
         content.Children.Add(buttons);
         content.Children.Add(_paperInfo);
 
+        // 连续纸是纸张面板里一眼可见的独立开关（用户钦定：不藏进对话框——有人就需要 A4 宽的连续纸）。
+        content.Children.Add(BuildContinuousToggle());
+
         return new Border
         {
             BorderBrush = Brushes.LightGray,
             BorderThickness = new Thickness(0, 0, 0, 1),
             Child = content,
         };
+    }
+
+    /// <summary>连续纸独立开关：与纸张预设正交——选 A4 再勾上就是"A4 宽的连续纸"。走内核命令可撤销。</summary>
+    Control BuildContinuousToggle()
+    {
+        _continuousToggle.IsCheckedChanged += (_, _) =>
+        {
+            if (_syncingPaper)
+                return;
+
+            // 处理器全程拉起重入保护：SetPaperContinuous 触发 TemplateChanged → SyncPaperControls
+            // 会程序化回填本开关的 IsChecked（值可能被弹回），嵌套事件必须被挡住。
+            _syncingPaper = true;
+            try
+            {
+                var value = _continuousToggle.IsChecked == true;
+                _designer.Kernel.SetPaperContinuous(value);
+                SetStatus(value
+                    ? "连续纸：打印长度随内容自适应（设计高度只决定画布多高）。"
+                    : "固定纸高：按纸高分页打印。");
+            }
+            catch (Exception ex)
+            {
+                SetStatus("切换连续纸失败：" + ex.Message, error: true);
+            }
+            finally
+            {
+                _syncingPaper = false;
+            }
+
+            SyncPaperControls();
+            _designer.Focus();
+        };
+        return _continuousToggle;
     }
 
     CheckBox _watermarkEnabled = null!;
@@ -1398,7 +1450,7 @@ public sealed class MainView : UserControl, IModalOverlayHost
 
         var grid = new Grid
         {
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"),
             Margin = new Thickness(8, 4, 8, 6),
         };
 
@@ -1409,21 +1461,37 @@ public sealed class MainView : UserControl, IModalOverlayHost
             Margin = new Thickness(0, 0, 0, 6),
         });
 
-        Grid.SetRow(_toolbox, 1);
+        var search = new TextBox
+        {
+            Watermark = Localizer.T("Toolbox.Search"),
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        search.TextChanged += (_, _) => ApplyToolboxFilter(search.Text ?? string.Empty);
+        Grid.SetRow(search, 1);
+        grid.Children.Add(search);
+
+        Grid.SetRow(_toolbox, 2);
         grid.Children.Add(_toolbox);
 
         var hint = new TextBlock
         {
-            Text = "拖到画布放置，或双击图标加到画布中心。",
+            Text = Localizer.T("Toolbox.HintDrag"),
             FontSize = 11,
             Foreground = Brushes.DimGray,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 6, 0, 0),
         };
-        Grid.SetRow(hint, 2);
+        Grid.SetRow(hint, 3);
         grid.Children.Add(hint);
 
         return grid;
+    }
+
+    /// <summary>工具箱按中英文名（或类型键）过滤磁贴：空查询=全部显示。</summary>
+    void ApplyToolboxFilter(string query)
+    {
+        foreach (var (key, _, tile) in _toolboxTiles)
+            tile.IsVisible = ToolboxNames.Matches(key, query);
     }
 
     /// <summary>单枚图标磁贴：图标 + 名称，可拖拽到画布（落点即添加位置），双击加到中心。</summary>
@@ -1970,13 +2038,15 @@ public sealed class MainView : UserControl, IModalOverlayHost
         try
         {
             var dialog = new PaperSizeDialog(_designer.Kernel.Template.Paper);
-            await ModalDialog.ShowAsync(this, "自定义纸张", dialog, 400, 280, canResize: false);
+            await ModalDialog.ShowAsync(this, "自定义纸张", dialog, 400, 340, canResize: false);
             if (dialog.Confirmed)
             {
-                _designer.Kernel.SetCustomPaper(dialog.WidthMm, dialog.HeightMm);
-                SetStatus(dialog.HeightMm > 0
-                    ? Localizer.T("Status.CustomPaperSet", dialog.WidthMm, dialog.HeightMm)
-                    : Localizer.T("Status.CustomContinuousPaperSet", dialog.WidthMm));
+                // 自定义纸张只改尺寸：是否连续纸由纸张属性里的独立开关决定，此处保持现状。
+                var continuous = _designer.Kernel.Template.Paper.IsContinuous;
+                _designer.Kernel.SetCustomPaper(dialog.WidthMm, dialog.HeightMm, continuous);
+                SetStatus(continuous
+                    ? $"自定义纸张：宽 {dialog.WidthMm:0.##} mm，设计高度 {dialog.HeightMm:0.##} mm，打印长度随内容。"
+                    : Localizer.T("Status.CustomPaperSet", dialog.WidthMm, dialog.HeightMm));
             }
         }
         catch (Exception ex)
@@ -2035,6 +2105,7 @@ public sealed class MainView : UserControl, IModalOverlayHost
             _paperCombo.SelectedIndex = index >= 0 ? index : PaperChoices.Length - 1;
 
             var continuous = paper.IsContinuous;
+            _continuousToggle.IsChecked = continuous;
             _rotateButton.IsEnabled = !continuous;
             _rotateButton.Content = paper.Orientation == PaperOrientation.Landscape ? Localizer.T("Paper.RotatePortrait") : Localizer.T("Paper.Rotate");
 
@@ -2061,7 +2132,7 @@ public sealed class MainView : UserControl, IModalOverlayHost
             ? Localizer.T("Paper.Orientation.Landscape")
             : Localizer.T("Paper.Orientation.Portrait");
         return paper.IsContinuous
-            ? $"{name}：{paper.PageWidthMm:0.##} mm 宽，长度随内容（{orientation}）"
+            ? $"{name}：{paper.PageWidthMm:0.##} mm 宽，设计高度 {paper.HeightMm:0.##} mm，打印长度随内容（{orientation}）"
             : $"{name}：{paper.PageWidthMm:0.##} × {paper.PageHeightMm:0.##} mm（{orientation}）";
     }
 

@@ -45,7 +45,8 @@ public sealed class TemplateRenderer
         if (options is null) throw new ArgumentNullException(nameof(options));
 
         var fixedHeight = template.Paper.PageHeightMm;
-        if (fixedHeight > 0)
+        // 连续纸标志（或历史上的纸高 0）优先：HeightMm 只是设计高度，打印/导出按内容自适应
+        if (fixedHeight > 0 && !template.Paper.Continuous)
             return fixedHeight;
 
         return template.ResolvePageHeightMm();
@@ -424,16 +425,22 @@ public sealed class TemplateRenderer
         IImageResolver? images = null)
     {
         var opt = options ?? new RenderOptions();
-        var size = GetPageSizeMm(template, opt);
+        var report = new RenderReport();
+        var context = new RenderContext(opt, report, fontResolver, images, data);
+
+        // 连续纸会按内容自动增高：位图尺寸与渲染必须用同一个增高后的工作副本。
+        // 旧实现用未增高的 template 算位图高度，长单下半段会被裁掉——水印是按增高后的
+        // pageHeight 平铺的，也跟着一起丢（PDF / GDI 链路早已用 working，只有 PNG 漏了）。
+        var working = AutoGrowContinuousTables(template, context);
+        var size = GetPageSizeMm(working, opt);
         var width = Math.Max(1, (int)Math.Ceiling(size.Width * opt.UnitsPerMm));
         var height = Math.Max(1, (int)Math.Ceiling(size.Height * opt.UnitsPerMm));
 
-        var report = new RenderReport();
         var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
         try
         {
             using var canvas = new SKCanvas(bitmap);
-            Render(template, canvas, new RenderContext(opt, report, fontResolver, images, data));
+            Render(working, canvas, context);
         }
         catch
         {

@@ -302,6 +302,15 @@ public enum RenderIssueKind
 
     /// <summary>formatter/styler 脚本异常或超时，已降级为"没有脚本"。</summary>
     ScriptIssue,
+
+    /// <summary>文本内容超出固定护栏（字符数/行数/单行长度），已截断，避免度量与渲染把内存吃光。</summary>
+    TextTooLong,
+
+    /// <summary>图片解码后尺寸超出固定护栏，已跳过该图（字节数合规但解压后像素过大）。</summary>
+    ImageTooLarge,
+
+    /// <summary>表格单元格图片声明的数据类型与实际值不符，已跳过该格（不悄悄降级成另一种类型）。</summary>
+    ImageSourceMismatch,
 }
 
 /// <summary>单条渲染降级记录。</summary>

@@ -8,6 +8,7 @@ using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using CrossPrint.Core;
 using CrossPrint.Designer;
 using CrossPrint.I18n;
@@ -34,7 +35,14 @@ public sealed class PropertyPanel : UserControl
 
     EditorKernel _kernel;
     bool _rebuilding;
+    bool _rebuildQueued;
     string _signature = string.Empty;
+
+    /// <summary>
+    /// 一次属性提交完成（无论成败）后广播。列编辑弹窗等"独立于主面板行容器"的临时表单
+    /// 订阅它来重建自己的字段集——主面板的 Rebuild 碰不到弹窗里的控件。
+    /// </summary>
+    public event Action? Committed;
 
     /// <summary>
     /// 无选中元素时空白区的附加内容构造器（如「纸张 + 水印」设置区）。
@@ -78,14 +86,31 @@ public sealed class PropertyPanel : UserControl
 
     void OnKernelViewChanged()
     {
-        // 拖拽期间 ViewChanged 每帧都发；只有选中元素/描述符集合真的变了才重建，否则编辑框会被反复销毁。
+        // 拖拽期间 ViewChanged 每帧都发；结构签名只含 Key + Hidden，坐标变化不会触发重建，
+        // 但表格列切换渲染方式（Hidden 变了）或撤销/重做导致字段集变化会触发重建。
         if (_rebuilding)
             return;
 
-        var properties = _kernel.SelectedProperties;
-        var signature = properties is null ? string.Empty : BuildSignature(properties);
-        if (signature != _signature)
+        if (PropertyOptions.StructureSignature(_kernel.SelectedProperties) != _signature)
+            ScheduleRebuild();
+    }
+
+    /// <summary>
+    /// 提交后延迟重建：在 SelectionChanged/LostFocus 事件派发中直接 Rebuild 会销毁正在派发事件的控件，
+    /// 也会拆掉刚拿到焦点的下一个编辑框。延迟到 UI 空闲并合并同一批提交（防抖）。
+    /// 重建后面板从活模型重新取值，下拉不会再停在旧选项上。
+    /// </summary>
+    void ScheduleRebuild()
+    {
+        if (_rebuildQueued)
+            return;
+
+        _rebuildQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _rebuildQueued = false;
             Rebuild();
+        }, DispatcherPriority.Background);
     }
 
     void Rebuild()
@@ -113,7 +138,7 @@ public sealed class PropertyPanel : UserControl
                 return;
             }
 
-            _signature = BuildSignature(properties);
+            _signature = PropertyOptions.StructureSignature(properties);
             _rows.Children.Add(new TextBlock
             {
                 Text = DescribeElement(properties.Element),
@@ -305,10 +330,11 @@ public sealed class PropertyPanel : UserControl
             {
                 // 值语义仍是枚举 CLR 名（Options 原样、SelectedItem 原样），
                 // 显示用 ItemTemplate 翻译——中文界面形状种类显示"等腰三角形"而不是"Triangle"。
+                // 候选项走统一口径：[Flags] 组合值 / 自定义组合串也能被选中并显示，不再落到空白或第一项。
                 var combo = new ComboBox
                 {
-                    ItemsSource = descriptor.Options,
-                    SelectedItem = descriptor.GetValue(element)?.ToString(),
+                    ItemsSource = PropertyOptions.Values(descriptor, element),
+                    SelectedItem = PropertyOptions.Current(descriptor, element),
                     IsEnabled = !descriptor.ReadOnly,
                     ItemTemplate = new FuncDataTemplate<string>(
                         (name, _) => new TextBlock { Text = PropertyText.Option(descriptor.Key, name ?? string.Empty) },
@@ -552,8 +578,12 @@ public sealed class PropertyPanel : UserControl
             ShowMessage(ex.Message);
         }
 
-        // 提交成功后不再整块重建：重建会销毁全部编辑器（焦点丢失、下一个要点到的控件被换掉），
-        // 表现为"改一个属性面板就不能用了，要重选元素才恢复"。值与描述符集合都没变，控件保持原样。
+        // 提交后必须刷新：Enum 下拉要从活模型回读（否则选中项停在旧值），
+        // 表格列切换渲染方式后「码制/纠错等级/图片数据类型」是描述符 Hidden 位变化，
+        // 只有重新 For() 才会出现。旧实现"提交后不重建"正是"选了没变化"的根因。
+        // 用延迟重建而不是同步重建，避免在事件派发中销毁控件 / 拆掉刚拿到焦点的编辑框。
+        Committed?.Invoke();
+        ScheduleRebuild();
     }
 
     void ShowMessage(string? message)
@@ -569,6 +599,12 @@ public sealed class PropertyPanel : UserControl
         var items = new List<StyleItem> { new(null, "（不引用）") };
         foreach (var style in _kernel.Template.Styles)
             items.Add(new StyleItem(style.Id, $"{style.Name}（{style.Id}）"));
+
+        // 引用了一个已不在样式库里的 id 时，旧实现会静默落到"（不引用）"，
+        // 用户看到的就是"选了没变化"。把它作为一项显示出来，选中态才与模型一致。
+        if (!string.IsNullOrEmpty(current)
+            && !items.Any(item => string.Equals(item.Id, current, StringComparison.Ordinal)))
+            items.Add(new StyleItem(current, $"{current}（样式库中未找到）"));
 
         var combo = new ComboBox
         {
@@ -674,8 +710,26 @@ public sealed class PropertyPanel : UserControl
             return;
 
         var rows = new StackPanel { Spacing = 6, Margin = new Thickness(8) };
-        foreach (var descriptor in descriptors)
-            rows.Children.Add(BuildRow(properties.Element, descriptor));
+
+        // 字段集随 cellRender 变化（码制/纠错等级/图片数据类型靠 Hidden 位出现）。
+        // 描述符是快照，弹窗打开时拍一次就再不刷新 → 选了一维码却看不到码制。
+        // 每次提交后重新从活内核 For() 并重建弹窗内的行；延迟到 UI 空闲避免在
+        // SelectionChanged 派发中销毁正在派发事件的 ComboBox。
+        void RebuildRows()
+        {
+            var live = _kernel.SelectedProperties;
+            if (live is null)
+                return;
+
+            var current = live.Descriptors
+                .Where(d => d.Key.StartsWith(head, StringComparison.Ordinal) && !d.Hidden)
+                .ToList();
+            rows.Children.Clear();
+            foreach (var descriptor in current)
+                rows.Children.Add(BuildRow(live.Element, descriptor));
+        }
+
+        RebuildRows();
 
         var close = new Button
         {
@@ -695,11 +749,14 @@ public sealed class PropertyPanel : UserControl
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         });
 
-        _ = ModalDialog.ShowAsync(this, $"编辑列{index + 1}", root, 560, 620, onClosed: Rebuild);
+        Action onCommitted = () => Dispatcher.UIThread.Post(RebuildRows, DispatcherPriority.Background);
+        Committed += onCommitted;
+        _ = ModalDialog.ShowAsync(this, $"编辑列{index + 1}", root, 560, 620, onClosed: () =>
+        {
+            Committed -= onCommitted;
+            Rebuild();
+        });
     }
-
-    static string BuildSignature(ElementProperties properties)
-        => properties.Element.Id + "|" + string.Join("|", properties.Descriptors.Select(d => d.Key));
 
     static object? ParseNumber(PropertyDescriptor descriptor, string text)
     {

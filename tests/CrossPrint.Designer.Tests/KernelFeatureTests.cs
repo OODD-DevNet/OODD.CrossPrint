@@ -89,14 +89,45 @@ public class KernelFeatureTests
         template.Paper.PageWidthMm.Should().Be(100);
         template.Paper.PageHeightMm.Should().Be(150);
 
+        // 两参重载保持旧语义：高度 0 = 连续纸；设计高度落默认 297。
         var command = CaptureCommand(kernel, c => c.SetCustomPaper(58, 0));
-        command.Label.Should().Contain("58×0");
-        template.Paper.IsContinuous.Should().BeTrue("高度 0 表示连续纸");
+        command.Label.Should().Contain("58×297").And.Contain("连续纸");
+        template.Paper.IsContinuous.Should().BeTrue();
+        template.Paper.HeightMm.Should().Be(EditorKernel.DefaultContinuousDesignHeightMm);
         template.Paper.Orientation.Should().Be(PaperOrientation.Portrait);
         command.Revert();
 
         template.Paper.WidthMm.Should().Be(100);
         template.Paper.HeightMm.Should().Be(150);
+    }
+
+    [Fact]
+    public void 自定义纸张_连续纸开关与设计高度独立_语义正确()
+    {
+        var template = PrintTemplate.CreateDefault(PaperTypePresets.A4);
+        var kernel = KernelFixture.Kernel(template);
+
+        // 三参重载：连续纸 + 设计高度 500，纸高保留 500 作画布基准。
+        kernel.SetCustomPaper(80, 500, continuous: true);
+        template.Paper.IsContinuous.Should().BeTrue();
+        template.Paper.Continuous.Should().BeTrue("显式标志独立于 HeightMm 表达");
+        template.Paper.HeightMm.Should().Be(500);
+        template.Paper.PageHeightMm.Should().Be(500, "连续纸时 PageHeightMm 是设计高度；打印侧由 Continuous 标志判别，不再依赖高度为 0");
+        template.Paper.Orientation.Should().Be(PaperOrientation.Portrait);
+
+        // 非连续纸：纸高是真实固定纸高。
+        kernel.SetCustomPaper(210, 297, continuous: false);
+        template.Paper.IsContinuous.Should().BeFalse();
+        template.Paper.Continuous.Should().BeFalse();
+        template.Paper.PageHeightMm.Should().Be(297);
+
+        // 连续纸高度 ≤0 落默认设计高度。
+        kernel.SetCustomPaper(58, 0, continuous: true);
+        template.Paper.HeightMm.Should().Be(EditorKernel.DefaultContinuousDesignHeightMm);
+
+        // 撤销链仍按命令栈回退。
+        kernel.Undo();
+        template.Paper.PageHeightMm.Should().Be(297);
     }
 
     [Fact]

@@ -8,9 +8,13 @@ using CrossPrint.Designer;
 using CrossPrint.Engine;
 using CrossPrint.Hosts.Maui;
 using CrossPrint.I18n;
+using CrossPrint.Printing;
+using CrossPrint.SolutionStorage;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
+using Windows.Storage.Pickers;
 using Windows.System;
+using WinRT.Interop;
 
 namespace CrossPrint.Samples.Maui;
 
@@ -52,6 +56,9 @@ internal sealed class MainWindow : Window
     readonly ModalHost _modal = new();
     readonly CollectionView _toolbox = new();
     readonly Label _status = new();
+    readonly Label _zoomText = new();
+    Button _undoButton = null!;
+    Button _redoButton = null!;
     readonly Editor _templateJson = new();
     readonly Label _jsonState = new();
     readonly Button _jsonToggle = new();
@@ -59,7 +66,23 @@ internal sealed class MainWindow : Window
     readonly Grid _previewOverlay = new();
     readonly Grid _previewHost = new();
     readonly Grid _menuOverlay = new();
+    // 阶段 G：右上角 Toast 浮层（顶层 Grid，不拦截鼠标）。
+    readonly Grid _toastLayer = new() { IsVisible = true, InputTransparent = true, HorizontalOptions = LayoutOptions.Fill, VerticalOptions = LayoutOptions.Fill };
+    // 阶段 E：当前解决方案会话（保存/打开/最近/脏位），所有桌面宿主共用 SQLite 存储。
+    readonly SolutionSession _session = new();
+    bool _printing;
     PreviewControl? _preview;
+    // 右栏空白区（页面级水印）：持久实例，见 PropertyPanel.EmptyStateContentBuilder 挂接处注释。
+    View? _pageSection;
+    bool _syncingWatermark;
+    CheckBox _watermarkEnabled = null!;
+    Entry _watermarkText = null!;
+    Entry _watermarkBinding = null!;
+    Entry _watermarkFontSize = null!;
+    Entry _watermarkOpacity = null!;
+    Entry _watermarkRotation = null!;
+    Entry _watermarkSpacing = null!;
+    Entry _watermarkColor = null!;
     bool _jsonDirty;
     bool _jsonExpanded;
     string _jsonSnapshot = string.Empty;
@@ -86,6 +109,9 @@ internal sealed class MainWindow : Window
         _paper.StatusRequested += message => SetStatus(message);
 
         _properties = new PropertyPanel(_designer.Kernel);
+        // 空白区必须返回懒构建的持久实例：属性面板随 ViewChanged/TemplateChanged 频繁
+        // Rebuild（先 Clear 摘树再重挂），每次新建控件树会让字段级单例控件重复进视觉树。
+        _properties.EmptyStateContentBuilder = () => _pageSection ??= BuildPageSection();
 
         // 右键菜单由示例自己开：宿主对右键不捕获指针（见 DesignerCanvas 的说明），
         // 事件里带窗口根坐标，覆盖层菜单直接按位置摆卡片。
@@ -100,6 +126,19 @@ internal sealed class MainWindow : Window
             SetStatus(Localizer.T("App.Status.Warnings", string.Join("；", warnings)), error: true);
         else
             SetStatus(Localizer.T("App.Status.Ready"));
+
+        StartAutosave();
+    }
+
+    /// <summary>阶段 E：桌面自动保存——30s 一拍，有脏改动且已入解决方案才落库；未保存的新模板不打扰（走 Ctrl+S 另存为）。</summary>
+    void StartAutosave()
+    {
+        Dispatcher.StartTimer(TimeSpan.FromSeconds(30), () =>
+        {
+            if (_session.IsDirty)
+                _ = SaveSolution(false, silent: true);
+            return true; // 持续计时。
+        });
     }
 
     static PrintTemplate LoadSampleTemplate(out IReadOnlyList<string> warnings)
@@ -152,6 +191,8 @@ internal sealed class MainWindow : Window
         AddAt(root, BuildPreviewOverlay(), row: 0, rowSpan: 6);
         AddAt(root, _menuOverlay, row: 0, rowSpan: 6);
         AddAt(root, _modal, row: 0, rowSpan: 6);
+        // 阶段 G：右上角 Toast 浮层——覆盖整窗、不拦截鼠标（最顶层）。
+        AddAt(root, _toastLayer, row: 0, rowSpan: 6);
 
         BindKernel();
         return root;
@@ -175,8 +216,25 @@ internal sealed class MainWindow : Window
             return;
         }
 
-        var menu = new VerticalStackLayout { Spacing = 1, MinimumWidthRequest = 180 };
+        var menu = new VerticalStackLayout { Spacing = 1, MinimumWidthRequest = 200 };
         menu.Add(MakeMenuAction(Localizer.T("Menu.File.ImportHiprint"), true, () => _ = ShowImportHiprint()));
+        menu.Add(MakeMenuAction(Localizer.T("Menu.File.Templates"), true, () => OpenTemplateLibrary()));
+        menu.Add(MakeMenuAction(Localizer.T("Menu.File.StyleLibrary"), true, () => OpenStyleLibrary()));
+        menu.Add(new BoxView { HeightRequest = 1, Color = Colors.LightGray, Margin = new Thickness(4, 2) });
+        menu.Add(MakeMenuAction(Localizer.T("Menu.File.New"), true, () => NewSolution()));
+        menu.Add(MakeMenuAction(Localizer.T("Menu.File.Open"), true, () => _ = OpenSolutionDialog()));
+        // 最近打开：每次展开都从存储重新读，反映最新保存记录（与桌面宿主同口径）。
+        foreach (var record in _session.Recent(8))
+        {
+            var id = record.Id;
+            menu.Add(MakeMenuAction(record.Name, true, () => OpenSolution(id)));
+        }
+        menu.Add(MakeMenuAction(Localizer.T("Menu.File.Save"), true, () => _ = SaveSolution(false)));
+        menu.Add(MakeMenuAction(Localizer.T("Menu.File.SaveAs"), true, () => _ = SaveSolution(true)));
+        menu.Add(new BoxView { HeightRequest = 1, Color = Colors.LightGray, Margin = new Thickness(4, 2) });
+        menu.Add(MakeMenuAction(Localizer.T("Menu.File.ExportJson"), true, () => _ = OnExportJson()));
+        menu.Add(MakeMenuAction(Localizer.T("Menu.File.ExportPdf"), true, () => _ = ExportPdf()));
+        menu.Add(MakeMenuAction(Localizer.T("Menu.Print.System"), true, () => PrintSolution()));
 
         ShowMenuCard(menu);
     }
@@ -289,6 +347,11 @@ internal sealed class MainWindow : Window
         // 窗口变窄时末尾的按钮会先被裁掉，短标签能多留几个在可视区；导入按钮放最前面。
         panel.Add(MakeButton(Localizer.T("Toolbar.Import"), () => _ = ShowImportHiprint(), Localizer.T("Toolbar.Import.Tip")));
         panel.Add(MakeSeparator());
+        _undoButton = MakeButton(Localizer.T("Toolbar.Undo"), DoUndo, Localizer.T("Toolbar.Undo.Tip"));
+        _redoButton = MakeButton(Localizer.T("Toolbar.Redo"), DoRedo, Localizer.T("Toolbar.Redo.Tip"));
+        panel.Add(_undoButton);
+        panel.Add(_redoButton);
+        panel.Add(MakeSeparator());
         panel.Add(MakeButton(Localizer.T("Toolbar.Duplicate"), DuplicateSelection, Localizer.T("Toolbar.Duplicate.Tip")));
         panel.Add(MakeButton(Localizer.T("Toolbar.Delete"), () => Run(_designer.Kernel.DeleteSelection), Localizer.T("Toolbar.Delete.Tip")));
         panel.Add(MakeSeparator());
@@ -296,19 +359,14 @@ internal sealed class MainWindow : Window
         panel.Add(MakeButton(Localizer.T("Toolbar.SendBackward"), () => Run(_designer.Kernel.SendBackward), Localizer.T("Toolbar.SendBackward.Tip")));
         panel.Add(MakeButton(Localizer.T("Toolbar.BringToFront"), () => Run(_designer.Kernel.BringToFront), Localizer.T("Toolbar.BringToFront.Tip")));
         panel.Add(MakeButton(Localizer.T("Toolbar.SendToBack"), () => Run(_designer.Kernel.SendToBack), Localizer.T("Toolbar.SendToBack.Tip")));
-        panel.Add(MakeSeparator());
-        panel.Add(MakeButton(Localizer.T("Toolbar.FitToPage"), () => Run(_designer.FitToPage), Localizer.T("Toolbar.FitToPage.Tip")));
-        panel.Add(MakeButton(Localizer.T("Toolbar.ZoomActual"), () => Run(() =>
-        {
-            _designer.Kernel.Viewport.Reset();
-            _designer.Invalidate();
-        }), Localizer.T("Toolbar.ZoomActual.Tip")));
+        // 「适合窗口 / 100%」与底部状态栏缩放组重复，统一收敛到状态栏（Avalonia 基准口径）；
+        // 画布右键菜单与预览覆盖层仍保留同名项。
         panel.Add(MakeSeparator());
         panel.Add(MakeOverlayCheck(Localizer.T("Toolbar.Grid"), true, value => _designer.Overlay.Options.ShowGrid = value));
         panel.Add(MakeOverlayCheck(Localizer.T("Toolbar.Ruler"), true, value => _designer.Overlay.Options.ShowRulers = value));
         panel.Add(MakeOverlayCheck(Localizer.T("Toolbar.SafeArea"), true, value => _designer.Overlay.Options.ShowMarginGuides = value));
         panel.Add(MakeSeparator());
-        panel.Add(MakeButton(Localizer.T("Toolbar.ExportPdf"), ExportPdf, Localizer.T("Toolbar.ExportPdf.Tip")));
+        panel.Add(MakeButton(Localizer.T("Toolbar.ExportPdf"), () => _ = ExportPdf(), Localizer.T("Toolbar.ExportPdf.Tip")));
         panel.Add(MakeButton(Localizer.T("Toolbar.Preview"), OpenPreview, Localizer.T("Toolbar.Preview.Tip")));
 
         return new Border
@@ -419,8 +477,13 @@ internal sealed class MainWindow : Window
         Grid.SetRow(header, 0);
         grid.Add(header);
 
-        _toolbox.ItemsSource = Array.ConvertAll(ElementButtons, item => item.Label);
-        Grid.SetRow(_toolbox, 1);
+        var search = new Entry { Placeholder = Localizer.T("Toolbox.Search") };
+        search.TextChanged += (_, _) => ApplyToolboxFilter(search.Text);
+        Grid.SetRow(search, 1);
+        grid.Add(search);
+
+        ApplyToolboxFilter(string.Empty);
+        Grid.SetRow(_toolbox, 2);
         grid.Add(_toolbox);
 
         var add = new Button
@@ -430,35 +493,46 @@ internal sealed class MainWindow : Window
             Padding = new Thickness(6, 4, 6, 4),
         };
         add.Clicked += (_, _) => AddFromToolbox();
-        Grid.SetRow(add, 2);
+        Grid.SetRow(add, 3);
         grid.Add(add);
 
         var hint = new Label
         {
-            Text = "点选工具后按「添加到画布」添加到画布中心。",
+            Text = Localizer.T("Toolbox.HintClick"),
             FontSize = 11,
             TextColor = Colors.Gray,
             LineBreakMode = LineBreakMode.WordWrap,
             Margin = new Thickness(0, 6, 0, 0),
         };
-        Grid.SetRow(hint, 3);
+        Grid.SetRow(hint, 4);
         grid.Add(hint);
 
         return grid;
     }
 
+    /// <summary>
+    /// 工具箱按中英文名（或类型键）过滤条目：空查询=全部显示。
+    /// 拖放：MAUI 的 DragGestureRecognizer 需要每个平台 handler 注册 Drop 事件，示例宿主
+    /// 无法跨平台无头实证，故按待办口径以「点选 + 添加到画布」兜底（见 HintClick 文案）。
+    /// </summary>
+    void ApplyToolboxFilter(string? query)
+        => _toolbox.ItemsSource = ElementButtons
+            .Select(item => new ToolboxItem(item.Label, item.Key))
+            .Where(item => ToolboxNames.Matches(item.TypeKey, query))
+            .ToArray();
+
+    sealed record ToolboxItem(string Label, string TypeKey);
+
     void AddFromToolbox()
     {
-        // CollectionView 没有 SelectedIndex，用选中的标签反查元素类型。
-        if (_toolbox.SelectedItem is not string label)
+        if (_toolbox.SelectedItem is not ToolboxItem item)
         {
             SetStatus(Localizer.T("Status.SelectFirst"), error: true);
             return;
         }
 
-        var element = Array.Find(ElementButtons, item => item.Label == label);
-        Run(() => _designer.Kernel.AddElementAtCenter(element.Key));
-        SetStatus(Localizer.T("Status.ElementAddedCenter", label));
+        Run(() => _designer.Kernel.AddElementAtCenter(item.TypeKey));
+        SetStatus(Localizer.T("Status.ElementAddedCenter", item.Label));
     }
 
     View BuildStatusBar()
@@ -466,15 +540,98 @@ internal sealed class MainWindow : Window
         _status.TextColor = Colors.DimGray;
         _status.Margin = new Thickness(10, 3, 10, 3);
         _status.LineBreakMode = LineBreakMode.NoWrap;
+        _status.VerticalOptions = LayoutOptions.Center;
+        _zoomText.TextColor = Colors.DimGray;
+        _zoomText.Margin = new Thickness(8, 3, 4, 3);
+        _zoomText.VerticalOptions = LayoutOptions.Center;
+        _zoomText.LineBreakMode = LineBreakMode.NoWrap;
+
+        Button ZoomBtn(string text, Action action, string tip)
+        {
+            var b = new Button
+            {
+                Text = text,
+                Padding = new Thickness(4, 1, 4, 1),
+                MinimumHeightRequest = 26,
+                VerticalOptions = LayoutOptions.Center,
+            };
+            if (!string.IsNullOrEmpty(tip))
+                ToolTipProperties.SetText(b, tip);
+            b.Clicked += (_, _) => action();
+            return b;
+        }
+
+        var zoomBox = new HorizontalStackLayout { Spacing = 2, VerticalOptions = LayoutOptions.Center };
+        zoomBox.Add(ZoomBtn(Localizer.T("Toolbar.ZoomOut"), () => EditorActions.ZoomOut(_designer.Kernel), Localizer.T("Toolbar.ZoomOut.Tip")));
+        zoomBox.Add(ZoomBtn(Localizer.T("Toolbar.ZoomIn"), () => EditorActions.ZoomIn(_designer.Kernel), Localizer.T("Toolbar.ZoomIn.Tip")));
+        zoomBox.Add(ZoomBtn(Localizer.T("Toolbar.ZoomActual"), () => EditorActions.ZoomActual(_designer.Kernel), Localizer.T("Toolbar.ZoomActual.Tip")));
+        zoomBox.Add(ZoomBtn(Localizer.T("Toolbar.FitToPage"), FitToPageFromStatus, Localizer.T("Toolbar.FitToPage.Tip")));
+
+        // 三列 Grid：缩放组/比例固定左侧，状态文本吃掉剩余宽度。
+        var grid = new Grid { ColumnSpacing = 0 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(zoomBox, 0);
+        Grid.SetColumn(_zoomText, 1);
+        Grid.SetColumn(_status, 2);
+        grid.Add(zoomBox);
+        grid.Add(_zoomText);
+        grid.Add(_status);
 
         return new Border
         {
             Background = new SolidColorBrush(FromRgb(0xF0, 0xF0, 0xF0)),
             Stroke = FromRgb(0xD0, 0xD0, 0xD0),
             StrokeThickness = 1,
-            Content = _status,
+            Content = grid,
         };
     }
+
+    /// <summary>「适合窗口」用宿主真实绘制表面尺寸；它不发 ViewChanged，读数要手动刷一次。</summary>
+    void FitToPageFromStatus()
+    {
+        _designer.FitToPage();
+        UpdateZoomText();
+        _designer.TakeFocus();
+    }
+
+    void DoUndo()
+    {
+        if (!EditorActions.Undo(_designer.Kernel))
+        {
+            SetStatus(Localizer.T("Status.NothingToUndo"));
+            return;
+        }
+
+        _designer.TakeFocus();
+        SetStatus(Localizer.T("Status.Undone"));
+    }
+
+    void DoRedo()
+    {
+        if (!EditorActions.Redo(_designer.Kernel))
+        {
+            SetStatus(Localizer.T("Status.NothingToRedo"));
+            return;
+        }
+
+        _designer.TakeFocus();
+        SetStatus(Localizer.T("Status.Redone"));
+    }
+
+    void UpdateUndoButtons()
+    {
+        if (_undoButton is null)
+            return;
+
+        _undoButton.IsEnabled = _designer.Kernel.CanUndo;
+        _redoButton.IsEnabled = _designer.Kernel.CanRedo;
+    }
+
+    /// <summary>缩放比例读数：−/+/100% 都走内核 KeyAction，会发 ViewChanged 自动刷新。</summary>
+    void UpdateZoomText()
+        => _zoomText.Text = Localizer.T("Status.Zoom", EditorActions.ZoomPercent(_designer.Kernel));
 
     View BuildPreviewOverlay()
     {
@@ -539,11 +696,25 @@ internal sealed class MainWindow : Window
         ShowCanvasMenu(e.WindowXDip, e.WindowYDip);
     }
 
-    /// <summary>Ctrl+D 创建副本：宿主把内核没映射的按键都抛到 RawKeyDown，这里组合修饰键判断。</summary>
+    /// <summary>Ctrl+D 创建副本 / Ctrl+Z / Ctrl+Y 撤销重做：宿主把内核没映射的按键都抛到 RawKeyDown，这里组合修饰键判断。</summary>
     void OnDesignerRawKey(object? sender, RawKeyEventArgs e)
     {
+        if (e.Control && !e.Alt && (e.Key == VirtualKey.Z || e.Key == VirtualKey.Y))
+        {
+            // Ctrl+Shift+Z 与 Ctrl+Y 都算重做（与 Avalonia 基准一致）。
+            if (e.Key == VirtualKey.Y || e.Shift)
+                DoRedo();
+            else
+                DoUndo();
+            return;
+        }
+
         if (e.Control && e.Key == VirtualKey.D)
             DuplicateSelection();
+
+        // 阶段 E：Ctrl+S 立即保存。
+        if (e.Control && e.Key == VirtualKey.S)
+            _ = SaveSolution(false);
     }
 
     /// <summary>在右键位置弹出画布菜单；菜单项全部直连内核命令，没有选中时选中类项禁用。</summary>
@@ -720,7 +891,138 @@ internal sealed class MainWindow : Window
         _paper.Attach(_designer.Kernel);
         _properties.Attach(_designer.Kernel);
         _designer.Kernel.TemplateChanged += OnKernelTemplateChanged;
+        // 提交、撤销、重做、换模板都会发 TemplateChanged：水印控件统一从这里回读模型值。
+        _designer.Kernel.TemplateChanged += RefreshWatermarkControls;
+        // 阶段 E：任何编辑都标记脏位（LoadTemplate 已换内核，这里重绑到新内核）。
+        _designer.Kernel.TemplateChanged += MarkSolutionDirty;
+        // LoadTemplate 会换内核：撤销态与缩放读数的订阅必须每次重绑（与 Avalonia 基准一致）。
+        _designer.Kernel.UndoStateChanged += UpdateUndoButtons;
+        _designer.Kernel.ViewChanged += UpdateZoomText;
+        RefreshWatermarkControls();
+        UpdateUndoButtons();
+        UpdateZoomText();
         RefreshTemplateJson(jsonNote);
+    }
+
+    /// <summary>右栏空白区持久实例：属性面板每次 Rebuild 复用同一棵控件树。</summary>
+    View BuildPageSection()
+    {
+        var stack = new VerticalStackLayout { Margin = new Thickness(0, 4, 0, 0) };
+        stack.Add(BuildWatermarkSection());
+        return stack;
+    }
+
+    /// <summary>
+    /// 水印设置区：启用/文字/字段绑定/字号/透明度/角度/间距/颜色。
+    /// 校验、夹取、可撤销提交、回填统一走共享层 <see cref="WatermarkEdits"/>。
+    /// </summary>
+    View BuildWatermarkSection()
+    {
+        _watermarkEnabled = new CheckBox { Margin = new Thickness(0, 2, 0, 2) };
+        _watermarkEnabled.CheckedChanged += (_, e) =>
+            CommitIfNotSyncing(() => WatermarkEdits.SetEnabled(_designer.Kernel, e.Value));
+
+        _watermarkText = WatermarkEntry(() => WatermarkEdits.SetText(_designer.Kernel, _watermarkText.Text));
+        _watermarkBinding = WatermarkEntry(() => WatermarkEdits.SetBinding(_designer.Kernel, _watermarkBinding.Text));
+        _watermarkFontSize = WatermarkEntry(() => CommitWatermarkNumber(WatermarkNumber.FontSizePt, _watermarkFontSize));
+        _watermarkOpacity = WatermarkEntry(() => CommitWatermarkNumber(WatermarkNumber.Opacity, _watermarkOpacity));
+        _watermarkRotation = WatermarkEntry(() => CommitWatermarkNumber(WatermarkNumber.RotationDeg, _watermarkRotation));
+        _watermarkSpacing = WatermarkEntry(() => CommitWatermarkNumber(WatermarkNumber.SpacingMm, _watermarkSpacing));
+        _watermarkColor = WatermarkEntry(CommitWatermarkColor);
+
+        var section = new VerticalStackLayout { Spacing = 2 };
+        section.Add(new Label
+        {
+            Text = Localizer.T("Watermark.Section"),
+            FontAttributes = FontAttributes.Bold,
+            Margin = new Thickness(0, 8, 0, 2),
+        });
+        section.Add(new HorizontalStackLayout
+        {
+            Spacing = 6,
+            Children = { _watermarkEnabled, new Label { Text = Localizer.T("Watermark.Enabled"), FontSize = 12 } },
+        });
+        section.Add(WatermarkRow(Localizer.T("Watermark.Text"), _watermarkText));
+        section.Add(WatermarkRow(Localizer.T("Watermark.Binding"), _watermarkBinding));
+        section.Add(WatermarkRow(Localizer.T("Watermark.FontSize"), _watermarkFontSize));
+        section.Add(WatermarkRow(Localizer.T("Watermark.Opacity"), _watermarkOpacity));
+        section.Add(WatermarkRow(Localizer.T("Watermark.Rotation"), _watermarkRotation));
+        section.Add(WatermarkRow(Localizer.T("Watermark.Spacing"), _watermarkSpacing));
+        section.Add(WatermarkRow(Localizer.T("Watermark.Color"), _watermarkColor));
+
+        RefreshWatermarkControls();
+        return section;
+    }
+
+    /// <summary>水印输入框：失焦或回车提交；回填期间的事件由重入守卫挡掉。</summary>
+    Entry WatermarkEntry(Action commit)
+    {
+        var box = new Entry();
+        box.Unfocused += (_, _) => CommitIfNotSyncing(commit);
+        box.Completed += (_, _) => CommitIfNotSyncing(commit);
+        return box;
+    }
+
+    static View WatermarkRow(string label, View editor)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 1, 0, 1) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.Add(new Label
+        {
+            Text = label,
+            FontSize = 12,
+            TextColor = Colors.DimGray,
+            VerticalOptions = LayoutOptions.Center,
+            Margin = new Thickness(0, 2, 6, 2),
+        });
+        editor.HorizontalOptions = LayoutOptions.Fill;
+        Grid.SetColumn(editor, 1);
+        grid.Add(editor);
+        return grid;
+    }
+
+    void CommitIfNotSyncing(Action commit)
+    {
+        if (!_syncingWatermark)
+            commit();
+    }
+
+    void CommitWatermarkNumber(WatermarkNumber field, Entry box)
+    {
+        if (!WatermarkEdits.SetNumber(_designer.Kernel, field, box.Text))
+            RefreshWatermarkControls();
+    }
+
+    void CommitWatermarkColor()
+    {
+        if (!WatermarkEdits.SetColor(_designer.Kernel, _watermarkColor.Text))
+            RefreshWatermarkControls();
+    }
+
+    /// <summary>换模板 / 撤销 / 重做后一次性把水印控件同步回模型值。</summary>
+    void RefreshWatermarkControls()
+    {
+        if (_syncingWatermark || _watermarkEnabled is null)
+            return;
+
+        _syncingWatermark = true;
+        try
+        {
+            var w = WatermarkEdits.Read(_designer.Kernel);
+            _watermarkEnabled.IsChecked = w.Enabled;
+            _watermarkText.Text = w.Text;
+            _watermarkBinding.Text = w.Binding;
+            _watermarkFontSize.Text = w.FontSizePt;
+            _watermarkOpacity.Text = w.Opacity;
+            _watermarkRotation.Text = w.RotationDeg;
+            _watermarkSpacing.Text = w.SpacingMm;
+            _watermarkColor.Text = w.Color;
+        }
+        finally
+        {
+            _syncingWatermark = false;
+        }
     }
 
     void OnKernelTemplateChanged()
@@ -890,30 +1192,32 @@ internal sealed class MainWindow : Window
             + string.Join("；", result.Issues.Take(3));
     }
 
-    void ExportPdf()
+    async Task ExportPdf()
     {
-        // 与 Uno 示例同一策略：写到"文档"目录并回显路径，不依赖平台文件选择器。
-        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        if (string.IsNullOrEmpty(documents))
-            documents = AppContext.BaseDirectory;
+        using var stream = new MemoryStream();
+        var report = PdfExporter.Export(
+            _designer.Template,
+            stream,
+            data: SampleData.Create(),
+            fontResolver: _designer.FontResolver,
+            images: _designer.Images,
+            renderer: _designer.Renderer);
+        stream.Position = 0;
 
-        var path = Path.Combine(documents, "crossprint-maui-sample.pdf");
+        var file = await PickSaveFileAsync("crossprint-maui", ".pdf", Localizer.T("Dialog.Export.PdfFilter"));
+        if (file is null)
+        {
+            SetStatus(Localizer.T("Error.ExportFailed", Localizer.T("Dialog.Cancel")), error: true);
+            return;
+        }
+
         try
         {
-            using (var stream = File.Create(path))
-            {
-                var report = PdfExporter.Export(
-                    _designer.Template,
-                    stream,
-                    data: SampleData.Create(),
-                    fontResolver: _designer.FontResolver,
-                    images: _designer.Images,
-                    renderer: _designer.Renderer);
-
-                SetStatus(report.HasIssues
-                    ? $"已导出 PDF（{report.Issues.Count} 条渲染降级）：{path}"
-                    : $"已导出 PDF：{path}");
-            }
+            await System.IO.File.WriteAllBytesAsync(file.Path, stream.ToArray());
+            SetStatus(report.HasIssues
+                ? Localizer.T("Status.Exported", file.Path) + "（" + report.Issues.Count + " 条渲染降级）"
+                : Localizer.T("Status.Exported", file.Path));
+            ShowToast("已导出 PDF", file.Path);
         }
         catch (Exception ex)
         {
@@ -1096,6 +1400,61 @@ internal sealed class MainWindow : Window
         _status.TextColor = error ? Colors.Firebrick : Colors.DimGray;
     }
 
+    // 阶段 G：右上角 Toast（成功/提示浮层），3 秒自动消失，不拦截鼠标；同一时刻只保留最新一条。
+    void ShowToast(string title, string? message = null)
+    {
+        _toastLayer.Children.Clear();
+
+        var icon = new Frame
+        {
+            WidthRequest = 22,
+            HeightRequest = 22,
+            CornerRadius = 11,
+            Padding = 0,
+            BackgroundColor = Colors.Green,
+            Content = new Label
+            {
+                Text = "✓",
+                TextColor = Colors.White,
+                FontAttributes = FontAttributes.Bold,
+                FontSize = 13,
+                HorizontalTextAlignment = TextAlignment.Center,
+                VerticalTextAlignment = TextAlignment.Center,
+            },
+        };
+
+        var textStack = new VerticalStackLayout { Spacing = 1, Margin = new Thickness(10, 0, 0, 0) };
+        textStack.Children.Add(new Label { Text = title, FontSize = 13, FontAttributes = FontAttributes.Bold });
+        if (!string.IsNullOrEmpty(message))
+            textStack.Children.Add(new Label
+            {
+                Text = message,
+                FontSize = 12,
+                TextColor = Color.FromArgb("#FF606266"),
+                LineBreakMode = LineBreakMode.WordWrap,
+            });
+
+        var card = new Border
+        {
+            BackgroundColor = Colors.White,
+            Stroke = Color.FromArgb("#FFE5E9F0"),
+            StrokeThickness = 1,
+            Padding = new Thickness(14, 11),
+            HorizontalOptions = LayoutOptions.End,
+            VerticalOptions = LayoutOptions.Start,
+            Margin = new Thickness(0, 14, 14, 0),
+            Content = new HorizontalStackLayout { Spacing = 1, Children = { icon, textStack } },
+        };
+
+        _toastLayer.Children.Add(card);
+
+        Dispatcher.StartTimer(TimeSpan.FromSeconds(3), () =>
+        {
+            _toastLayer.Children.Clear();
+            return false;
+        });
+    }
+
     /// <summary>构造工具栏按钮；tooltip 走 ToolTipProperties（MAUI 没有 WPF 的 ToolTip 属性，WinUI 侧落成悬停提示）。</summary>
     static Button MakeButton(string text, Action action, string? tooltip = null)
     {
@@ -1129,4 +1488,601 @@ internal sealed class MainWindow : Window
     }
 
     static Color FromRgb(byte r, byte g, byte b) => Color.FromRgb(r, g, b);
+
+    /// <summary>模板库对话框：左侧分类 + 右侧缩略图卡片（用 FlexLayout 自动换行），点击卡片套用模板。</summary>
+    void OpenTemplateLibrary()
+    {
+        var entries = BuiltinTemplateCatalog.BuildEntries();
+        var byCategory = new Dictionary<string, List<BuiltinTemplateCatalog.Entry>>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            if (!byCategory.TryGetValue(entry.Category, out var list))
+                byCategory[entry.Category] = list = new List<BuiltinTemplateCatalog.Entry>();
+            list.Add(entry);
+        }
+
+        var cardHost = new HorizontalStackLayout { Spacing = 8, Padding = new Thickness(8), Margin = new Thickness(4) };
+
+        void ApplyFromLibrary(BuiltinTemplateCatalog.Entry entry)
+        {
+            _designer.LoadTemplate(entry.Create());
+            BindKernel(entry.Name);
+            SetStatus(Localizer.T("Status.TemplateApplied", entry.Name));
+            CloseTemplateLibrary();
+        }
+
+        View BuildCard(BuiltinTemplateCatalog.Entry entry)
+        {
+            var thumbnail = new Image
+            {
+                WidthRequest = 200,
+                HeightRequest = 96,
+                Aspect = Aspect.AspectFit,
+                Margin = new Thickness(0, 0, 0, 4),
+            };
+            try
+            {
+                var png = BuiltinTemplateCatalog.RenderThumbnailPng(entry.Create());
+                thumbnail.Source = ImageSource.FromStream(() => new MemoryStream(png));
+            }
+            catch
+            {
+                // 缩略图渲染失败不阻断选单本身。
+            }
+
+            var title = new Label
+            {
+                Text = entry.Name,
+                FontAttributes = FontAttributes.Bold,
+                LineBreakMode = LineBreakMode.NoWrap,
+            };
+            var desc = new Label
+            {
+                Text = entry.Description,
+                FontSize = 11,
+                TextColor = Colors.Gray,
+                LineBreakMode = LineBreakMode.WordWrap,
+            };
+
+            var stack = new VerticalStackLayout { Spacing = 2, Children = { thumbnail, title, desc } };
+            var card = new Border
+            {
+                Stroke = Colors.LightGray,
+                StrokeThickness = 1,
+                Padding = new Thickness(8),
+                WidthRequest = 224,
+                Margin = new Thickness(4),
+                Content = stack,
+            };
+            var tap = new TapGestureRecognizer();
+            tap.Tapped += (_, _) => ApplyFromLibrary(entry);
+            card.GestureRecognizers.Add(tap);
+            return card;
+        }
+
+        var categoryList = new VerticalStackLayout { Spacing = 2, Padding = new Thickness(8, 4) };
+        foreach (var c in new[] { "全部" }.Concat(BuiltinTemplateCatalog.Categories))
+        {
+            var cat = c;
+            var btn = new Button
+            {
+                Text = c,
+                HorizontalOptions = LayoutOptions.Fill,
+                Padding = new Thickness(8, 4, 8, 4),
+                FontSize = 13,
+            };
+            btn.Clicked += (_, _) => ShowCards(cat);
+            categoryList.Add(btn);
+        }
+
+        void ShowCards(string category)
+        {
+            cardHost.Children.Clear();
+            var list = category == "全部" ? entries : byCategory.GetValueOrDefault(category, new List<BuiltinTemplateCatalog.Entry>());
+            foreach (var entry in list)
+                cardHost.Children.Add(BuildCard(entry));
+        }
+
+        var leftScroll = new ScrollView { Content = categoryList };
+        var rightScroll = new ScrollView { Content = cardHost, Orientation = ScrollOrientation.Both };
+        var body = new Grid();
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(leftScroll, 0);
+        Grid.SetColumn(rightScroll, 1);
+        body.Add(leftScroll);
+        body.Add(rightScroll);
+
+        var hint = new Label
+        {
+            Text = Localizer.T("TemplateLibrary.Hint"),
+            FontSize = 12,
+            TextColor = Colors.DimGray,
+            Margin = new Thickness(8, 6),
+        };
+
+        var root = new VerticalStackLayout { Spacing = 4, Children = { hint, body } };
+
+        var card = new Border
+        {
+            Background = new SolidColorBrush(Colors.White),
+            Stroke = Colors.LightGray,
+            StrokeThickness = 1,
+            Padding = new Thickness(8),
+            WidthRequest = 1024,
+            HeightRequest = 720,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Content = root,
+        };
+
+        var backdrop = new Button
+        {
+            Background = new SolidColorBrush(Colors.Transparent),
+            CornerRadius = 0,
+        };
+        backdrop.Clicked += (_, _) => CloseTemplateLibrary();
+
+        _menuOverlay.Children.Clear();
+        _menuOverlay.Add(backdrop);
+        _menuOverlay.Add(card);
+        _menuOverlay.IsVisible = true;
+        ShowCards("全部");
+    }
+
+    void CloseTemplateLibrary()
+    {
+        _menuOverlay.IsVisible = false;
+        _menuOverlay.Children.Clear();
+        _designer.TakeFocus();
+    }
+
+    // ===== 阶段 G：样式库对话框 =====
+
+    /// <summary>
+    /// 样式库对话框（MAUI，复用模板库覆盖层）：左列样式清单（增删），右列选中样式的字段表单。
+    /// 字段模型 / 可空值读写 / 解析全部走共享层 <see cref="StyleLibrarySupport"/>，本方法只负责 UI 摆布与事件接线。
+    /// 所有变更经 <see cref="EditorKernel.UpdateStyle"/>，可撤销；删除被引用的样式由内核拦截并提示。
+    /// </summary>
+    sealed class StyleItem
+    {
+        public string Id = string.Empty;
+        public string Display = string.Empty;
+    }
+
+    void OpenStyleLibrary()
+    {
+        string? currentId = null;
+        var syncing = false;
+
+        // MAUI 的 Picker.ItemsSource 拿到的是包装后的项，无法直接回转型；
+        // 因此 id 与枚举候选用并行列表保存，界面只认 SelectedIndex。
+        var styleItems = new List<StyleItem>();
+        var enumOptions = new Dictionary<string, string[]>(StringComparer.Ordinal);
+
+        var message = new Label { TextColor = Colors.Firebrick, Margin = new Thickness(8, 4) };
+        var styleList = new VerticalStackLayout { Spacing = 2, Padding = new Thickness(8, 4) };
+        var addBtn = new Button { Text = "新增", Margin = new Thickness(4) };
+        var delBtn = new Button { Text = "删除", Margin = new Thickness(4) };
+
+        var fieldControls = new Dictionary<string, View>(StringComparer.Ordinal);
+        var fieldsForm = new VerticalStackLayout { Spacing = 6, Padding = new Thickness(8) };
+        foreach (var def in StyleLibrarySupport.Fields)
+        {
+            View editor = def.Kind switch
+            {
+                StyleFieldKind.Bool => new Picker(),
+                StyleFieldKind.Enum => new Picker(),
+                _ => new Entry(),
+            };
+            fieldControls[def.Key] = editor;
+
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var label = new Label { Text = def.LabelZh, VerticalOptions = LayoutOptions.Center };
+            Grid.SetColumn(label, 0);
+            Grid.SetColumn(editor, 1);
+            row.Add(label);
+            row.Add(editor);
+            fieldsForm.Add(row);
+        }
+
+        var leftContent = new VerticalStackLayout
+        {
+            Spacing = 4,
+            Children =
+            {
+                new HorizontalStackLayout { Spacing = 4, Padding = new Thickness(4), Children = { addBtn, delBtn } },
+                styleList,
+            },
+        };
+        var leftScroll = new ScrollView { Content = leftContent };
+        var rightScroll = new ScrollView { Content = fieldsForm };
+        var body = new Grid();
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(leftScroll, 0);
+        Grid.SetColumn(rightScroll, 1);
+        body.Add(leftScroll);
+        body.Add(rightScroll);
+
+        var root = new VerticalStackLayout { Spacing = 4, Children = { body, message } };
+        var card = new Border
+        {
+            Background = new SolidColorBrush(Colors.White),
+            Stroke = Colors.LightGray,
+            StrokeThickness = 1,
+            Padding = new Thickness(8),
+            WidthRequest = 760,
+            HeightRequest = 560,
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.Center,
+            Content = root,
+        };
+        var backdrop = new Button
+        {
+            Background = new SolidColorBrush(Colors.Transparent),
+            CornerRadius = 0,
+            HorizontalOptions = LayoutOptions.Fill,
+            VerticalOptions = LayoutOptions.Fill,
+        };
+        backdrop.Clicked += (_, _) => CloseStyleLibrary();
+
+        void ShowMessage(string? text) => message.Text = text ?? string.Empty;
+
+        void RefreshList(string? keepId)
+        {
+            currentId = keepId;
+            syncing = true;
+            try
+            {
+                styleItems.Clear();
+                styleList.Children.Clear();
+                foreach (var s in _designer.Kernel.Template.Styles)
+                {
+                    var item = new StyleItem { Id = s.Id, Display = $"{s.Name}（{s.Id}）" };
+                    styleItems.Add(item);
+                    var btn = new Button
+                    {
+                        Text = item.Display,
+                        HorizontalOptions = LayoutOptions.Fill,
+                        Padding = new Thickness(6, 3),
+                        FontSize = 13,
+                    };
+                    if (item.Id == keepId)
+                        btn.Background = new SolidColorBrush(Colors.LightBlue);
+                    var capturedId = item.Id;
+                    btn.Clicked += (_, _) => { if (!syncing) SelectStyle(capturedId); };
+                    styleList.Add(btn);
+                }
+            }
+            finally
+            {
+                syncing = false;
+            }
+
+            LoadFields();
+        }
+
+        void SelectStyle(string id) => RefreshList(id);
+
+        void LoadFields()
+        {
+            syncing = true;
+            try
+            {
+                var s = currentId is null ? null : _designer.Kernel.Template.FindStyle(currentId);
+                foreach (var def in StyleLibrarySupport.Fields)
+                {
+                    var raw = s is null ? null : StyleLibrarySupport.GetValue(s, def.Key);
+                    switch (fieldControls[def.Key])
+                    {
+                        case Entry e:
+                            e.Text = StyleLibrarySupport.Format(def, raw);
+                            break;
+                        case Picker p:
+                            var opts = enumOptions[def.Key];
+                            p.ItemsSource = opts;
+                            p.SelectedIndex = raw is null ? 0 : Math.Max(0, Array.IndexOf(opts, raw.ToString()));
+                            break;
+                    }
+                }
+            }
+            finally
+            {
+                syncing = false;
+            }
+        }
+
+        void CommitField(StyleFieldDef def)
+        {
+            if (currentId is null || syncing)
+                return;
+
+            object? value = def.Kind switch
+            {
+                StyleFieldKind.Bool => (fieldControls[def.Key] as Picker) is { SelectedIndex: > 0 } p
+                    ? StyleLibrarySupport.Parse(def, enumOptions[def.Key][p.SelectedIndex])
+                    : null,
+                StyleFieldKind.Enum => (fieldControls[def.Key] as Picker) is { SelectedIndex: > 0 } p
+                    ? StyleLibrarySupport.Parse(def, enumOptions[def.Key][p.SelectedIndex])
+                    : null,
+                _ => StyleLibrarySupport.Parse(def, (fieldControls[def.Key] as Entry)!.Text ?? string.Empty),
+            };
+
+            try
+            {
+                _designer.Kernel.UpdateStyle(currentId, "修改样式 " + def.LabelZh, s => StyleLibrarySupport.SetValue(s, def.Key, value));
+                ShowMessage(null);
+            }
+            catch (Exception ex)
+            {
+                ShowMessage(ex.Message);
+            }
+        }
+
+        foreach (var def in StyleLibrarySupport.Fields)
+        {
+            switch (fieldControls[def.Key])
+            {
+                case Entry e:
+                    e.Unfocused += (_, _) => CommitField(def);
+                    e.Completed += (_, _) => CommitField(def);
+                    break;
+                case Picker p:
+                    p.SelectedIndexChanged += (_, _) => { if (!syncing) CommitField(def); };
+                    break;
+            }
+        }
+
+        addBtn.Clicked += (_, _) =>
+        {
+            try
+            {
+                var style = _designer.Kernel.AddStyle();
+                ShowMessage(null);
+                RefreshList(style.Id);
+            }
+            catch (Exception ex)
+            {
+                ShowMessage(ex.Message);
+            }
+        };
+
+        delBtn.Clicked += (_, _) =>
+        {
+            if (currentId is null)
+                return;
+            try
+            {
+                _designer.Kernel.RemoveStyle(currentId);
+                ShowMessage(null);
+                RefreshList(null);
+            }
+            catch (Exception ex)
+            {
+                ShowMessage(ex.Message);
+            }
+        };
+
+        foreach (var def in StyleLibrarySupport.Fields.Where(f => f.Kind == StyleFieldKind.Bool || f.Kind == StyleFieldKind.Enum))
+        {
+            if (fieldControls[def.Key] is Picker p && def.EnumType is { } t)
+            {
+                var opts = def.Kind == StyleFieldKind.Bool
+                    ? new[] { StyleLibrarySupport.Unset, "true", "false" }
+                    : new[] { StyleLibrarySupport.Unset }.Concat(Enum.GetNames(t)).ToArray();
+                enumOptions[def.Key] = opts;
+                p.ItemsSource = opts;
+                p.SelectedIndex = 0;
+            }
+        }
+
+        RefreshList(_designer.Kernel.Template.Styles.Count > 0 ? _designer.Kernel.Template.Styles[0].Id : null);
+
+        _menuOverlay.Children.Clear();
+        _menuOverlay.Add(backdrop);
+        _menuOverlay.Add(card);
+        _menuOverlay.IsVisible = true;
+    }
+
+    void CloseStyleLibrary()
+    {
+        _menuOverlay.IsVisible = false;
+        _menuOverlay.Children.Clear();
+        _designer.TakeFocus();
+    }
+
+    // ===== 阶段 E/F：解决方案持久化 + 导出/打印 =====
+
+    void MarkSolutionDirty()
+    {
+        _session.IsDirty = true;
+        UpdateTitle();
+    }
+
+    void UpdateTitle()
+    {
+        Title = $"{Localizer.T("App.Title.Short")} — MAUI — {_session.CurrentName}{(_session.IsDirty ? "*" : "")}";
+    }
+
+    void NewSolution()
+    {
+        _designer.LoadTemplate(PrintTemplate.CreateDefault(PaperTypePresets.A4));
+        BindKernel("未命名模板");
+        _session.New();
+        SetStatus(Localizer.T("Status.NewSolution"));
+        UpdateTitle();
+    }
+
+    async Task OpenSolutionDialog()
+    {
+        var records = _session.List();
+        string? selectedId = null;
+        var stack = new VerticalStackLayout { Spacing = 2, Margin = new Thickness(8) };
+        foreach (var record in records)
+        {
+            var id = record.Id;
+            var btn = new Button { Text = record.Name, HorizontalOptions = LayoutOptions.Start };
+            btn.Clicked += (_, _) => selectedId = id;
+            stack.Children.Add(btn);
+        }
+
+        if (records.Count == 0)
+            stack.Children.Add(new Label { Text = "（暂无已保存模板）" });
+
+        var confirmed = await _modal.ShowAsync(
+            Localizer.T("Dialog.OpenSolution"),
+            stack,
+            validate: () => selectedId is null ? Localizer.T("Dialog.SelectRequired") : null);
+        if (confirmed && selectedId is not null)
+            OpenSolution(selectedId);
+    }
+
+    void OpenSolution(string id)
+    {
+        var record = _session.Load(id);
+        if (record is null)
+        {
+            SetStatus(Localizer.T("Error.OpenFailed"), error: true);
+            return;
+        }
+
+        var template = SolutionSession.Parse(record.Json);
+        if (template is null)
+        {
+            SetStatus(Localizer.T("Error.OpenFailed"), error: true);
+            return;
+        }
+
+        _designer.LoadTemplate(template);
+        BindKernel(record.Name);
+        _session.OpenRecord(record);
+        SetStatus(Localizer.T("Status.Opened", record.Name));
+        UpdateTitle();
+    }
+
+    async Task<bool> SaveSolution(bool saveAs, bool silent = false)
+    {
+        string? name = null;
+        if (saveAs || (_session.CurrentId is null && !silent))
+        {
+            name = await PromptNameAsync(_session.CurrentName ?? "未命名模板");
+            if (name is null)
+                return false;
+        }
+
+        try
+        {
+            _session.SaveCurrent(_designer.Template, name);
+            SetStatus(Localizer.T("Status.Saved", _session.CurrentName));
+            ShowToast("保存成功", Localizer.T("Status.Saved", _session.CurrentName));
+        }
+        catch (Exception ex)
+        {
+            SetStatus(Localizer.T("Error.SaveFailed", ex.Message), error: true);
+            return false;
+        }
+
+        UpdateTitle();
+        return true;
+    }
+
+    async Task<string?> PromptNameAsync(string defaultName)
+    {
+        var textBox = new Entry { Text = defaultName, WidthRequest = 320, Margin = new Thickness(8) };
+        var confirmed = await _modal.ShowAsync(
+            Localizer.T("Dialog.SaveAs"),
+            new VerticalStackLayout { Children = { textBox } },
+            validate: () =>
+            {
+                var t = (textBox.Text ?? string.Empty).Trim();
+                return t.Length == 0 ? Localizer.T("Dialog.NameRequired") : null;
+            });
+        if (!confirmed)
+            return null;
+        var result = (textBox.Text ?? string.Empty).Trim();
+        return result.Length == 0 ? null : result;
+    }
+
+    async Task OnExportJson()
+    {
+        var json = TemplateJson.Serialize(_designer.Template, indented: true);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+
+        var file = await PickSaveFileAsync("crossprint-template", ".json", Localizer.T("Dialog.Export.JsonFilter"));
+        if (file is null)
+        {
+            SetStatus(Localizer.T("Error.ExportFailed", Localizer.T("Dialog.Cancel")), error: true);
+            return;
+        }
+
+        try
+        {
+            await System.IO.File.WriteAllBytesAsync(file.Path, bytes);
+            SetStatus(Localizer.T("Status.Exported", file.Path));
+            ShowToast("已导出模板", Localizer.T("Status.Exported", file.Path));
+        }
+        catch (Exception ex)
+        {
+            SetStatus(Localizer.T("Error.ExportFailed", ex.Message), error: true);
+        }
+    }
+
+    /// <summary>Windows 文件保存选择器（与 WinUi 示例同口径），返回用户选定文件或取消时的 null。</summary>
+    async Task<Windows.Storage.StorageFile?> PickSaveFileAsync(string suggestedName, string extension, string filterLabel)
+    {
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = suggestedName,
+        };
+        picker.FileTypeChoices.Add(filterLabel, new List<string> { extension });
+
+        if (this.Handler?.PlatformView is Microsoft.UI.Xaml.Window xamlWindow)
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(xamlWindow));
+
+        return await picker.PickSaveFileAsync();
+    }
+
+    void PrintSolution()
+    {
+        if (_printing)
+        {
+            SetStatus(Localizer.T("Status.PrintingBusy"), error: true);
+            return;
+        }
+
+        _printing = true;
+        SetStatus(Localizer.T("Status.PrintingStarting"));
+        var issues = new RenderReport();
+        var document = new PrintDocument(_designer.Template, SampleData.Create());
+        _ = PrintSolutionAsync(document, issues);
+    }
+
+    async Task PrintSolutionAsync(PrintDocument document, RenderReport issues)
+    {
+        try
+        {
+            var result = await new SystemPrintTarget().PrintBatchAsync(new[] { document }, new SystemPrintOptions(), issues);
+            SetStatus(result.Success
+                ? (issues.HasIssues
+                    ? Localizer.T("Status.PrintedWithWarnings", result.PrintedPages, issues.Issues.Count)
+                    : Localizer.T("Status.Printed", result.PrintedPages))
+                : Localizer.T("Error.PrintFailed", result.Message), error: !result.Success);
+            if (result.Success)
+                ShowToast("打印完成", issues.HasIssues
+                    ? Localizer.T("Status.PrintedWithWarnings", result.PrintedPages, issues.Issues.Count)
+                    : Localizer.T("Status.Printed", result.PrintedPages));
+        }
+        catch (Exception ex)
+        {
+            SetStatus(Localizer.T("Error.PrintFailed", ex.Message), error: true);
+        }
+        finally
+        {
+            _printing = false;
+        }
+    }
 }

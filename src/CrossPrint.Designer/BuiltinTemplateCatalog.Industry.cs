@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using CrossPrint.Core;
 using SkiaSharp;
 
-namespace CrossPrint.Samples.Avalonia;
+namespace CrossPrint.Designer;
 
 /// <summary>
 /// 模板库行业扩容（partial，宿主主文件见 TemplateLibraryDialog.cs）：
@@ -10,7 +10,7 @@ namespace CrossPrint.Samples.Avalonia;
 /// 全部程序化构造、自带 DesignData（缩略图与预览出真实观感），并刻意使用新形状元素（shape）
 /// 做票样边框/密码区/签名区，让扩容同时成为形状组件的示例集。
 /// </summary>
-internal static partial class TemplateLibraryDialog
+public static partial class BuiltinTemplateCatalog
 {
     /// <summary>行业模板清单（顺序即"全部"页的展示顺序）。</summary>
     static IEnumerable<Entry> BuildIndustryEntries()

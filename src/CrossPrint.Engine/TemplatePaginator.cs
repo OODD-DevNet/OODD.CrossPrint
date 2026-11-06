@@ -79,7 +79,9 @@ public static class TemplatePaginator
         if (template is null) throw new ArgumentNullException(nameof(template));
         if (options is null) throw new ArgumentNullException(nameof(options));
 
-        if (template.Paper.PageHeightMm <= 0)
+        // 连续纸不分页（显式标志或历史上纸高 0）：长度随内容自适应，表格由渲染端自动增高，
+        // 页面窗口/页码语义不适用——HeightMm 只是设计高度，不能再当分页容量用。
+        if (template.Paper.IsContinuous)
             return [SinglePage(template)];
 
         // 长文本续页度量（只对带 ContinueOnOverflow 的文本做，且必须真的溢出才算"要分页"）。

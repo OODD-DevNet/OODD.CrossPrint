@@ -27,13 +27,26 @@ internal sealed class PropertyPanel : Panel
 
     EditorKernel _kernel;
     readonly Scrollable _scroll = new() { Border = BorderType.None, ExpandContentWidth = true };
+    // 动态属性行放在 _rowsHost 里整表替换；页面级设置（水印）放在并列的 _emptyStateHost 里，
+    // 永不被 SwapTable 的 Dispose 循环碰到——持久控件被销毁正是空白区铁律要防的事故。
+    readonly Panel _rowsHost = new();
+    readonly Panel _emptyStateHost = new() { Visible = false };
+    Control? _emptyStateControl;
     readonly List<TableRow> _tableRows = new();
     readonly Label _header = new();
     readonly Label _error = new() { TextColor = Colors.Firebrick, Wrap = WrapMode.Word };
     readonly List<PropertyRow> _rows = new();
 
     bool _building;
+    bool _refreshing;
+    bool _rebuildQueued;
     string _selectionKey = string.Empty;
+
+    /// <summary>
+    /// 无选中元素时空白区的附加内容构造器（页面级设置：水印等）。
+    /// 必须返回懒构建的持久实例，绝不能每次 Rebuild 新建控件树。
+    /// </summary>
+    public Func<Control>? EmptyStateContentBuilder { get; set; }
 
     public PropertyPanel(EditorKernel kernel)
     {
@@ -42,6 +55,15 @@ internal sealed class PropertyPanel : Panel
 
         _header.Text = Localizer.T("PropertyGrid.Section");
         _error.Visible = false;
+
+        // 滚动区内的两行：动态行宿主 + 持久空白区宿主；两行都在构造期一次性建好，
+        // 之后只换 _rowsHost.Content，不再整块替换 _scroll.Content。
+        _scroll.Content = new TableLayout(
+            new TableRow(new TableCell(_rowsHost) { ScaleWidth = true }),
+            new TableRow(new TableCell(_emptyStateHost) { ScaleWidth = true }))
+        {
+            Spacing = new Size(0, 4),
+        };
 
         var layout = new TableLayout { Spacing = new Size(0, 4) };
         layout.Rows.Add(new TableRow(new TableCell(_header) { ScaleWidth = true }));
@@ -72,7 +94,9 @@ internal sealed class PropertyPanel : Panel
         base.Dispose(disposing);
     }
 
-    string SelectionKey() => string.Join("|", _kernel.Selection.Ids);
+    // 结构签名含描述符 Key + Hidden：表格列切换渲染方式后条件属性即时出现；
+    // 不含坐标值，拖拽时不会逐帧重建面板。
+    string SelectionKey() => PropertyOptions.StructureSignature(_kernel);
 
     void OnViewChanged()
     {
@@ -85,11 +109,21 @@ internal sealed class PropertyPanel : Panel
         }
 
         // 同一选中：只回填值，不重建（否则正在输入的框会被拆掉）。
-        if (_building)
+        // 程序化回填会触发 SelectedIndexChanged / TextChanged，必须全程拉起 _refreshing，
+        // 否则一次回填就把旧值重新提交一遍，甚至形成事件回环。
+        if (_building || _refreshing)
             return;
 
-        foreach (var row in _rows)
-            row.Refresh();
+        _refreshing = true;
+        try
+        {
+            foreach (var row in _rows)
+                row.Refresh();
+        }
+        finally
+        {
+            _refreshing = false;
+        }
     }
 
     void Rebuild()
@@ -118,9 +152,11 @@ internal sealed class PropertyPanel : Panel
         {
             _header.Text = Localizer.T("PropertyGrid.Section");
             AddHint(Localizer.T("Property.Hint.Empty"));
+            ShowEmptyState();
             return;
         }
 
+        _emptyStateHost.Visible = false;
         var selected = _kernel.SelectedElements;
         if (selected.Count != 1)
         {
@@ -159,8 +195,8 @@ internal sealed class PropertyPanel : Panel
     /// </summary>
     void SwapTable()
     {
-        var previous = _scroll.Content as TableLayout;
-        _scroll.Content = new TableLayout(_tableRows.ToArray()) { Spacing = new Size(8, 6) };
+        var previous = _rowsHost.Content as TableLayout;
+        _rowsHost.Content = new TableLayout(_tableRows.ToArray()) { Spacing = new Size(8, 6) };
 
         if (previous is null)
             return;
@@ -173,6 +209,19 @@ internal sealed class PropertyPanel : Panel
 
         previous.Rows.Clear();
         previous.Dispose();
+    }
+
+    /// <summary>懒构建并持久复用空白区控件；只切 Visible，绝不摘树/重建/销毁。</summary>
+    void ShowEmptyState()
+    {
+        if (EmptyStateContentBuilder is not null)
+        {
+            _emptyStateControl ??= EmptyStateContentBuilder();
+            if (!ReferenceEquals(_emptyStateHost.Content, _emptyStateControl))
+                _emptyStateHost.Content = _emptyStateControl;
+        }
+
+        _emptyStateHost.Visible = true;
     }
 
     void AddGroupHeader(string text)
@@ -370,7 +419,8 @@ internal sealed class PropertyPanel : Panel
     void AddEnumRow(PaperElement element, PropertyDescriptor descriptor)
     {
         // 候选项由描述符给出（CLR 成员名原样），面板只负责按名选中。
-        var options = descriptor.Options ?? Array.Empty<string>();
+        // 候选项走统一口径：Flags 组合值也补成一项，避免下拉空白 / 误落第一项。
+        var options = PropertyOptions.Values(descriptor, element);
         var drop = new DropDown
         {
             Enabled = !descriptor.ReadOnly,
@@ -380,11 +430,11 @@ internal sealed class PropertyPanel : Panel
         foreach (var option in options)
             drop.Items.Add(option);
 
-        drop.SelectedIndex = IndexOf(options, descriptor.GetValue(element)?.ToString());
+        drop.SelectedIndex = PropertyOptions.IndexOf(options, PropertyOptions.Current(descriptor, element));
 
         drop.SelectedIndexChanged += (_, _) =>
         {
-            if (_building || descriptor.ReadOnly)
+            if (_building || _refreshing || descriptor.ReadOnly)
                 return;
 
             var index = drop.SelectedIndex;
@@ -399,7 +449,7 @@ internal sealed class PropertyPanel : Panel
             if (drop.HasFocus)
                 return;
 
-            var index = IndexOf(options, descriptor.GetValue(element)?.ToString());
+            var index = PropertyOptions.IndexOf(options, PropertyOptions.Current(descriptor, element));
             if (drop.SelectedIndex != index)
                 drop.SelectedIndex = index;
         }
@@ -428,17 +478,46 @@ internal sealed class PropertyPanel : Panel
 
     bool Apply(PropertyDescriptor descriptor, object? value)
     {
+        // 程序化回填（Refresh）触发的事件不能当成用户提交。
+        if (_building || _refreshing)
+            return false;
+
         try
         {
             _kernel.SetSelectedProperty(descriptor.Key, value);
             ClearError();
+            ScheduleRebuild();
             return true;
         }
         catch (Exception ex)
         {
             ShowError(Localizer.T("Property.Error.Apply", PropertyText.Label(descriptor.DisplayName), ex.Message));
+            ScheduleRebuild();
             return false;
         }
+    }
+
+    /// <summary>提交后延迟重建：下拉从活模型回读、条件属性（Hidden 变化）即时出现。</summary>
+    void ScheduleRebuild()
+    {
+        if (_rebuildQueued || _building)
+            return;
+
+        _rebuildQueued = true;
+        var app = Application.Instance;
+        if (app is null)
+        {
+            // headless / 无应用实例：没有 UI 队列可用，直接重建（无输入事件在派发）。
+            _rebuildQueued = false;
+            Rebuild();
+            return;
+        }
+
+        app.AsyncInvoke(() =>
+        {
+            _rebuildQueued = false;
+            Rebuild();
+        });
     }
 
     bool TryParse(PropertyDescriptor descriptor, string text, out object? value)

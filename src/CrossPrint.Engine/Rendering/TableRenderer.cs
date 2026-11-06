@@ -93,7 +93,10 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
         List<StyledLine> Lines,
         SKColor? Background,
         SKColor? TextColor = null,
-        int Column = -1);
+        int Column = -1,
+        // 非文本列的原始绑定值（base64 / data URI / 码内容）。不参与折行，绘制时原样还原，
+        // 避免大载荷被拆成上百行撑爆行高、也避免折行后 Concat 拼回破坏载荷。
+        string RawContent = "");
 
     /// <summary>表体整体布局：行高 + 占用网格（合并格共享引用）+ 去重的格子清单 + 每行条件底色。</summary>
     internal sealed record BodyLayout(
@@ -438,7 +441,22 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
             var height = 0d;
             for (var c = 0; c < colCount; c++)
             {
+                var col = o.Columns[c];
                 var text = c < rows[r].Count ? rows[r][c] : string.Empty;
+
+                // 非文本列（图片/一维码/二维码）的载荷是 data URI、裸 base64 或码内容，不是给人读的文本。
+                // 旧实现照样走 WrapStyled 折行：几十 KB 的 base64 被折成上百行 → 行高暴涨 →
+                // 连续纸 AutoGrow 把页高一起撑爆（定高纸则 TableOverflow / 多页）。
+                // 这里不折行、不贡献文本高度，只按声明的内容高度给一个受硬上限约束的行高下限。
+                if (col.CellRender != TableCellRender.Text)
+                {
+                    lineCache[r, c] = new List<StyledLine>();
+                    var declared = Math.Max(0, Math.Min(col.CellContentHeightMm, TableColumn.MaxCellContentHeightMm));
+                    if (declared > 0)
+                        height = Math.Max(height, declared + 2 * o.CellPaddingMm);
+                    continue;
+                }
+
                 var look = looks[r, c];
                 var spans = rulesByColumn[c] is { } rules ? FindSegments(text, rules) : null;
                 var lines = WrapStyled(text, spans, look, o, pool, elementId, Inner(widths[c], o));
@@ -491,9 +509,10 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
         {
             for (var c = 0; c < colCount; c++)
             {
+                var raw = c < rows[r].Count ? rows[r][c] : string.Empty;
                 var box = new BodyCellLayout(
                     lefts[c], rowTops[r], widths[c], rowHeights[r],
-                    cellAlign[r, c], lineCache[r, c]!, cellBg[r, c], cellFg[r, c], c);
+                    cellAlign[r, c], lineCache[r, c]!, cellBg[r, c], cellFg[r, c], c, raw);
                 boxes[r, c] = box;
                 grid[r, c] = box;
                 cells.Add(box);
@@ -524,10 +543,15 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
 
             // 以左上角格为源：文本、字体形态、关键词片段、底色（格底色优先，其次行底色）
             var text = column < rows[row].Count ? rows[row][column] : string.Empty;
+            var mergedCol = o.Columns[column];
+            var nonText = mergedCol.CellRender != TableCellRender.Text;
             var look = looks[row, column];
-            var spans = rulesByColumn[column] is { } rules ? FindSegments(text, rules) : null;
+            var spans = !nonText && rulesByColumn[column] is { } rules ? FindSegments(text, rules) : null;
             var width = widths.Skip(column).Take(colSpan).Sum();
-            var lines = WrapStyled(text, spans, look, o, pool, elementId, Math.Max(0, width - 2 * o.CellPaddingMm));
+            // 合并格同样不能对大载荷做折行测量（否则合并范围越大越慢，且行高被撑爆）。
+            var lines = nonText
+                ? new List<StyledLine>()
+                : WrapStyled(text, spans, look, o, pool, elementId, Math.Max(0, width - 2 * o.CellPaddingMm));
             var height = 0d;
             for (var rr = row; rr < row + rowSpan; rr++)
                 height += rowHeights[rr];
@@ -536,7 +560,7 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
                 lefts[column], rowTops[row], width, height,
                 cellAlign[row, column], lines,
                 cellBg[row, column] ?? rowFills[row],
-                cellFg[row, column], column);
+                cellFg[row, column], column, text);
 
             for (var rr = row; rr < row + rowSpan; rr++)
             {
@@ -1247,20 +1271,18 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
     }
 
     /// <summary>
-    /// 单元格条码/二维码：把本格绑定值编码成码绘入整格（短边缩放、居中、留静区），跳过文本混排。
-    /// 内容由所有分段文本拼接还原（码不应被换行拆断），空值则不画。
+    /// 单元格图片/一维码/二维码：把本格原始绑定值编码后绘入<b>内容框</b>，跳过文本混排。
+    /// 内容直接取 <see cref="BodyCellLayout.RawContent"/>（不再由折行片段拼回，载荷不会被拆坏），空值则不画。
     /// </summary>
     static void DrawCellCode(SKCanvas canvas, BodyCellLayout cell, double bodyTop, TableColumn col, RenderContext context)
     {
-        var content = string.Concat(cell.Lines.SelectMany(l => l.Segments).Select(s => s.Text)).Trim();
+        var content = (cell.RawContent ?? string.Empty).Trim();
         if (content.Length == 0)
             return;
 
-        var rect = new SKRect(
-            (float)cell.X,
-            (float)(bodyTop + cell.Top),
-            (float)(cell.X + cell.Width),
-            (float)(bodyTop + cell.Top + cell.Height));
+        var rect = CellContentRect(cell, bodyTop, col);
+        if (rect.Width <= 0 || rect.Height <= 0)
+            return;
 
         if (col.CellRender == TableCellRender.QrCode)
             CellCodePainter.PaintQr(canvas, rect, content, SKColors.Black, null, col.CellErrorCorrection);
@@ -1271,13 +1293,47 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
     }
 
     /// <summary>
-    /// 单元格图片：把本格绑定值当作图片源（data URI / 裸 base64 / http(s) 外链，或宿主 IImageResolver 资源键）
-    /// 解码后按等比适配（Contain）居中绘入整格。解码失败只记告警不抛——坏数据是模板问题，不是崩溃理由。
+    /// 非文本内容的绘制框：按列声明的宽/高居中，恒夹在单元格 rect 内；
+    /// 0 表示跟随单元格；JSON 直接灌入的超大值由 <see cref="TableColumn.MaxCellContentWidthMm"/> /
+    /// <see cref="TableColumn.MaxCellContentHeightMm"/> 夹住，绝不撑破版式或把打印单拉长。
+    /// </summary>
+    static SKRect CellContentRect(BodyCellLayout cell, double bodyTop, TableColumn col)
+    {
+        var cellWidth = Math.Max(0, cell.Width);
+        var cellHeight = Math.Max(0, cell.Height);
+        var w = col.CellContentWidthMm > 0
+            ? Math.Min(col.CellContentWidthMm, TableColumn.MaxCellContentWidthMm)
+            : cellWidth;
+        var h = col.CellContentHeightMm > 0
+            ? Math.Min(col.CellContentHeightMm, TableColumn.MaxCellContentHeightMm)
+            : cellHeight;
+        w = Math.Max(0, Math.Min(w, cellWidth));
+        h = Math.Max(0, Math.Min(h, cellHeight));
+
+        var left = cell.X + (cellWidth - w) / 2;
+        var top = bodyTop + cell.Top + (cellHeight - h) / 2;
+        return new SKRect((float)left, (float)top, (float)(left + w), (float)(top + h));
+    }
+
+    /// <summary>
+    /// 单元格图片：把本格绑定值当作图片源（data URI / 裸 base64 / http(s) 外链 / 裸 SVG 源码文本，
+    /// 或宿主 IImageResolver 资源键）解码后按等比适配（Contain）居中绘入整格。
+    /// 解码失败只记告警不抛——坏数据是模板问题，不是崩溃理由。
     /// </summary>
     static void DrawCellImage(SKCanvas canvas, SKRect rect, string content, TableColumn col, RenderContext context)
     {
-        // 与图片元素同源的两级取图：宿主解析器优先（资源键），失败或没配时引擎按定位符自取。
         var locator = content.Trim();
+        var mismatch = MismatchReason(locator, col.CellImageSource);
+        if (mismatch is not null)
+        {
+            // 用户显式指定了「链接图片」或「Base64 图片」：类型不符时只告警跳过，
+            // 绝不悄悄按自动识别去解析——否则"声明了类型却没生效"比空白更难查。
+            context.Report.Add(col.Field, RenderIssueKind.ImageSourceMismatch,
+                $"列 \"{col.Title}\" 的图片数据类型不匹配：{mismatch}");
+            return;
+        }
+
+        // 与图片元素同源的两级取图：宿主解析器优先（资源键），失败或没配时引擎按定位符自取。
         var lease = TryResolveCellImage(col, locator, context);
         if (lease is null)
         {
@@ -1301,6 +1357,32 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
         }
     }
 
+    /// <summary>
+    /// 显式指定 <see cref="TableCellImageSource"/> 时的形态校验。
+    /// Auto 保持自动识别（旧模板零迁移）；空值交给既有的 ImageMissing 告警，不重复报。
+    /// </summary>
+    static string? MismatchReason(string locator, TableCellImageSource mode)
+    {
+        if (mode == TableCellImageSource.Auto)
+            return null;
+
+        var kind = ImageAcquisition.Classify(locator);
+        if (kind == ImageLocatorKind.Empty)
+            return null;
+
+        if (mode == TableCellImageSource.Url
+            && kind != ImageLocatorKind.Remote
+            && kind != ImageLocatorKind.Other)
+            return $"已指定「链接图片」，实际值却是 {kind}（{ShortenLocator(locator)}）；期望 http/https 地址或宿主资源键。";
+
+        if (mode == TableCellImageSource.Base64
+            && kind != ImageLocatorKind.DataUri
+            && kind != ImageLocatorKind.Base64)
+            return $"已指定「Base64 图片」，实际值却是 {kind}（{ShortenLocator(locator)}）；期望 data URI 或裸 Base64。";
+
+        return null;
+    }
+
     static ImageCache.Lease? TryResolveCellImage(TableColumn col, string locator, RenderContext context)
     {
         var w = ImageAcquisition.TargetPixels(ColumnWidthMm(col), context.UnitsPerMm);
@@ -1318,7 +1400,8 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
                 return lease;
         }
 
-        // 引擎自取：data URI / 裸 base64 / 外链。缓存键带目标像素尺寸（SVG 按尺寸光栅化，同源不同格不糊）。
+        // 引擎自取：data URI / 裸 base64 / 外链 / 裸 SVG 源码文本。
+        // 缓存键带目标像素尺寸（SVG 按尺寸光栅化，同源不同格不糊）。
         if (ImageAcquisition.Classify(locator) is ImageLocatorKind.Empty)
             return null;
 
@@ -1330,18 +1413,37 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
                 locator,
                 context.Options.AllowRemoteImages,
                 context.Options.RemoteImageTimeoutMs,
-                out var error);
+                out var acquireError);
 
             if (bytes is null or { Length: 0 })
                 return null;
 
-            return ImageAcquisition.Decode(bytes, w, w, out _);
+            var image = ImageAcquisition.Decode(bytes, w, w, out var decodeError);
+            // 解码失败/尺寸超限的具体原因必须进报告，否则只剩笼统的"图片缺失"，
+            // 用户看不出是网络失败、坏格式还是超过固定像素上限。
+            if (image is null && !string.IsNullOrEmpty(decodeError))
+            {
+                context.Report.Add(col.Field, RenderIssueKind.ImageDecodeFailed,
+                    $"列 \"{col.Title}\" 的单元格图片：{decodeError}");
+            }
+            else if (image is null && !string.IsNullOrEmpty(acquireError))
+            {
+                context.Report.Add(col.Field, RenderIssueKind.ImageMissing,
+                    $"列 \"{col.Title}\" 的单元格图片获取失败：{acquireError}");
+            }
+
+            return image;
         });
     }
 
-    // 列宽没有直接的上下文参数，用列定义宽作 SVG 光栅化目标尺寸的代理：
-    // 单元格宽度 ≤ 列宽，按列宽出图只会偏大更清晰，Contain 适配负责落格。
-    static double ColumnWidthMm(TableColumn col) => col.WidthMm < 0 ? 30 : Math.Max(1, col.WidthMm);
+    // SVG 光栅化目标尺寸：显式声明内容宽时按内容宽出图（避免按更宽的列白白解出大图），
+    // 否则用列定义宽作代理；Contain 适配负责最终落格。
+    static double ColumnWidthMm(TableColumn col)
+    {
+        if (col.CellContentWidthMm > 0)
+            return Math.Max(1, Math.Min(col.CellContentWidthMm, TableColumn.MaxCellContentWidthMm));
+        return col.WidthMm < 0 ? 30 : Math.Max(1, col.WidthMm);
+    }
 
     static string CellImageCacheKey(string locator)
     {

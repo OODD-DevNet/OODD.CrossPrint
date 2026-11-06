@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using CrossPrint.Core;
 using SkiaSharp;
 
-namespace CrossPrint.Samples.Avalonia;
+namespace CrossPrint.Designer;
 
 /// <summary>
 /// 模板库第三批扩容（partial，对照参考市场截图挑选）：交通/医疗/校园/政务人事/财务票证。
@@ -10,7 +10,7 @@ namespace CrossPrint.Samples.Avalonia;
 /// 考勤统计表、请假申请单、采购申请单、费用报销单、员工入职登记表、离职证明、收入证明、
 /// 学生成绩单、二手车销售发票（票样）。全部程序化构造、自带演示数据。
 /// </summary>
-internal static partial class TemplateLibraryDialog
+public static partial class BuiltinTemplateCatalog
 {
     /// <summary>第三批：交通/医疗/校园/政务人事/财务票证。</summary>
     static IEnumerable<Entry> BuildThirdEntries()

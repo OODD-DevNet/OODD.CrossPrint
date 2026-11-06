@@ -226,6 +226,9 @@ public static class TemplateJson
             w.WriteString("preset", p.Preset);
         w.WriteNumber("widthMm", p.WidthMm);
         w.WriteNumber("heightMm", p.HeightMm);
+        // 仅在 true 时写出：既有模板（heightMm=0 的隐式连续纸）字节级往返不受影响
+        if (p.Continuous)
+            w.WriteBoolean("continuous", true);
         w.WriteString("orientation", p.Orientation.ToString());
         w.WriteEndObject();
     }
@@ -566,6 +569,9 @@ public static class TemplateJson
                     break;
                 case "heightMm":
                     paper.HeightMm = RequireDouble(prop, null);
+                    break;
+                case "continuous":
+                    paper.Continuous = prop.Value.ValueKind == JsonValueKind.True;
                     break;
                 case "orientation":
                     if (!Enum.TryParse<PaperOrientation>(RequireString(prop, null), ignoreCase: true, out var o))

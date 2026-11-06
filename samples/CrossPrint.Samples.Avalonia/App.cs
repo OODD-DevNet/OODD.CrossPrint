@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 #if !BROWSER
@@ -43,6 +44,18 @@ public sealed class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+#if !BROWSER
+        // 全局异常兜底：任何未处理异常（UI 线程最终冒泡到 AppDomain、后台线程、Task）先落盘再原样抛出，
+        // 把"应用直接消失"变成"留下现场"——日志在 %TEMP%\crossprint-crash.log，追加写。
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            WriteCrashLog(e.ExceptionObject as Exception ?? new Exception(e.ExceptionObject?.ToString()), "AppDomain.UnhandledException");
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            WriteCrashLog(e.Exception, "UnobservedTaskException");
+            e.SetObserved(); // 已记录即视为观察到，避免 GC 终结器再次引爆
+        };
+#endif
+
         try
         {
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
@@ -65,4 +78,22 @@ public sealed class App : Application
             throw;
         }
     }
+
+#if !BROWSER
+    /// <summary>崩溃现场落盘：时间 + 分发来源 + 完整异常（含堆栈）。追加写，失败静默（兜底不能再炸）。</summary>
+    static void WriteCrashLog(Exception ex, string source)
+    {
+        try
+        {
+            var path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "crossprint-crash.log");
+            System.IO.File.AppendAllText(path,
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{source}]\r\n{ex}\r\n\r\n");
+        }
+        catch
+        {
+            // 日志写不进去就不写：兜底路径绝不二次抛出。
+        }
+    }
+#endif
 }
