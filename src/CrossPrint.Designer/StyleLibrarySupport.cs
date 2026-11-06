@@ -9,7 +9,7 @@ namespace CrossPrint.Designer;
 
 /// <summary>
 /// 样式库对话框的框架无关数据层：集中描述样式字段、可空值读写与解析。
-/// 各宿主 UI 只负责按 <see cref="Fields"/> 把控件摆出来、把输入按 <see cref="StyleFieldKind"/> 解析后
+/// 各宿主 UI 只负责按 <see cref="StyleFieldDef"/> 把控件摆出来、把输入按 <see cref="StyleFieldKind"/> 解析后
 /// 交给 <see cref="EditorKernel.UpdateStyle"/>，可空值与字段映射全在这里一处维护，避免 5 个宿主各自
 /// 写一份易错的 bool?/double?/SKColor? 转换。
 /// </summary>

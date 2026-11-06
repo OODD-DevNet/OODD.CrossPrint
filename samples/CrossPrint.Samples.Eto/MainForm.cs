@@ -694,7 +694,7 @@ internal sealed class MainForm : Form
         // 阶段 E：Ctrl+S 立即保存。
         if (e.Control && !e.Alt && e.Key == Keys.S)
         {
-            SaveSolution(false);
+            _ = SaveSolution(false);
             e.Handled = true;
             return;
         }
@@ -1380,14 +1380,15 @@ internal sealed class MainForm : Form
             _recentItem.Items.Add(new ButtonMenuItem { Text = Localizer.T("Menu.File.NoRecent"), Enabled = false });
     }
 
-    async Task<bool> SaveSolution(bool saveAs, bool silent = false)
+    // 方法体全同步（Eto 的模态提示是同步 API），显式包装为 Task 消除 CS1998。
+    Task<bool> SaveSolution(bool saveAs, bool silent = false)
     {
         string? name = null;
         if (saveAs || (_session.CurrentId is null && !silent))
         {
             name = PromptName(_session.CurrentName ?? "未命名模板");
             if (name is null)
-                return false;
+                return Task.FromResult(false);
         }
 
         try
@@ -1399,12 +1400,12 @@ internal sealed class MainForm : Form
         catch (Exception ex)
         {
             SetStatus(Localizer.T("Error.SaveFailed", ex.Message), error: true);
-            return false;
+            return Task.FromResult(false);
         }
 
         UpdateTitle();
         RefreshRecentMenu();
-        return true;
+        return Task.FromResult(true);
     }
 
     string? PromptName(string defaultName)
