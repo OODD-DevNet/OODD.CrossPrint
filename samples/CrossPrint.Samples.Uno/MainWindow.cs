@@ -385,13 +385,14 @@ internal sealed class MainWindow : Window
 
     UIElement BuildBody()
     {
-        // 三列布局与 WPF 基准一致：左 200（纸张栏 + 工具箱）、中画布、右 310（属性面板）。
+        // 五列布局（对齐 WinUI 宿主）：左 200 / 4px 分隔条 / 中画布 / 4px 分隔条 / 右 310（属性面板）。
         // Uno 没有内置 GridSplitter，示例也未引用 CommunityToolkit.WinUI.Controls.Sizers
-        //（为示例单独引入工具包依赖不划算），所以两侧栏保持固定宽度并按统一方案收窄，
-        // 拖动调宽留待将来引入 Sizers 后再补。
+        //（为示例单独引入工具包依赖不划算），用与 WinUI 相同的零依赖轻量分隔条。
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(310) });
 
         var designerHost = new Border
@@ -435,12 +436,72 @@ internal sealed class MainWindow : Window
         };
 
         Grid.SetColumn(leftHost, 0);
-        Grid.SetColumn(designerHost, 1);
-        Grid.SetColumn(propertyHost, 2);
         grid.Children.Add(leftHost);
+
+        var leftSplitter = MakeColumnSplitter(grid, targetColumn: 0, sign: +1);
+        Grid.SetColumn(leftSplitter, 1);
+        grid.Children.Add(leftSplitter);
+
+        Grid.SetColumn(designerHost, 2);
         grid.Children.Add(designerHost);
+
+        var rightSplitter = MakeColumnSplitter(grid, targetColumn: 4, sign: -1);
+        Grid.SetColumn(rightSplitter, 3);
+        grid.Children.Add(rightSplitter);
+
+        Grid.SetColumn(propertyHost, 4);
         grid.Children.Add(propertyHost);
         return grid;
+
+        // 零依赖的轻量列分隔条（与 WinUI 宿主同款）：拖动改变 targetColumn 的固定像素宽
+        //（sign 决定方向），中间画布自适应。限幅 140–560。
+        // ⚠ Uno 5.6 Skia 桌面头的 CapturePointer 后续 PointerMoved 不路由（诊断实锤：
+        // press 到达、move/release 全丢），故 move/release 挂到 grid 上按 active 指针过滤，
+        // 不用 capture。WinUI 宿主 capture 正常，保持原实现。
+        Border MakeColumnSplitter(Grid grid, int targetColumn, double sign)
+        {
+            var splitter = new Border
+            {
+                Background = new SolidColorBrush(Colors.LightGray),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+            };
+            double startX = 0;
+            double startWidth = 0;
+            Microsoft.UI.Xaml.Input.Pointer? active = null;
+            splitter.PointerPressed += (_, e) =>
+            {
+                active = e.Pointer;
+                startX = e.GetCurrentPoint(grid).Position.X;
+                startWidth = grid.ColumnDefinitions[targetColumn].Width.Value;
+                splitter.Background = new SolidColorBrush(Colors.SteelBlue);
+                e.Handled = true;
+            };
+            grid.PointerMoved += (_, e) =>
+            {
+                if (active is null)
+                    return;
+                var x = e.GetCurrentPoint(grid).Position.X;
+                var w = startWidth + (x - startX) * sign;
+                w = Math.Max(140, Math.Min(560, w));
+                grid.ColumnDefinitions[targetColumn].Width = new GridLength(w);
+                e.Handled = true;
+            };
+            grid.PointerReleased += (_, e) =>
+            {
+                if (active is null)
+                    return;
+                active = null;
+                splitter.Background = new SolidColorBrush(Colors.LightGray);
+                e.Handled = true;
+            };
+            return splitter;
+        }
+    }
+
+    static void Diag(string msg)
+    {
+        try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "uno-split-diag.log"), DateTime.Now.ToString("HH:mm:ss.fff") + " " + msg + Environment.NewLine); } catch { }
     }
 
     UIElement BuildToolbox()

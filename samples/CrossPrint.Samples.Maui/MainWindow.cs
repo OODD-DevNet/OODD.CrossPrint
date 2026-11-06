@@ -464,18 +464,62 @@ internal sealed class MainWindow : Window
             Content = _properties,
         };
 
+        // 五列布局（对齐 WinUI 宿主）：左 200 / 4px 分隔条 / 中画布 / 4px 分隔条 / 右 300（属性面板）。
+        // MAUI 没有内置 GridSplitter，用 PanGestureRecognizer 的零依赖轻量分隔条（Windows 头鼠标拖拽可用）。
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
 
         Grid.SetColumn(leftHost, 0);
-        Grid.SetColumn(designerHost, 1);
-        Grid.SetColumn(propertyHost, 2);
         grid.Add(leftHost);
+
+        var leftSplitter = MakeColumnSplitter(grid, targetColumn: 0, sign: +1);
+        Grid.SetColumn(leftSplitter, 1);
+        grid.Add(leftSplitter);
+
+        Grid.SetColumn(designerHost, 2);
         grid.Add(designerHost);
+
+        var rightSplitter = MakeColumnSplitter(grid, targetColumn: 4, sign: -1);
+        Grid.SetColumn(rightSplitter, 3);
+        grid.Add(rightSplitter);
+
+        Grid.SetColumn(propertyHost, 4);
         grid.Add(propertyHost);
         return grid;
+    }
+
+    /// <summary>零依赖的轻量列分隔条（与 WinUI/Uno 宿主同款语义）：PanGestureRecognizer 拖动改变
+    /// targetColumn 的固定像素宽（sign 决定方向），中间画布自适应。限幅 140–560。</summary>
+    static BoxView MakeColumnSplitter(Grid grid, int targetColumn, double sign)
+    {
+        var splitter = new BoxView
+        {
+            Color = Colors.LightGray,
+            WidthRequest = 4,
+            HorizontalOptions = LayoutOptions.Fill,
+            VerticalOptions = LayoutOptions.Fill,
+        };
+        double startWidth = 0;
+        var pan = new PanGestureRecognizer();
+        pan.PanUpdated += (_, e) =>
+        {
+            if (e.StatusType == GestureStatus.Started)
+            {
+                startWidth = grid.ColumnDefinitions[targetColumn].Width.Value;
+            }
+            else if (e.StatusType == GestureStatus.Running)
+            {
+                var w = startWidth + e.TotalX * sign;
+                w = Math.Max(140, Math.Min(560, w));
+                grid.ColumnDefinitions[targetColumn].Width = new GridLength(w);
+            }
+        };
+        splitter.GestureRecognizers.Add(pan);
+        return splitter;
     }
 
     /// <summary>工具箱：元素类型列表，点选后按「添加到画布」添加到画布中心（CollectionView 没有双击语义）。</summary>
