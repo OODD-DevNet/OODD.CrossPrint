@@ -34,7 +34,7 @@
     <Product>CrossPrint</Product>
     <Copyright>Copyright (c) 2026 OODD</Copyright>
     <RepositoryType>git</RepositoryType>
-    <VersionPrefix>1.0.0</VersionPrefix>
+    <VersionPrefix>1.1.0</VersionPrefix>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

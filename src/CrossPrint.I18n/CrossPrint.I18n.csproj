@@ -15,7 +15,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <VersionPrefix>0.1.0</VersionPrefix>
+    <!-- 版本号统一继承根 Directory.Build.props 的 VersionPrefix（曾硬编码 0.1.0 与产品版本不一致）。 -->
   </PropertyGroup>
 
   <!-- netstandard2.0 / net461 不支持 PublishTrimmed，显式禁用。

@@ -723,7 +723,8 @@ public class TableRendererTests
         var data = new { items = new[] { new { name = "A", pic = "not-a-locator" } } };
 
         var report = new RenderReport();
-        var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 130, pageHeightMm: 60, report: report, data: data);
+        // 表格高 60mm 且起点 (5,5)，页高必须留出余量，否则元素越界被跳过、单元格告警根本不会发生。
+        var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 130, pageHeightMm: 90, report: report, data: data);
         using (bitmap)
         {
             report.Issues.Should().ContainSingle(i => i.Kind == RenderIssueKind.ImageMissing)

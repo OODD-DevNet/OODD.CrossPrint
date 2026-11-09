@@ -452,8 +452,13 @@ public sealed class TableRenderer : ElementRenderer<TableElement>
                 {
                     lineCache[r, c] = new List<StyledLine>();
                     var declared = Math.Max(0, Math.Min(col.CellContentHeightMm, TableColumn.MaxCellContentHeightMm));
-                    if (declared > 0)
-                        height = Math.Max(height, declared + 2 * o.CellPaddingMm);
+                    // 未声明内容高度时给一个与文本列同口径的字体行高下限：整表都是图片/码列时
+                    // 没有任何文本列撑行高，旧逻辑会把行高算成 0 → 内容框高 0 → 单元格不绘制、
+                    // 连"解析不到图片"的告警都不会发生（TableRendererTests 单列图片用例抓出）。
+                    var lower = declared > 0
+                        ? declared + 2 * o.CellPaddingMm
+                        : (o.RowHeightMm > 0 ? o.RowHeightMm : MinRowHeight(o, looks[r, c].Pt));
+                    height = Math.Max(height, lower);
                     continue;
                 }
 
