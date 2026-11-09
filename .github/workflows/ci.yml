@@ -61,7 +61,8 @@ jobs:
             done || true
           done
           echo "=== native assets ==="
-          find . \( -name 'libSkiaSharp*' -o -name 'libHarfBuzzSharp*' \) | head -20
+          # head 提前关闭管道会让 find 收到 SIGPIPE，末尾吞掉退出码避免把诊断步骤自己标红。
+          find . \( -name 'libSkiaSharp*' -o -name 'libHarfBuzzSharp*' \) | head -20 || true
 
   # 宿主适配与样例只在 Windows 上构建（WinForms/WPF 目标不可移植）。
   windows-hosts:

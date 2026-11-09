@@ -705,7 +705,12 @@ public class TableRendererTests
         var bitmap = Fixture.RenderElement(element, Dpi, pageWidthMm: 130, pageHeightMm: 90, report: report, data: data);
         using (bitmap)
         {
-            report.Issues.Should().BeEmpty("data URI 形态的单元格图片应该直接出图");
+            // 环境差异容忍：CI 的 Linux runner 没有微软雅黑，表内文本会记 FontFallback；
+            // 本用例只关心「单元格图片直接出图、无图片类告警」，与字体回退无关。
+            // 与同文件其它用例（条码/二维码）保持同款门控口径。
+            var yaHeiExists = DefaultFontResolver.Shared.FamilyExists("Microsoft YaHei");
+            report.Issues.Where(i => i.Kind != RenderIssueKind.FontFallback || yaHeiExists)
+                .Should().BeEmpty("data URI 形态的单元格图片应该直接出图");
             // 第二列窗口（35..125mm × 表头下方区带）内必须有红色墨迹。
             Ink.ColorCountInMm(bitmap, Dpi, new SKRect(35.5f, 6f, 124.5f, 40f), SKColors.Red, tolerance: 40)
                 .Should().BeGreaterThan(0, "单元格图片列必须真的把字段值绘成图");
