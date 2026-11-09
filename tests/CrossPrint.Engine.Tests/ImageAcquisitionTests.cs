@@ -178,14 +178,16 @@ public class ImageAcquisitionTests
 
         try
         {
-            var first = ImageAcquisition.FetchRemote(url, 5000, out var error);
+            // CI runner 上本地 TCP 服务的首次接受偶发要排队数秒（ci#45 实测 5 秒超时），
+            // 放宽到 15 秒；缓存命中的第二次调用不会真的连服务，不受影响。
+            var first = ImageAcquisition.FetchRemote(url, 15000, out var error);
             error.Should().BeNull();
             first.Should().Equal(png);
 
             // 服务已经停了：第二次还能拿到数据就说明走的是字节缓存而不是重新下载
             stop();
 
-            var second = ImageAcquisition.FetchRemote(url, 5000, out var cachedError);
+            var second = ImageAcquisition.FetchRemote(url, 15000, out var cachedError);
             cachedError.Should().BeNull();
             second.Should().Equal(png);
         }
@@ -205,62 +207,53 @@ public class ImageAcquisitionTests
         tcp.Start();
         var port = ((IPEndPoint)tcp.LocalEndpoint).Port;
 
-        var accepting = true;
+        var accepting = 1;
         _ = Task.Run(() =>
         {
-            try
-            {
-                using var client = tcp.AcceptTcpClient();
-                using var stream = client.GetStream();
-                stream.ReadTimeout = 5000;
-
-                // 读到请求头结束（不关心内容，只要让客户端把请求发完）
-                var buffer = new byte[4096];
-                var seen = new StringBuilder();
-                while (seen.ToString().IndexOf("\r\n\r\n", StringComparison.Ordinal) < 0)
-                {
-                    var read = stream.Read(buffer, 0, buffer.Length);
-                    if (read <= 0)
-                        break;
-                    seen.Append(Encoding.ASCII.GetString(buffer, 0, read));
-                }
-
-                var header = $"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {payload.Length}\r\nConnection: close\r\n\r\n";
-                var headBytes = Encoding.ASCII.GetBytes(header);
-                stream.Write(headBytes, 0, headBytes.Length);
-                stream.Write(payload, 0, payload.Length);
-                stream.Flush();
-            }
-            catch (Exception)
-            {
-                // 客户端提前断开属正常（缓存命中时不会再连）
-            }
-            finally
+            // 循环接受连接：CI runner 上代理探测/预检可能先消耗一次连接，
+            // 只 Accept 一次会让真正的下载连不上并等满 HttpClient 超时。
+            while (Volatile.Read(ref accepting) == 1)
             {
                 try
                 {
-                    tcp.Stop();
+                    using var client = tcp.AcceptTcpClient();
+                    using var stream = client.GetStream();
+                    stream.ReadTimeout = 5000;
+
+                    // 读到请求头结束（不关心内容，只要让客户端把请求发完）
+                    var buffer = new byte[4096];
+                    var seen = new StringBuilder();
+                    while (seen.ToString().IndexOf("\r\n\r\n", StringComparison.Ordinal) < 0)
+                    {
+                        var read = stream.Read(buffer, 0, buffer.Length);
+                        if (read <= 0)
+                            break;
+                        seen.Append(Encoding.ASCII.GetString(buffer, 0, read));
+                    }
+
+                    var header = $"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {payload.Length}\r\nConnection: close\r\n\r\n";
+                    var headBytes = Encoding.ASCII.GetBytes(header);
+                    stream.Write(headBytes, 0, headBytes.Length);
+                    stream.Write(payload, 0, payload.Length);
+                    stream.Flush();
                 }
                 catch (Exception)
                 {
-                    // 幂等停服
+                    // stop() 后 Accept 抛 SocketException 属正常退出；客户端提前断开同理。
+                    break;
                 }
             }
+
+            try { tcp.Stop(); }
+            catch (Exception) { /* 幂等停服 */ }
         });
 
         void StopOnce()
         {
-            if (!accepting)
+            if (Interlocked.Exchange(ref accepting, 0) == 0)
                 return;
-            accepting = false;
-            try
-            {
-                tcp.Stop();
-            }
-            catch (Exception)
-            {
-                // 幂等停服
-            }
+            try { tcp.Stop(); }
+            catch (Exception) { /* 幂等停服 */ }
         }
 
         return ($"http://127.0.0.1:{port}/logo.png", StopOnce);

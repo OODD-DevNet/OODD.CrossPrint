@@ -37,32 +37,38 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1 fonts-noto-cjk
       - name: Build (portable slice)
         run: dotnet build OODD.CrossPrint.Portable.slnf -c Release
+      # 两平台都用 pwsh（runner 预装、也是 Actions 在 Windows 的默认 shell）。
+      # 别改 bash：Git Bash 会改写进程环境变量，实测让 Windows job 的字体枚举与
+      # loopback HTTP 用例轮流假红（ci#44 FontFamilyExistsTests / ci#45 ImageAcquisitionTests）。
       - name: Test
-        shell: bash
+        shell: pwsh
         run: |
-          set +e
-          rc=0
-          dotnet test tests/CrossPrint.Core.Tests -c Release --no-build --logger "console;verbosity=detailed" > test-core.log 2>&1 || rc=1
-          dotnet test tests/CrossPrint.Engine.Tests -c Release --no-build --logger "console;verbosity=detailed" > test-engine.log 2>&1 || rc=1
-          dotnet test tests/CrossPrint.Designer.Tests -c Release --no-build --logger "console;verbosity=detailed" > test-designer.log 2>&1 || rc=1
-          dotnet test tests/CrossPrint.Printing.Tests -c Release --no-build --logger "console;verbosity=detailed" --filter "Category!=Stress" > test-printing.log 2>&1 || rc=1
+          $rc = 0
+          dotnet test tests/CrossPrint.Core.Tests -c Release --no-build --logger "console;verbosity=detailed" *> test-core.log
+          if ($LASTEXITCODE -ne 0) { $rc = 1 }
+          dotnet test tests/CrossPrint.Engine.Tests -c Release --no-build --logger "console;verbosity=detailed" *> test-engine.log
+          if ($LASTEXITCODE -ne 0) { $rc = 1 }
+          dotnet test tests/CrossPrint.Designer.Tests -c Release --no-build --logger "console;verbosity=detailed" *> test-designer.log
+          if ($LASTEXITCODE -ne 0) { $rc = 1 }
+          dotnet test tests/CrossPrint.Printing.Tests -c Release --no-build --logger "console;verbosity=detailed" --filter "Category!=Stress" *> test-printing.log
+          if ($LASTEXITCODE -ne 0) { $rc = 1 }
           exit $rc
       - if: failure()
         name: Dump test failure
-        shell: bash
+        shell: pwsh
         run: |
-          for f in test-core.log test-engine.log test-designer.log test-printing.log; do
-            [ -f "$f" ] || continue
-            echo "=== $f (tail) ==="
-            tail -40 "$f"
+          foreach ($f in @('test-core.log','test-engine.log','test-designer.log','test-printing.log')) {
+            if (-not (Test-Path $f)) { continue }
+            Write-Output "=== $f (tail) ==="
+            Get-Content $f -Tail 40
             # 失败用例名与断言写成 annotations：匿名 API 可读，无需 gh 登录即可拿到真因。
-            grep -E "\[FAIL\]|Failed!|失败!|Expected |Exception" "$f" | head -20 | while IFS= read -r line; do
-              echo "::error::$f: $line"
-            done || true
-          done
-          echo "=== native assets ==="
-          # head 提前关闭管道会让 find 收到 SIGPIPE，末尾吞掉退出码避免把诊断步骤自己标红。
-          find . \( -name 'libSkiaSharp*' -o -name 'libHarfBuzzSharp*' \) | head -20 || true
+            Select-String -Path $f -Pattern '\[FAIL\]','Failed!','失败!','Expected ','Exception' |
+              Select-Object -First 20 |
+              ForEach-Object { Write-Output "::error::$f`: $($_.Line)" }
+          }
+          Write-Output "=== native assets ==="
+          Get-ChildItem -Recurse -Include 'libSkiaSharp*','libHarfBuzzSharp*' |
+            Select-Object -First 20 -ExpandProperty FullName
 
   # 宿主适配与样例只在 Windows 上构建（WinForms/WPF 目标不可移植）。
   windows-hosts:
