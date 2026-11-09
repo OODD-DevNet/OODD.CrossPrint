@@ -19,7 +19,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # 固定 24.04：ubuntu-latest 自 2026-10-19 起滚动迁移到 Ubuntu 26，
+        # SkiaSharp/HarfBuzzSharp 原生库的系统依赖与 ABI 会随大版本漂移。
+        os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -28,26 +30,38 @@ jobs:
           dotnet-version: "8.0.x"
       # Ubuntu runner 只有 DejaVu（无 CJK 字形）；FontResolverTests.Cjk_probe 要求回退字体真能画出汉字。
       # 装 fonts-noto-cjk（Noto Sans CJK SC，OFL 许可）让回退链路在 CI 上有可用字体。
+      # libfontconfig1 必须显式装：SkiaSharp 的 Linux 原生库动态链接它，旧 runner 镜像自带但新镜像不保证；
+      # 缺它时 build 能过、测试进程一加载原生库就退出（表现为 Test 步骤秒失败）。
       - if: runner.os == 'Linux'
-        name: Install CJK fonts (CJK fallback tests need a font that can draw CJK glyphs)
-        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+        name: Install Linux font deps (libfontconfig1 + CJK fallback fonts)
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1 fonts-noto-cjk
       - name: Build (portable slice)
         run: dotnet build OODD.CrossPrint.Portable.slnf -c Release
       - name: Test
+        shell: bash
         run: |
-          dotnet test tests/CrossPrint.Core.Tests -c Release --no-build --logger "console;verbosity=detailed"
-          dotnet test tests/CrossPrint.Engine.Tests -c Release --no-build --logger "console;verbosity=detailed"
-          dotnet test tests/CrossPrint.Designer.Tests -c Release --no-build --logger "console;verbosity=detailed"
-          dotnet test tests/CrossPrint.Printing.Tests -c Release --no-build --logger "console;verbosity=detailed" --filter "Category!=Stress"
+          set +e
+          rc=0
+          dotnet test tests/CrossPrint.Core.Tests -c Release --no-build --logger "console;verbosity=detailed" > test-core.log 2>&1 || rc=1
+          dotnet test tests/CrossPrint.Engine.Tests -c Release --no-build --logger "console;verbosity=detailed" > test-engine.log 2>&1 || rc=1
+          dotnet test tests/CrossPrint.Designer.Tests -c Release --no-build --logger "console;verbosity=detailed" > test-designer.log 2>&1 || rc=1
+          dotnet test tests/CrossPrint.Printing.Tests -c Release --no-build --logger "console;verbosity=detailed" --filter "Category!=Stress" > test-printing.log 2>&1 || rc=1
+          exit $rc
       - if: failure()
         name: Dump test failure
-        shell: pwsh
+        shell: bash
         run: |
-          echo "=== Test binaries present ==="
-          Get-ChildItem tests/*/bin/Release/net8.0/*.Tests.dll | Select-Object Name, Length
-          echo "=== SkiaSharp + HarfBuzz native assets ==="
-          Get-ChildItem -Recurse -Filter "libSkiaSharp*" | Select-Object FullName
-          Get-ChildItem -Recurse -Filter "libHarfBuzzSharp*" | Select-Object FullName
+          for f in test-core.log test-engine.log test-designer.log test-printing.log; do
+            [ -f "$f" ] || continue
+            echo "=== $f (tail) ==="
+            tail -40 "$f"
+            # 失败用例名与断言写成 annotations：匿名 API 可读，无需 gh 登录即可拿到真因。
+            grep -E "\[FAIL\]|Failed!|失败!|Expected |Exception" "$f" | head -20 | while IFS= read -r line; do
+              echo "::error::$f: $line"
+            done || true
+          done
+          echo "=== native assets ==="
+          find . \( -name 'libSkiaSharp*' -o -name 'libHarfBuzzSharp*' \) | head -20
 
   # 宿主适配与样例只在 Windows 上构建（WinForms/WPF 目标不可移植）。
   windows-hosts:

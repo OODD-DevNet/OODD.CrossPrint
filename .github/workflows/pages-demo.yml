@@ -28,7 +28,10 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # 与 ci.yml 同步固定 24.04（ubuntu-latest 自 2026-10-19 起滚动迁移 Ubuntu 26）。
+    runs-on: ubuntu-24.04
+    # deploy-pages 默认 10 分钟会超时；github-pages 环境若需人工批准，给足等待窗口。
+    timeout-minutes: 30
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -50,3 +53,6 @@ jobs:
           path: samples/CrossPrint.Samples.Avalonia.Browser/bin/Release/net8.0-browser/publish/wwwroot
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          # 默认 600000ms 在排队/等待环境批准时会 "Timeout reached, aborting!"，放宽到 30 分钟。
+          timeout: 1800000
