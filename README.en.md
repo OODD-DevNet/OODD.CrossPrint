@@ -12,6 +12,29 @@ Already using hiprint (vue-plugin-hiprint / Vue-Print-Designer)? Perfect — **i
 
 [中文](README.md) | **English** · [Live WebAssembly demo.To be honest, the WebAssembly web version is basically unusable. We recommend downloading the desktop version from the Releases page](https://oodd-devnet.github.io/OODD.CrossPrint/)
 
+> **Current version 1.1.0** (2026-11-09) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/OODD-DevNet/OODD.CrossPrint/releases)
+
+---
+
+## What's new in 1.1.0
+
+- **Seven hosts aligned**: built-in template library (categories + real engine-rendered thumbnails),
+  style library, toast notifications, toolbox search and drag-to-canvas, undo/redo, status-bar zoom,
+  watermark editor, and draggable column splitters — the six other hosts now match the Avalonia baseline
+  item by item. Uno / MAUI use click-to-place as the drag-and-drop fallback.
+- **Continuous-paper tables auto-grow**: receipt tables grow with their data rows, elements below shift
+  down, and page height adapts. PDF, batch export, and GDI direct print all measure the page *after*
+  growing the table, so detail rows are no longer clipped to the design height.
+- **GDI direct print, table-cell images, per-element-type property trimming**; receipt
+  `{{subtotal}}` / `{{total}}` / `{{points}}` now sum line items live.
+- **Fixed guardrails**: long text 200,000 chars / 20,000 lines / 8,000 chars per line; images 32 MB /
+  16 million pixels / 8,192 px per side. Overflow is truncated or rejected with an explicit warning
+  (see "Known limitations").
+- **Multi-host real-machine fixes**: theme locking for Uno / MAUI / WinUI, Uno Chinese culture fallback
+  and template thumbnail decoding, missing localization keys.
+- Full details in [CHANGELOG.md](CHANGELOG.md). When upgrading, move every `OODD.CrossPrint.*`
+  and host package to `1.1.0` together.
+
 ---
 
 ## First — what the designer and print preview look like
